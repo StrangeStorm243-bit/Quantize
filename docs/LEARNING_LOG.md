@@ -51,6 +51,34 @@ node implementation you will extend by hand).
 
 ---
 
+## Course — Module 1: Repository & Git foundations (2026-06-25) — DEMONSTRATED
+
+Founder demonstrated (graded correct in lesson + module assessment):
+
+- **The three trees** — working tree → staging area → commit history — and that "working tree clean"
+  means all three agree.
+- **Purpose of the staging area** — a curation/review checkpoint before the more-permanent commit;
+  lets you confirm exactly what is recorded (catch stray files, avoid omissions) and compose a commit
+  from a chosen subset of edits.
+- **commit / branch / tag / remote / HEAD** — a commit is an immutable snapshot (hash); a branch is a
+  movable label that advances with each commit; a tag is a fixed label; `origin` is the remote
+  (GitHub); HEAD is the currently checked-out branch.
+- **Branch vs tag behavioral difference** — branch moves on commit, tag stays pinned; correctly
+  mapped `main` (branch) and `m0-foundation` (tag). *(Corrected during lesson: `main` is the local
+  branch; `origin/main` is the remote-tracking ref; `origin` = GitHub, not the local machine.)*
+- **Why isolate M1 on `feat/m1-ir-schema`** — in pointer terms: the first M1 commit moves the
+  `feat/m1-ir-schema` label to the new commit while `main` stays pinned at `dc2366d`, protecting the
+  approved M0 baseline.
+- **Reading a diff** — `-`/`+`/context/`@@` hunk headers; a `-foo`/`+bar` pair is a changed line;
+  `git diff` shows unstaged (working vs staging), `git diff --cached`/`--staged` shows what will be
+  recorded (staging vs last commit) — the pre-commit review used to reject unrelated/scope-creep
+  changes.
+
+**Files studied:** the live repository, `CLAUDE.md` (Working process), `AGENTS.md` (Review criteria).
+**Status:** Module 1 complete and demonstrated. Ready for Module 2 (Product Architecture).
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
