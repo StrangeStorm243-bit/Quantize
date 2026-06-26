@@ -180,6 +180,46 @@ the weighting node (`fw`/`ew`); a type-correct-but-financially-wrong edge has **
 
 ---
 
+## Course — Module 7: Validation & Schemas (2026-06-26) — DEMONSTRATED
+
+Taken out of order (before Modules 5–6) to prepare directly for M1. Founder demonstrated:
+
+- **The M1/M2 sorting test** — *does the rule need the node-type registry?* Yes → **M2 semantic**;
+  checkable from the document's shape alone → **M1 structural**. The registry is specifically the
+  catalog of node types (their ports, params, port-types).
+- **M1 structural checklist** (no registry): `schema_version` supported; field shapes; **plain-field
+  enums** (e.g. `schedule.kind ∈ daily/weekly/monthly`); unique ids; edge endpoints reference
+  existing node ids (dangling); no self-edges; acyclic; `component_refs` shape (pinned versions, no
+  duplicate ref-ids, no missing refs, no direct/transitive recursion); JSON round-trip; `ui`
+  preserved; semantic equality excludes `ui`.
+- **M2 semantic checklist** (registry): node `type` exists; input/output **port names exist**;
+  required ports connected; **port-type compatibility** (`is_compatible`); parameter schemas valid;
+  node-specific invariants.
+- **The "exists" split** — "does node id `px` exist?" is M1 (scan the document); "does port `series`
+  exist on `data.price`?" is M2 (needs the type). Same word, opposite layers.
+- **Codegen pipeline** — `Pydantic (authored) → JSON Schema (contract) → TypeScript (generated)`;
+  the IR's shape is changed in exactly one place (Pydantic); TS is generated **from the schema**, not
+  directly from Pydantic.
+- **Stale-types gate** — CI regenerates and compares to committed files; mismatch → fail (enforces
+  invariant 4); hand-edits to generated files are always caught. Codegen must be **deterministic**,
+  else regeneration differs every run and the gate fires false failures and becomes useless.
+- **Test families** — *contract* (reference strategies validate across Pydantic + schema), *round-
+  trip* (parse → re-serialize, preserving `ui`), *`ui`/semantic-equality* (`ui`-only change →
+  semantic-equal True while byte-equal False), *negative/structural* (invalid fixtures rejected with
+  clear errors). The two reference strategies are the **must-work core** payloads, not edge cases.
+- **Negative testing** — proving the validator correctly says "no" is half the job; "valid passes"
+  alone is insufficient.
+
+**Files studied:** `STRATEGY_LANGUAGE.md` (Failing loud, §4, §7); `MVP_PLAN.md` M1 + M2; `ADR-0001`;
+`CLAUDE.md` invariant 4 + test requirements; `ARCHITECTURE.md` §6.
+**Corrections made during learning (recurring):** a plain-field **enum** is M1 structural (not M2);
+type-compatibility and param-validity are M2; "exists" splits node-id (M1) vs port (M2); TS is
+generated from the JSON Schema, not directly from Pydantic.
+**Status:** Module 7 complete and demonstrated. Modules 5 (time/execution) & 6 (engine ownership)
+deferred until before the engine milestones (M3–M4). Founder positioned to scope/supervise M1.
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
