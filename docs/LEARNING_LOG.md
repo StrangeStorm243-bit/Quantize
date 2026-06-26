@@ -108,6 +108,43 @@ engine outputs (`OrderList`); `origin` = remote, not local machine (carried from
 
 ---
 
+## Course — Module 3: The Strategy IR (2026-06-26) — DEMONSTRATED
+
+Founder demonstrated (graded across lessons + assessment):
+
+- **IR as source of truth** — a strategy *is* a versioned JSON document (intermediate representation
+  living between editor and runtime, owned by neither); the canvas/editor is a disposable view that
+  serializes to and renders from the IR. The JSON is the truth; the picture is a rendering of it.
+- **`ui.*` semantics** — `ui.*` (e.g. node x/y) is preserved through save/round-trip but **excluded
+  from semantic equality**; two documents differing only in `ui.*` are the same strategy. A complete
+  runnable strategy can be written with no `ui` fields at all — proof it is non-semantic.
+- **Serialization / deserialization / round-trip** — in-memory object ↔ JSON text; a correct
+  round-trip preserves content including `ui.*`.
+- **Two version axes** — `schema_version` is bound to the IR *format* (evolved by the Quantize team,
+  independent of users); `strategy.version` counts a *user's* saved revisions. Orthogonal.
+- **Fail loud** — an unsupported `schema_version` must raise a clear error, never best-effort-parse,
+  because silently dropping/misreading a field could produce wrong-but-plausible financial results.
+  Migrations are explicit, named, tested.
+- **Five-level source-of-truth hierarchy** — (1) JSON document, (2) published JSON Schema, (3)
+  Pydantic (v0 implementation, *not* authoritative), (4) registry + runtime invariants, (5) generated
+  TS (derived consumer, *not* authoritative). Pydantic could be rewritten in another language without
+  changing the truth.
+- **Generation pipeline vs. authority** — generation is the 3-link chain `Pydantic → JSON Schema →
+  TypeScript types`, with the **JSON Schema** as the language-neutral contract; this is distinct from
+  the 5-level authority ranking.
+- **Structural vs. semantic validation** — JSON Schema enforces *structural* rules (shape: "`n` is an
+  integer", "`nodes` is a list"); the registry/runtime enforces *semantic* rules (meaning: "node type
+  `transform.rank` exists", "these ports are compatible"). Node-type existence is semantic and only
+  the registry can answer it — the M1/M2 boundary.
+
+**Files studied:** `STRATEGY_LANGUAGE.md` (Source-of-truth hierarchy, §1, §8, §9); `ADR-0001`;
+`ADR-0002`; `CLAUDE.md` invariants 1, 4, 9; `ARCHITECTURE.md` §1.
+**Corrections made during learning:** structural vs. semantic labels (initially inverted); node-type
+existence is semantic (not structural); generation pipeline is 3 artifacts, not the full hierarchy.
+**Status:** Module 3 complete and demonstrated. Ready for Module 4 (Graphs & port types).
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
