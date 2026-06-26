@@ -145,6 +145,41 @@ existence is semantic (not structural); generation pipeline is 3 artifacts, not 
 
 ---
 
+## Course — Module 4: Graphs & Port Types (2026-06-26) — DEMONSTRATED
+
+Founder demonstrated (graded across lessons + assessment):
+
+- **Graph vocabulary** — node (computational box: id/type/params), port (named, typed in/out
+  connection point), edge (directed connection from an output port to an input port). Directed graph;
+  a strategy must be a **DAG** (Directed Acyclic Graph); a self-edge or cycle is un-evaluable (no
+  valid start) and is rejected by M1 structural validation.
+- **Valid evaluation order** — produced a topological order for Strategy A (`u, px, ret, rk, sel, ew,
+  cap, tp`); identified that adding `rk → ret` forms the cycle `ret → rk → ret`.
+- **The v0 type lattice** — `Scalar[Number/Integer/Boolean]`, `AssetSet`, `CrossSection[Number/
+  Boolean]`, `TimeSeries[Number]`, `PortfolioTargets`, `OrderList` (engine-only). Dimensional
+  intuition: Scalar 0-D, CrossSection 1-D (per asset, one instant), TimeSeries 2-D (per asset × time;
+  the "tell" vs. CrossSection is the timestamp/time axis).
+- **Port name vs. port type** — a port has a *name* (`values`, `assets`, `series`, `targets`) and a
+  *type* (`CrossSection[Number]`, `AssetSet`, …); the dtype bracket holds only Number/Integer/Boolean
+  (a mask is `CrossSection[Boolean]`).
+- **Shape vs. financial meaning** — same shape ≠ interchangeable; `CrossSection[Number]` and
+  `PortfolioTargets` share a shape but differ in meaning, so a deliberate weighting node
+  (`equal_weight`/`fixed_weight`) must convert `AssetSet → PortfolioTargets`.
+- **Compatibility rules** — exact match by default; one explicit widening `Scalar[Integer] →
+  Scalar[Number]`; no implicit meaning changes. Type compatibility is **M2 semantic** validation.
+- **Hand-type-checking** — type-checked Strategy A and Strategy B edge by edge (all exact matches).
+- **Type-correct ≠ financially correct** — the validator guarantees types fit (pipes match) but never
+  that the strategy is financially sound (right liquid); financial correctness is proven by tests.
+
+**Files studied:** `STRATEGY_LANGUAGE.md` §§2–4, §9; `ADR-0002`; `CLAUDE.md` invariant 5 + test
+requirements.
+**Corrections made during learning:** DAG = Directed Acyclic Graph (not "directive… group"); port
+*name* vs *type*; dtype bracket = Number/Integer/Boolean (mask → Boolean); the meaning-change node is
+the weighting node (`fw`/`ew`); a type-correct-but-financially-wrong edge has **matching** types.
+**Status:** Module 4 complete and demonstrated. Ready for Module 5 (Time & execution semantics).
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
