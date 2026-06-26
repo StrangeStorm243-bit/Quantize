@@ -79,6 +79,35 @@ Founder demonstrated (graded correct in lesson + module assessment):
 
 ---
 
+## Course — Module 2: Product Architecture (2026-06-26) — DEMONSTRATED
+
+Founder demonstrated (graded across lessons + assessment):
+
+- **The layers** — editor (thin replaceable React/TS view, no logic), API (thin FastAPI JSON
+  boundary), Python runtime (all math/strategy/validation), persistence (SQLite via repository),
+  adapters (swappable seam). Correct one-phrase ownership for each.
+- **The two frontend invariants** — (5) no business logic in the frontend → prevents editor/runtime
+  result mismatch (drift) as code evolves; (6) only JSON crosses the API boundary → language-neutral,
+  decoupled from pandas/Python implementation details.
+- **Runtime split: strategy graph vs. engine** — the graph does per-instant math over past+present
+  data (never future) and terminates in `PortfolioTargets`; the engine owns time, reconciliation
+  (`current portfolio + targets + policy → OrderList`), fills, valuation, tracing.
+- **Why orders are engine-owned, not a graph output** — two users with identical `PortfolioTargets`
+  but different current portfolios get different `OrderList`s; orders depend on engine-only state.
+- **The adapter seam** — an adapter is a swappable implementation behind a fixed interface; Clock +
+  MarketData differ between backtest and forward replay, while the nodes/evaluator/reconciliation/
+  tracing stay byte-for-byte identical, which is why the two modes share semantics and cannot drift.
+- **Placement skill** — reliably placed behaviors into editor / API / strategy graph / engine
+  (incl. distinguishing MarketData from Clock as two engine-side adapters).
+
+**Files studied:** `ARCHITECTURE.md` §§1–3, §7; `ADR-0001`; `ADR-0003`; `ADR-0005`; `CLAUDE.md`
+invariants 2, 5, 6.
+**Corrections made during learning:** stopped conflating "fixed interface" (an adapter concept) with
+engine outputs (`OrderList`); `origin` = remote, not local machine (carried from Module 1).
+**Status:** Module 2 complete and demonstrated. Ready for Module 3 (the strategy IR).
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
