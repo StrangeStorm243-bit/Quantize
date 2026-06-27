@@ -5,5 +5,12 @@
   "engines": {
     "node": ">=24 <25"
   },
-  "comment": "Node 24 LTS is the project baseline. devDependencies (e.g. json-schema-to-typescript) and package-lock.json are added in M1.3, under Node 24 — NOT under an EOL Node line (see docs/plans/M1_IMPLEMENTATION_PLAN.md §6, HIGH-6)."
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "15.0.4",
+    "typescript": "6.0.3"
+  },
+  "comment": "Node 24 LTS is the project baseline. Generated artifacts (schema/quantize.schema.json, ts/quantize-ir.d.ts) are produced by `python -m quantize.codegen generate` and verified by `python -m quantize.codegen check`. Dependencies are exact-pinned and locked in package-lock.json; CI uses `npm ci` on Node 24. See docs/plans/M1_IMPLEMENTATION_PLAN.md §7."
 }

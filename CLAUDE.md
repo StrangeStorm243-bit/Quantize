@@ -35,10 +35,17 @@ with **structured decision tracing**. The visual canvas is only an editor for th
 - **Run tests:** `pytest` (runtime; frontend tests from M11).
 - **Lint:** `ruff check .` · **Format check:** `ruff format --check .` · **Type-check:** `mypy`.
   Run all three before claiming a milestone done.
-- **Node:** baseline **24 LTS** (`.nvmrc`); the TS toolchain + lock land in **M1.3** under Node 24.
+- **Node:** baseline **24 LTS** (`.nvmrc`). Install locked deps with `npm ci` under Node 24 (CI uses
+  `npm ci`; never run the Node toolchain under Node 25+). Local activation example (fnm): `fnm use`
+  reads `.nvmrc`.
 - **Run backend / API:** _TBD (M9)_  ·  **Run frontend (editor):** _TBD (M11)_
-- **Generate JSON Schema + TS types (codegen):** _TBD (M1.3)_ — deterministic; CI fails if TS types
-  are stale.
+- **Generate JSON Schema + TS types (codegen):** `python -m quantize.codegen generate` (emits
+  `schema/quantize.schema.json` + `ts/quantize-ir.d.ts`; needs Node 24 on PATH for the TS step).
+  Verify without writing: `python -m quantize.codegen check`. TypeScript compile gate: `npm run
+  typecheck` (`tsc --noEmit`). Output is deterministic and byte-stable (LF; see `.gitattributes`),
+  committed, and CI’s `codegen` job fails if the committed artifacts are stale. The committed JSON
+  Schema is the exported structural contract; the `.d.ts` is a **derived** artifact — never hand-edit
+  it, regenerate instead.
 
 ## Architectural invariants (do not violate without an ADR)
 

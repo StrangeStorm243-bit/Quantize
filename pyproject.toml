@@ -21,6 +21,9 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "mypy>=1.11",
+    # Validates representative persisted documents against the *exported* JSON Schema,
+    # independently of Pydantic (M1.3 contract test). Draft 2020-12 support requires >=4.18.
+    "jsonschema>=4.20",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -37,6 +40,12 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.13"
 strict = true
 files = ["quantize", "tests"]
+
+# jsonschema ships no type stubs; it is used only by the M1.3 contract test. Ignore its missing
+# imports rather than pull in a separate stub package as a dev/lock dependency.
+[[tool.mypy.overrides]]
+module = "jsonschema.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -13,9 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from quantize.schema.components import ComponentRef
 from quantize.schema.nodes import Edge, NodeInstance
-from quantize.schema.primitives import Count, EntityId, JsonObject, NonNegativeFinite, SemVer
+from quantize.schema.primitives import Count, EntityId, JsonObject, NonNegativeFinite
 from quantize.schema.provenance import Provenance, StrategyForkRef
 from quantize.schema.schedule import Schedule
+from quantize.schema.version import SchemaVersion
 
 
 class _Governed(BaseModel):
@@ -42,7 +43,7 @@ class StrategyMeta(_Governed):
 
 
 class StrategyDocument(_Governed):
-    schema_version: SemVer
+    schema_version: SchemaVersion
     strategy: StrategyMeta
     execution_policy: ExecutionPolicy
     schedule: Schedule

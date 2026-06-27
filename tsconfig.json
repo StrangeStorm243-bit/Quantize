@@ -1,0 +1,16 @@
+{
+  "//": "Type-checks the generated declarations against the compile fixture. `npx tsc --noEmit`.",
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "skipLibCheck": false,
+    "forceConsistentCasingInFileNames": true
+  },
+  "files": ["ts/quantize-ir.d.ts", "ts/fixtures/usage.ts"]
+}

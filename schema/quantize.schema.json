@@ -1,0 +1,954 @@
+{
+  "$defs": {
+    "AssetSetType": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "AssetSet",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "AssetSetType",
+      "type": "object"
+    },
+    "ComponentDefinition": {
+      "additionalProperties": false,
+      "description": "A standalone, immutable, versioned reusable component.",
+      "properties": {
+        "component_id": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        },
+        "component_refs": {
+          "items": {
+            "$ref": "#/$defs/ComponentRef"
+          },
+          "type": "array"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "exposed_inputs": {
+          "items": {
+            "$ref": "#/$defs/ExposedPort"
+          },
+          "type": "array"
+        },
+        "exposed_outputs": {
+          "items": {
+            "$ref": "#/$defs/ExposedPort"
+          },
+          "type": "array"
+        },
+        "exposed_params": {
+          "items": {
+            "$ref": "#/$defs/ExposedParam"
+          },
+          "type": "array"
+        },
+        "extensions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "implementation": {
+          "discriminator": {
+            "mapping": {
+              "graph": "#/$defs/GraphImplementation"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/GraphImplementation"
+            }
+          ]
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance_ComponentForkRef_"
+        },
+        "schema_version": {
+          "enum": [
+            "0.1.0"
+          ],
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "component_id",
+        "version",
+        "schema_version",
+        "name",
+        "component_refs",
+        "implementation",
+        "exposed_inputs",
+        "exposed_outputs",
+        "exposed_params",
+        "provenance"
+      ],
+      "title": "ComponentDefinition",
+      "type": "object"
+    },
+    "ComponentForkRef": {
+      "additionalProperties": false,
+      "description": "Lineage pointer to a (component id, component version) — version is SemVer.",
+      "properties": {
+        "id": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "title": "ComponentForkRef",
+      "type": "object"
+    },
+    "ComponentRef": {
+      "additionalProperties": false,
+      "description": "A pinned reference from a strategy/definition to a specific component version.",
+      "properties": {
+        "component_id": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_]+$",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "component_id",
+        "version"
+      ],
+      "title": "ComponentRef",
+      "type": "object"
+    },
+    "ComponentRefNode": {
+      "additionalProperties": false,
+      "description": "The reserved ``component`` node — references a pinned ``component_refs`` entry by ``ref``.",
+      "properties": {
+        "extensions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_]+$",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        "ref": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_]+$",
+          "type": "string"
+        },
+        "type_id": {
+          "const": "component",
+          "type": "string"
+        },
+        "ui": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type_id",
+        "ref",
+        "params"
+      ],
+      "title": "ComponentRefNode",
+      "type": "object"
+    },
+    "CrossSectionType": {
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "enum": [
+            "Number",
+            "Boolean"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "CrossSection",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "dtype"
+      ],
+      "title": "CrossSectionType",
+      "type": "object"
+    },
+    "Edge": {
+      "additionalProperties": false,
+      "description": "A directed connection from one node's output port to another node's input port.\n\nPersisted via the canonical serializer as ``{\"from\": [node, port], \"to\": [node, port]}``.",
+      "properties": {
+        "from": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_]+$",
+              "type": "string"
+            }
+          ],
+          "type": "array"
+        },
+        "to": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_]+$",
+              "type": "string"
+            }
+          ],
+          "type": "array"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "title": "Edge",
+      "type": "object"
+    },
+    "ExecutionPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "close_signal_next_session_open",
+          "type": "string"
+        },
+        "transaction_costs": {
+          "$ref": "#/$defs/TransactionCosts"
+        },
+        "valuation": {
+          "const": "session_close",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy",
+        "valuation",
+        "transaction_costs"
+      ],
+      "title": "ExecutionPolicy",
+      "type": "object"
+    },
+    "ExposedParam": {
+      "additionalProperties": false,
+      "description": "A component parameter, bound to one internal node parameter.",
+      "properties": {
+        "binds_to": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "type": "array"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "binds_to",
+        "schema"
+      ],
+      "title": "ExposedParam",
+      "type": "object"
+    },
+    "ExposedPort": {
+      "additionalProperties": false,
+      "description": "A component's externally visible port, mapped to one internal node port.",
+      "properties": {
+        "maps_to": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_]+$",
+              "type": "string"
+            }
+          ],
+          "type": "array"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "discriminator": {
+            "mapping": {
+              "AssetSet": "#/$defs/AssetSetType",
+              "CrossSection": "#/$defs/CrossSectionType",
+              "PortfolioTargets": "#/$defs/PortfolioTargetsType",
+              "Scalar": "#/$defs/ScalarType",
+              "TimeSeries": "#/$defs/TimeSeriesType"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScalarType"
+            },
+            {
+              "$ref": "#/$defs/AssetSetType"
+            },
+            {
+              "$ref": "#/$defs/CrossSectionType"
+            },
+            {
+              "$ref": "#/$defs/TimeSeriesType"
+            },
+            {
+              "$ref": "#/$defs/PortfolioTargetsType"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "maps_to"
+      ],
+      "title": "ExposedPort",
+      "type": "object"
+    },
+    "Graph": {
+      "additionalProperties": false,
+      "description": "An internal node/edge graph (a component's body for the v0 'graph' implementation).",
+      "properties": {
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/Edge"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/RegisteredNode"
+              },
+              {
+                "$ref": "#/$defs/ComponentRefNode"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "title": "Graph",
+      "type": "object"
+    },
+    "GraphImplementation": {
+      "additionalProperties": false,
+      "properties": {
+        "graph": {
+          "$ref": "#/$defs/Graph"
+        },
+        "kind": {
+          "const": "graph",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "graph"
+      ],
+      "title": "GraphImplementation",
+      "type": "object"
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "PortfolioTargetsType": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "PortfolioTargets",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "PortfolioTargetsType",
+      "type": "object"
+    },
+    "Provenance_ComponentForkRef_": {
+      "additionalProperties": false,
+      "properties": {
+        "contributors": {
+          "items": {
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "creator": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        },
+        "duplicable": {
+          "type": "boolean"
+        },
+        "forked_from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentForkRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "owner": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "private",
+            "unlisted_readonly",
+            "unlisted_duplicable"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner",
+        "creator",
+        "contributors",
+        "visibility",
+        "duplicable",
+        "created_at"
+      ],
+      "title": "Provenance[ComponentForkRef]",
+      "type": "object"
+    },
+    "Provenance_StrategyForkRef_": {
+      "additionalProperties": false,
+      "properties": {
+        "contributors": {
+          "items": {
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "creator": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        },
+        "duplicable": {
+          "type": "boolean"
+        },
+        "forked_from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StrategyForkRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "owner": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "private",
+            "unlisted_readonly",
+            "unlisted_duplicable"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner",
+        "creator",
+        "contributors",
+        "visibility",
+        "duplicable",
+        "created_at"
+      ],
+      "title": "Provenance[StrategyForkRef]",
+      "type": "object"
+    },
+    "RegisteredNode": {
+      "additionalProperties": false,
+      "description": "An ordinary node referencing a registered (or unknown future) node type by namespaced id.",
+      "properties": {
+        "extensions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_]+$",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        "type_id": {
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "type": "string"
+        },
+        "type_version": {
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "type": "string"
+        },
+        "ui": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type_id",
+        "type_version",
+        "params"
+      ],
+      "title": "RegisteredNode",
+      "type": "object"
+    },
+    "ScalarType": {
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "enum": [
+            "Number",
+            "Integer",
+            "Boolean"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "Scalar",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "dtype"
+      ],
+      "title": "ScalarType",
+      "type": "object"
+    },
+    "ScheduleDaily": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "daily",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ScheduleDaily",
+      "type": "object"
+    },
+    "ScheduleMonthly": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "monthly",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ScheduleMonthly",
+      "type": "object"
+    },
+    "ScheduleWeekly": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "weekly",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ScheduleWeekly",
+      "type": "object"
+    },
+    "StrategyDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "component_refs": {
+          "items": {
+            "$ref": "#/$defs/ComponentRef"
+          },
+          "type": "array"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/Edge"
+          },
+          "type": "array"
+        },
+        "execution_policy": {
+          "$ref": "#/$defs/ExecutionPolicy"
+        },
+        "extensions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "nodes": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/RegisteredNode"
+              },
+              {
+                "$ref": "#/$defs/ComponentRefNode"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "schedule": {
+          "discriminator": {
+            "mapping": {
+              "daily": "#/$defs/ScheduleDaily",
+              "monthly": "#/$defs/ScheduleMonthly",
+              "weekly": "#/$defs/ScheduleWeekly"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScheduleDaily"
+            },
+            {
+              "$ref": "#/$defs/ScheduleWeekly"
+            },
+            {
+              "$ref": "#/$defs/ScheduleMonthly"
+            }
+          ]
+        },
+        "schema_version": {
+          "enum": [
+            "0.1.0"
+          ],
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "type": "string"
+        },
+        "strategy": {
+          "$ref": "#/$defs/StrategyMeta"
+        }
+      },
+      "required": [
+        "schema_version",
+        "strategy",
+        "execution_policy",
+        "schedule",
+        "nodes",
+        "edges",
+        "component_refs"
+      ],
+      "title": "StrategyDocument",
+      "type": "object"
+    },
+    "StrategyForkRef": {
+      "additionalProperties": false,
+      "description": "Lineage pointer to a (strategy id, strategy version) — version is a positive integer.",
+      "properties": {
+        "id": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "title": "StrategyForkRef",
+      "type": "object"
+    },
+    "StrategyMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance_StrategyForkRef_"
+        },
+        "version": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "name",
+        "provenance"
+      ],
+      "title": "StrategyMeta",
+      "type": "object"
+    },
+    "TimeSeriesType": {
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "const": "Number",
+          "type": "string"
+        },
+        "kind": {
+          "const": "TimeSeries",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "dtype"
+      ],
+      "title": "TimeSeriesType",
+      "type": "object"
+    },
+    "TransactionCosts": {
+      "additionalProperties": false,
+      "properties": {
+        "bps": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "model": {
+          "const": "bps",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "bps"
+      ],
+      "title": "TransactionCosts",
+      "type": "object"
+    }
+  },
+  "$id": "https://quantize.dev/schema/0.1.0/quantize-ir.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Bundled Quantize IR persisted-document contract (StrategyDocument | ComponentDefinition).",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/StrategyDocument"
+    },
+    {
+      "$ref": "#/$defs/ComponentDefinition"
+    }
+  ],
+  "title": "QuantizeIR"
+}

@@ -97,7 +97,8 @@ TypeId = Annotated[str, StringConstraints(pattern=TYPE_ID_PATTERN)]
 # --- Versions & entity ids -------------------------------------------------------------------
 
 # A MAJOR.MINOR.PATCH version string (node `type_version`, `schema_version`, component version).
-SemVer = Annotated[str, StringConstraints(pattern=r"^\d+\.\d+\.\d+$")]
+SEMVER_PATTERN = r"^\d+\.\d+\.\d+$"
+SemVer = Annotated[str, StringConstraints(pattern=SEMVER_PATTERN)]
 
 _UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 

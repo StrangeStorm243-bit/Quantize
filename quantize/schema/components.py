@@ -16,6 +16,7 @@ from quantize.schema.nodes import Edge, NodeInstance
 from quantize.schema.primitives import EntityId, JsonObject, NodeId, PortName, RefId, SemVer
 from quantize.schema.provenance import ComponentForkRef, Provenance
 from quantize.schema.types import PortType
+from quantize.schema.version import SchemaVersion
 
 
 class _Governed(BaseModel):
@@ -70,7 +71,7 @@ class ComponentDefinition(_Governed):
 
     component_id: EntityId
     version: SemVer
-    schema_version: SemVer
+    schema_version: SchemaVersion
     name: str = Field(min_length=1)
     description: str | None = None
     component_refs: list[ComponentRef]

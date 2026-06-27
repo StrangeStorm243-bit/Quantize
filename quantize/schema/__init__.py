@@ -73,7 +73,9 @@ from quantize.schema.types import (
 from quantize.schema.version import (
     CURRENT_SCHEMA_VERSION,
     SUPPORTED_SCHEMA_VERSIONS,
+    SchemaVersion,
     is_supported_schema_version,
+    supported_schema_versions,
 )
 
 __all__ = [
@@ -111,6 +113,7 @@ __all__ = [
     "RegisteredTypeId",
     "ScalarType",
     "Schedule",
+    "SchemaVersion",
     "ScheduleDaily",
     "ScheduleMonthly",
     "ScheduleWeekly",
@@ -128,6 +131,7 @@ __all__ = [
     "documents_semantically_equal",
     "is_supported_schema_version",
     "semantic_projection",
+    "supported_schema_versions",
     "to_ir_dict",
     "to_ir_json",
 ]
