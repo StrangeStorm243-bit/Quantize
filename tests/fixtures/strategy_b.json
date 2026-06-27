@@ -1,0 +1,48 @@
+{
+  "schema_version": "0.1.0",
+  "strategy": {
+    "id": "33333333-3333-3333-3333-333333333333",
+    "version": 1,
+    "name": "Trend-Filtered Portfolio",
+    "description": "Fixed equal sleeves held while price > 200-session MA; remainder cash; weekly.",
+    "provenance": {
+      "owner": "22222222-2222-2222-2222-222222222222",
+      "creator": "22222222-2222-2222-2222-222222222222",
+      "contributors": [],
+      "forked_from": null,
+      "visibility": "private",
+      "duplicable": false,
+      "created_at": "2026-06-23T00:00:00Z"
+    }
+  },
+  "execution_policy": {
+    "policy": "close_signal_next_session_open",
+    "valuation": "session_close",
+    "transaction_costs": { "model": "bps", "bps": 5.0 }
+  },
+  "schedule": { "kind": "weekly" },
+  "nodes": [
+    { "id": "u", "type_id": "universe.fixed_list", "type_version": "1.0.0", "params": { "tickers": ["AGG", "EFA", "SPY", "VNQ"] } },
+    { "id": "px", "type_id": "data.price", "type_version": "1.0.0", "params": {} },
+    { "id": "ma", "type_id": "transform.moving_average", "type_version": "1.0.0", "params": { "window": 200 } },
+    { "id": "maL", "type_id": "transform.latest", "type_version": "1.0.0", "params": {} },
+    { "id": "pxL", "type_id": "transform.latest", "type_version": "1.0.0", "params": {} },
+    { "id": "gt", "type_id": "logic.greater_than", "type_version": "1.0.0", "params": {} },
+    { "id": "fw", "type_id": "portfolio.fixed_weight", "type_version": "1.0.0", "params": { "weight_per_asset": "equal" } },
+    { "id": "mask", "type_id": "portfolio.apply_mask", "type_version": "1.0.0", "params": {} },
+    { "id": "tp", "type_id": "output.target_portfolio", "type_version": "1.0.0", "params": {} }
+  ],
+  "edges": [
+    { "from": ["u", "assets"], "to": ["px", "assets"] },
+    { "from": ["px", "series"], "to": ["ma", "series"] },
+    { "from": ["ma", "series"], "to": ["maL", "series"] },
+    { "from": ["px", "series"], "to": ["pxL", "series"] },
+    { "from": ["pxL", "values"], "to": ["gt", "left"] },
+    { "from": ["maL", "values"], "to": ["gt", "right"] },
+    { "from": ["u", "assets"], "to": ["fw", "assets"] },
+    { "from": ["fw", "targets"], "to": ["mask", "targets"] },
+    { "from": ["gt", "values"], "to": ["mask", "mask"] },
+    { "from": ["mask", "targets"], "to": ["tp", "targets"] }
+  ],
+  "component_refs": []
+}

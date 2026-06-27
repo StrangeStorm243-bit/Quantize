@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.1.0",
+  "strategy": {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "version": 1,
+    "name": "ETF Momentum Rotation",
+    "description": "Top-3 ETF momentum, equal weight, 40% cap, monthly.",
+    "provenance": {
+      "owner": "22222222-2222-2222-2222-222222222222",
+      "creator": "22222222-2222-2222-2222-222222222222",
+      "contributors": [],
+      "forked_from": null,
+      "visibility": "private",
+      "duplicable": false,
+      "created_at": "2026-06-23T00:00:00Z"
+    }
+  },
+  "execution_policy": {
+    "policy": "close_signal_next_session_open",
+    "valuation": "session_close",
+    "transaction_costs": { "model": "bps", "bps": 5.0 }
+  },
+  "schedule": { "kind": "monthly" },
+  "nodes": [
+    { "id": "u", "type_id": "universe.fixed_list", "type_version": "1.0.0", "params": { "tickers": ["EFA", "GLD", "IWM", "QQQ", "SPY", "TLT"] } },
+    { "id": "px", "type_id": "data.price", "type_version": "1.0.0", "params": {} },
+    { "id": "ret", "type_id": "transform.trailing_return", "type_version": "1.0.0", "params": { "lookback_sessions": 126 } },
+    { "id": "rk", "type_id": "transform.rank", "type_version": "1.0.0", "params": { "descending": true } },
+    { "id": "sel", "type_id": "portfolio.select_top_n", "type_version": "1.0.0", "params": { "n": 3 } },
+    { "id": "ew", "type_id": "portfolio.equal_weight", "type_version": "1.0.0", "params": {} },
+    { "id": "cap", "type_id": "risk.max_weight", "type_version": "1.0.0", "params": { "max": 0.4 } },
+    { "id": "tp", "type_id": "output.target_portfolio", "type_version": "1.0.0", "params": {} }
+  ],
+  "edges": [
+    { "from": ["u", "assets"], "to": ["px", "assets"] },
+    { "from": ["px", "series"], "to": ["ret", "series"] },
+    { "from": ["ret", "values"], "to": ["rk", "values"] },
+    { "from": ["rk", "values"], "to": ["sel", "scores"] },
+    { "from": ["u", "assets"], "to": ["sel", "universe"] },
+    { "from": ["sel", "assets"], "to": ["ew", "assets"] },
+    { "from": ["ew", "targets"], "to": ["cap", "targets"] },
+    { "from": ["cap", "targets"], "to": ["tp", "targets"] }
+  ],
+  "component_refs": []
+}

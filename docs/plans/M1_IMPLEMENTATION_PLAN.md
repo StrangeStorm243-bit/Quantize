@@ -84,7 +84,10 @@ JsonValue = None | bool | JsonInt | float(finite) | str | list[JsonValue] | dict
 - `TypeId` = open namespaced `str`: either the reserved literal `"component"`, or a dotted pattern
   `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$` (≥1 dot, e.g. `transform.rank`). Non-empty; **not** an enum.
 - `Utc` = timezone-aware datetime, normalized to UTC, RFC-3339 serialized (naive rejected)
-- `ForkRef` = `{ id: EntityId, version: int }`
+- `Count` = strict positive integer (rejects bool/float; `minimum:1` in schema) — used by versions
+- `NonNegativeFinite` = number accepting int/float JSON, rejecting bool/NaN/∞ (`minimum:0`) — bps
+- **Entity-specific fork refs** (HIGH-5): `StrategyForkRef = { id:EntityId, version:Count }` (strategy
+  integer version) and `ComponentForkRef = { id:EntityId, version:SemVer }` (component SemVer)
 
 **Closed / governed (v0)** — discriminated, not extensible by users in M1:
 - `Schedule` (on `kind`): `{kind:"daily"} | {kind:"weekly"} | {kind:"monthly"}`
@@ -93,7 +96,7 @@ JsonValue = None | bool | JsonInt | float(finite) | str | list[JsonValue] | dict
   Used inside `ComponentDefinition.exposed_*`. **`OrderList` is engine-only and is NOT a constructible
   graph/component port type** — it cannot appear in any persisted strategy/component port (HIGH-4).
 - `ExecutionPolicy` = `{ policy:"close_signal_next_session_open", valuation:"session_close",
-  transaction_costs:{ model:"bps", bps:float≥0 finite } }`
+  transaction_costs:{ model:"bps", bps:NonNegativeFinite } }`
 - `Visibility` = `private | unlisted_readonly | unlisted_duplicable`
 - `Implementation` (on `kind`): v0 only `{kind:"graph", graph:Graph}`
 
@@ -102,28 +105,42 @@ JsonValue = None | bool | JsonInt | float(finite) | str | list[JsonValue] | dict
   governed type.
 - `params`, `ui`, `extensions`, `ExposedParam.schema` are generic `JsonValue` maps.
 
-**Node**
-- `NodeInstance` = `{ id:NodeId, type_id:TypeId, type_version:SemVer?, params:dict[str,JsonValue],
-  ref:RefId?, ui:dict[str,JsonValue]?, extensions:dict[str,JsonValue]? }`
-  - **Model rule (structural):** if `type_id == "component"` → `ref` **required**, `type_version`
-    **must be absent**; else (ordinary node) → `type_version` **required**, `ref` **must be absent**.
+**Node — a two-variant structural union** (`NodeInstance`, discriminated on whether `type_id` is the
+reserved `"component"`; schema-visible, generic — not a closed node enum):
+- `RegisteredNode` = `{ id:NodeId, type_id:RegisteredTypeId(dotted), type_version:SemVer,
+  params:JsonObject, ui?:JsonObject, extensions?:JsonObject }` — `type_version` **required**, no `ref`.
+- `ComponentRefNode` = `{ id:NodeId, type_id:"component", ref:RefId, params:JsonObject, ui?, ext? }` —
+  `ref` **required**, no `type_version`.
+- `params` is **required** (may be `{}`); `ui`/`extensions` optional. Validate a bare node via
+  `NodeAdapter`.
 - `Edge` = `{ from:[NodeId, PortName], to:[NodeId, PortName] }` (`from` via Pydantic alias)
-- `Graph` = `{ nodes:list[NodeInstance], edges:list[Edge] }`
+- `Graph` = `{ nodes:list[NodeInstance], edges:list[Edge] }` (both **required**)
 
 **Document & components**
 - `StrategyDocument` = `{ schema_version:SemVer, strategy:StrategyMeta, execution_policy:ExecutionPolicy,
   schedule:Schedule, nodes:list[NodeInstance], edges:list[Edge], component_refs:list[ComponentRef],
-  extensions:dict[str,JsonValue]? }`
-- `StrategyMeta` = `{ id:EntityId, version:int, name:str, description:str?, provenance:Provenance }`
-- `Provenance` = `{ owner:EntityId, creator:EntityId, contributors:list[EntityId],
-  forked_from:ForkRef?, visibility:Visibility, duplicable:bool, created_at:Utc }`
+  extensions:dict[str,JsonValue]? }` — `nodes`/`edges`/`component_refs` are **required** (may be `[]`).
+- `StrategyMeta` = `{ id:EntityId, version:Count, name:str, description:str?,
+  provenance:Provenance[StrategyForkRef] }`
+- `Provenance[F]` (generic) = `{ owner:EntityId, creator:EntityId, contributors:list[EntityId]
+  (required), forked_from:F?, visibility:Visibility, duplicable:bool, created_at:Utc }`. Strategy docs
+  use `Provenance[StrategyForkRef]`; component definitions use `Provenance[ComponentForkRef]`.
 - `ComponentRef` = `{ id:RefId, component_id:EntityId, version:SemVer }` (version **required**, pinned)
 - `ComponentDefinition` = `{ component_id:EntityId, version:SemVer, schema_version:SemVer, name:str,
   description:str?, component_refs:list[ComponentRef], implementation:Implementation,
   exposed_inputs:list[ExposedPort], exposed_outputs:list[ExposedPort],
-  exposed_params:list[ExposedParam], provenance:Provenance, extensions:dict[str,JsonValue]? }`
+  exposed_params:list[ExposedParam], provenance:Provenance[ComponentForkRef],
+  extensions:dict[str,JsonValue]? }` — `component_refs` and all `exposed_*` are **required** (may be `[]`).
 - `ExposedPort` = `{ name:str, type:PortType, maps_to:[NodeId, PortName] }`
 - `ExposedParam` = `{ name:str, binds_to:[NodeId, str], schema:dict[str,JsonValue] }`
+
+**Canonical serialization (required persistence path).** Persist IR models only via `to_ir_json` /
+`to_ir_dict` (`quantize/schema/serialization.py`) — never a bare `model_dump_json`. They dump in
+Python mode, recursively revalidate portability, normalize datetimes to RFC 3339, emit IR aliases
+(`"from"`), and **raise** on any non-portable state (NaN/∞, JS-unsafe int, mutated/unsupported value)
+rather than rewriting it to `null`. Strict governed numerics (`Count`, `NonNegativeFinite`) reject
+booleans; all contract collections are required (no silent defaults). Constraints are schema-visible
+(`TypeId`/`EntityId` patterns, bounded recursive `JsonValue`, the two-variant node union).
 
 **Version axes (four, never collapsed):** (1) `schema_version` — IR format; (2) `strategy.version` —
 user revision (int); (3) **node `type_version`** — node-contract version (SemVer, per ordinary node

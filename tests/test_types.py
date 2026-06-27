@@ -26,17 +26,24 @@ def test_port_type_accepts_each_v0_variant() -> None:
 
 def test_port_type_rejects_orderlist() -> None:
     # OrderList is engine-only and not a constructible port type (HIGH-4).
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as exc:
         _port.validate_python({"kind": "OrderList"})
+    assert exc.value.errors()[0]["type"] == "union_tag_invalid"
 
 
 def test_port_type_rejects_unknown_kind_and_bad_dtype() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as exc:
         _port.validate_python({"kind": "Matrix"})
-    with pytest.raises(ValidationError):
+    assert exc.value.errors()[0]["type"] == "union_tag_invalid"
+
+    with pytest.raises(ValidationError) as exc:
         _port.validate_python({"kind": "TimeSeries", "dtype": "Boolean"})  # only Number allowed
+    err = exc.value.errors()[0]
+    assert err["type"] == "literal_error"
+    assert "dtype" in str(err["loc"])
 
 
 def test_port_type_forbids_extra_fields() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as exc:
         _port.validate_python({"kind": "AssetSet", "surprise": 1})
+    assert exc.value.errors()[0]["type"] == "extra_forbidden"

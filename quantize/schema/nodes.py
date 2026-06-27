@@ -1,62 +1,77 @@
-"""Generic node instance and edge models (M1.1a).
+"""Generic node instances and edges.
 
-``NodeInstance`` is generic by design: ``type_id`` is an open namespaced string, so a document may
-reference an unknown future node type — M1 accepts it structurally; M2 (the registry) resolves it.
-Ordinary nodes pin ``type_version``; the reserved ``component`` node carries ``ref`` instead.
+A node is a **two-variant structural union**, schema-visible and generic:
+
+* ``RegisteredNode`` — an ordinary node of an open, namespaced ``type_id`` (any registered or future
+  block), requiring ``type_version``;
+* ``ComponentRefNode`` — the one reserved ``type_id == "component"`` node, requiring ``ref``.
+
+This is **not** a closed union of built-in quantitative node types; ``RegisteredNode`` accepts any
+namespaced ``type_id``, so adding a new block never changes the IR schema. ``params`` is required
+(may be ``{}``); ``ui``/``extensions`` are optional.
 """
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, TypeAdapter
 
 from quantize.schema.primitives import (
-    RESERVED_COMPONENT_TYPE_ID,
     JsonObject,
     NodeId,
     PortName,
     RefId,
+    RegisteredTypeId,
     SemVer,
-    TypeId,
 )
 
 
-class NodeInstance(BaseModel):
-    """One node in a strategy (or component) graph."""
+class RegisteredNode(BaseModel):
+    """An ordinary node referencing a registered (or unknown future) node type by namespaced id."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: NodeId
-    type_id: TypeId
-    type_version: SemVer | None = None
-    params: JsonObject = Field(default_factory=dict)
-    ref: RefId | None = None
+    type_id: RegisteredTypeId
+    type_version: SemVer
+    params: JsonObject
     ui: JsonObject | None = None
     extensions: JsonObject | None = None
 
-    @model_validator(mode="after")
-    def _check_version_and_ref(self) -> Self:
-        if self.type_id == RESERVED_COMPONENT_TYPE_ID:
-            if self.ref is None:
-                raise ValueError("a 'component' node requires a 'ref'")
-            if self.type_version is not None:
-                raise ValueError(
-                    "a 'component' node must not carry 'type_version' "
-                    "(its version is the pinned ComponentRef.version)"
-                )
-        else:
-            if self.type_version is None:
-                raise ValueError(f"ordinary node {self.id!r} requires a 'type_version'")
-            if self.ref is not None:
-                raise ValueError(f"ordinary node {self.id!r} must not carry a 'ref'")
-        return self
+
+class ComponentRefNode(BaseModel):
+    """The reserved ``component`` node — references a pinned ``component_refs`` entry by ``ref``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: NodeId
+    type_id: Literal["component"]
+    ref: RefId
+    params: JsonObject
+    ui: JsonObject | None = None
+    extensions: JsonObject | None = None
+
+
+def _node_tag(value: object) -> str:
+    type_id = value.get("type_id") if isinstance(value, dict) else getattr(value, "type_id", None)
+    return "component" if type_id == "component" else "registered"
+
+
+# Two-variant structural union, discriminated by whether type_id is the reserved "component".
+NodeInstance = Annotated[
+    Annotated[RegisteredNode, Tag("registered")] | Annotated[ComponentRefNode, Tag("component")],
+    Discriminator(_node_tag),
+]
+
+# Use to validate a node in isolation (NodeInstance is a union alias, not a class).
+NodeAdapter: TypeAdapter[Any] = TypeAdapter(NodeInstance)
 
 
 class Edge(BaseModel):
     """A directed connection from one node's output port to another node's input port.
 
-    Serializes as ``{"from": [node, port], "to": [node, port]}`` (use ``by_alias=True`` on dump).
+    Persisted via the canonical serializer as ``{"from": [node, port], "to": [node, port]}``.
     """
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
