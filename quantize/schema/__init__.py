@@ -70,10 +70,17 @@ from quantize.schema.types import (
     ScalarType,
     TimeSeriesType,
 )
+from quantize.schema.version import (
+    CURRENT_SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
+    is_supported_schema_version,
+)
 
 __all__ = [
+    "CURRENT_SCHEMA_VERSION",
     "JS_MAX_SAFE_INT",
     "RESERVED_COMPONENT_TYPE_ID",
+    "SUPPORTED_SCHEMA_VERSIONS",
     "AssetSetType",
     "ComponentDefinition",
     "ComponentForkRef",
@@ -119,6 +126,7 @@ __all__ = [
     "component_semantic_projection",
     "components_semantically_equal",
     "documents_semantically_equal",
+    "is_supported_schema_version",
     "semantic_projection",
     "to_ir_dict",
     "to_ir_json",

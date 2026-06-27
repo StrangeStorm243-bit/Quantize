@@ -14,3 +14,14 @@ def load_fixture(name: str) -> dict[str, Any]:
     raw = (_FIXTURES / f"{name}.json").read_text(encoding="utf-8")
     data: dict[str, Any] = json.loads(raw)
     return data
+
+
+def load_invalid_fixture(name: str) -> dict[str, Any]:
+    """Return the parsed JSON of a deliberately-invalid fixture under ``fixtures/invalid/``.
+
+    These are structurally invalid (M1.2) but **parse** cleanly under the M1.1 models — the
+    point of M1.2 validation is to catch faults Pydantic cannot express.
+    """
+    raw = (_FIXTURES / "invalid" / f"{name}.json").read_text(encoding="utf-8")
+    data: dict[str, Any] = json.loads(raw)
+    return data

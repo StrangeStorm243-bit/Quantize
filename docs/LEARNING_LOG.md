@@ -220,6 +220,62 @@ deferred until before the engine milestones (M3–M4). Founder positioned to sco
 
 ---
 
+## M1.2 — Structural validation (2026-06-27)
+
+**Concepts introduced:**
+- **Validation layers ("fail loud — at the right layer").** Pydantic (M1.1) checks each model in
+  isolation: required fields, value types, `extra="forbid"`, portable JSON. It *cannot* see across
+  elements. M1.2 adds the **cross-element** invariants: id uniqueness, edge endpoints existing,
+  acyclicity, local component-ref resolution, component-set recursion. M2 (later) adds *semantic*
+  checks that need the registry (does `type_id` exist? do ports match?). Same document, three layers.
+- **The extensibility seam.** A node with an unknown future `type_id` (`ai.generated.block`) is
+  **structurally valid** at M1 and only rejected at M2. The validator must never inspect `type_id`
+  meaning — that would collapse the seam and break invariant 9.
+- **Diagnostic policy (accumulate, with one representative per cycle).** Independently-detectable
+  structural errors are **accumulated** (unsupported `schema_version`, duplicate ids, dangling
+  endpoints, self-edges, unresolved component refs) so a future editor can highlight many faults at
+  once. The deliberate exception is cycles: the validator emits **one deterministic representative**
+  `graph_cycle` per graph (and one `component_cycle` per supplied component set) — it does **not**
+  enumerate every cycle. Determinism needs an explicit sort key (`loc`, then `code`, then `subject`)
+  because Python set/dict iteration order must never leak into output.
+- **Supported `schema_version` is M1 structural.** Plan §4 lists "`schema_version` present &
+  supported" in the M1 column. The single source of truth is `quantize/schema/version.py`
+  (`CURRENT_SCHEMA_VERSION`, `SUPPORTED_SCHEMA_VERSIONS`) — no string literal is duplicated. An
+  unsupported version fails loud (`unsupported_schema_version`) instead of being best-effort-parsed.
+  Note the layering: M1.2 checks this on an **already-parsed** document; a *future* raw-document
+  loader/migration layer (not built) may read `schema_version` *before* picking a parser.
+- **Cycle detection (three-colour DFS).** white = unseen, grey = on the current path, black = done.
+  A back edge to a **grey** node is a cycle. Self-edges and dangling edges are excluded from the
+  adjacency so they aren't double-reported as cycles. Visiting roots and neighbours in **sorted**
+  order makes the *reported* cycle deterministic.
+- **Recursion-depth as a real failure mode.** A recursive DFS crashes (`RecursionError`) on a long
+  acyclic chain (~1000+ nodes). We rewrote it with an **explicit stack** so depth is bounded by heap,
+  not the call stack — a robustness fix surfaced by the diff review, now guarded by a 2000-node test.
+- **Bounded component-set validation (decision H / plan §5).** `validate_component_set` builds a
+  dependency graph over `(component_id, version)` from each definition's `component_refs` and finds
+  direct + transitive cycles **within the supplied set only**. It never fetches from a store. Three
+  outcomes: closed-valid, **acyclic-but-incomplete** (refs outside the set → `unresolved_refs`, not
+  failures), and cyclic. The middle outcome is the subtle one — "incomplete" ≠ "invalid".
+
+**Files studied:** `quantize/schema/{nodes,document,components,primitives}.py` (the models being
+validated); `docs/plans/M1_IMPLEMENTATION_PLAN.md` §4 (M1/M2 table) + §5 (component-set spec);
+`AGENTS.md` invariants 8–9.
+**Reading path:** `quantize/validation/errors.py` (the result shapes) → `structural.py`
+`validate_strategy_document` (the simple case) → `_validate_graph` (shared graph checks) →
+`_find_cycle` (the algorithm) → `validate_component_set` (the dependency-graph case).
+**Exercise (implement by hand):** write a failing test for a *figure-eight* graph (two cycles sharing
+one node) and confirm exactly one `graph_cycle` is reported. *Prediction:* which of the two cycles is
+reported, and why? (hint: sorted roots + sorted neighbours in `_find_cycle`). Then trace it to check.
+A second, conceptual one: is a `max_nodes` cap an M1 structural check? *Prediction:* no — it needs no
+registry but is a *policy/resource* rule, not a well-formedness rule, so it belongs to neither layer
+as specified; adding it would be scope creep.
+**Status:** M1.2 **founder-approved and committed** on `feat/m1-ir-schema`. Local gate green
+(ruff/format/mypy clean, 109 tests). Internal Claude review passes (architecture/test/diff) returned
+"approve with nits"; their named corrections plus the Codex `unsupported_schema_version` blocker and
+component-set boundary regressions are applied. M1.3 (codegen) not started.
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)

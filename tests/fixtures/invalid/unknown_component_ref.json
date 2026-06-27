@@ -1,0 +1,28 @@
+{
+  "schema_version": "0.1.0",
+  "strategy": {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "version": 1,
+    "name": "Unknown component ref",
+    "provenance": {
+      "owner": "22222222-2222-2222-2222-222222222222",
+      "creator": "22222222-2222-2222-2222-222222222222",
+      "contributors": [],
+      "forked_from": null,
+      "visibility": "private",
+      "duplicable": false,
+      "created_at": "2026-06-23T00:00:00Z"
+    }
+  },
+  "execution_policy": {
+    "policy": "close_signal_next_session_open",
+    "valuation": "session_close",
+    "transaction_costs": { "model": "bps", "bps": 5.0 }
+  },
+  "schedule": { "kind": "daily" },
+  "nodes": [
+    { "id": "c", "type_id": "component", "ref": "missing", "params": {} }
+  ],
+  "edges": [],
+  "component_refs": []
+}
