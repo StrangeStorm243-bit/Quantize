@@ -42,7 +42,9 @@ The IR is not "owned" by Pydantic. The hierarchy is, top to bottom:
 7. No pandas DataFrames / Python-specific objects as API contracts.
 8. Treat pandas/numpy/etc. as runtime implementation details, swappable without API change.
 9. Keep editor-only metadata (`ui.*`, node coordinates) distinguishable from executable semantics.
-10. Unknown node types and unsupported schema versions **fail clearly**, never silently ignored.
+10. Failures surface **at the right layer**: an unsupported `schema_version` **fails at structural
+    load (M1)**; an unknown node `type_id` **fails at M2 registry validation** (M1 accepts an unknown
+    future `type_id` to preserve the extensible-block seam). Never silently ignored.
 
 ## Alternatives considered
 

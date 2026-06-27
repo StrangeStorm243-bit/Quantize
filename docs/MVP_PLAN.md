@@ -32,31 +32,44 @@ validated **structurally** — without any node-type knowledge. Establish repo c
 harness now.
 
 ✅ Pydantic models for the full IR: strategy, provenance, execution_policy, **discriminated `schedule`
-variants (`{kind:"daily"|"weekly"|"monthly"}` — no ambiguous frequency+anchor)**, nodes, edges,
-`component_refs`, and the standalone `ComponentDefinition` (with its own pinned `component_refs`) +
-`ComponentRef` documents — with `schema_version`.
+variants (`{kind:"daily"|"weekly"|"monthly"}` — no ambiguous frequency+anchor)**, nodes (each ordinary
+node carrying **required `type_id` + `type_version`**; reserved `component` node carrying `ref`),
+edges, `component_refs`, and the standalone `ComponentDefinition` (with its own pinned `component_refs`
+and an **`implementation` discriminator — v0 ships only `kind:"graph"`**) + `ComponentRef` documents —
+with `schema_version`. **Strict persisted JSON:** governed models `extra="forbid"`; finite recursive
+`JsonValue` (NaN/Inf rejected); RFC-3339/UTC datetimes; `ui` non-semantic; `extensions` semantic.
+(Full field-level shape: `docs/plans/M1_IMPLEMENTATION_PLAN.md`.)
 ✅ **Structural** validation only — **no node-type knowledge, and explicitly NO port-name existence
 check**: endpoint field shape; **source/target node ids exist** (dangling node references);
 identifier uniqueness; prohibited self-edges; structural cycle rules; `component_refs` shape — pinned
-versions required, duplicate ref-ids rejected, missing dependency references rejected, **direct and
-transitive** dependency recursion/cycle rejected; unsupported `schema_version` → clear error.
-✅ JSON round-trip; **`ui` preserved** through load/validate/serialize; **semantic equality excludes
-`ui`**.
+versions required, duplicate ref-ids rejected, missing **local** dependency references rejected,
+**direct** recursion rejected, and **transitive** recursion rejected **over a caller-supplied set**
+of definitions (`validate_component_set`; no fetching, no catalog — refs outside the supplied set are
+"unresolved", deferred to M2/M3); reserved `component` node requires `ref`; unsupported
+`schema_version` → clear error.
+✅ JSON round-trip preserves `ui` **and** `extensions`; **`semantic_projection`** (renamed from
+`semantic_equal`) removes only presentation-only `ui` and canonicalizes node/edge/ref ordering;
+`documents_semantically_equal` defined over it.
 ✅ JSON Schema generated via a **deterministic codegen command** (documented in `CLAUDE.md`); TS types
-generated from the schema; **CI fails on stale generated types**.
-✅ An injected **`NodeCatalog` protocol** + a small **test catalog** as scaffolding only — **no**
-closed central switch and **no** real node implementations.
+generated from the schema; **CI fails on stale generated types**. Codegen begins with a **compatibility
+spike** (`$defs`/`$ref`, discriminated unions, `additionalProperties:false`, recursive JSON,
+optional/required, generic maps); acceptance also requires `tsc --noEmit` compiles and regeneration
+yields no git diff.
 ✅ Contract tests: representative payloads (incl. both reference strategies' documents) validate
-consistently across Pydantic and the published schema.
-✅ Deterministic **valid and invalid** fixtures committed; the **fixture data contract** (calendar,
-timezone, sessions, open/close instants, prices, availability timestamps, ≥1 weekend/holiday
-boundary, warm-up history) is implemented and documented.
+consistently across Pydantic and the published schema; a structurally valid document referencing an
+**unknown future `type_id`** is **accepted** by M1 (rejected later by M2's registry).
+✅ Deterministic **valid and invalid IR** fixtures committed. **NodeCatalog deferred to M2** — M1
+structural validation consults **no** node catalog/registry/descriptor of any kind. The **market-data
+price fixture is deferred** to the named slice `M3-PRE — Market-Data Fixture` (see the M3-PRE entry
+below); M1 does not implement it.
 ✅ Repository commands (install, codegen, test, lint, type-check) defined and runnable; acceptance
-tests run in CI.
+tests run in CI. **Toolchain:** Node 24 LTS; Python version decided by the M1.0 toolchain gate (test
+the pinned stack on installed 3.14 first; fall back to 3.13 only on documented evidence) — see
+`docs/plans/M1_IMPLEMENTATION_PLAN.md` §6.
 
-**Dependencies:** M0. **Defers:** ⤵ registry, ⤵ node semantics, ⤵ engine, ⤵ persistence, ⤵ API.
-**Risks:** ⚠ codegen toolchain friction (mitigate: pin tools, document command, test the staleness
-gate). ⚠ scope creep into M2 (mitigate: no registry/types here).
+**Dependencies:** M0. **Defers:** ⤵ registry/NodeCatalog (→M2), ⤵ node semantics, ⤵ market-data price
+fixture (→M3-PRE), ⤵ engine, ⤵ persistence, ⤵ API. **Risks:** ⚠ codegen toolchain friction (mitigate:
+spike + pin tools + staleness gate). ⚠ scope creep into M2 (mitigate: no registry/types here).
 
 ---
 
@@ -85,6 +98,22 @@ though its API surface ships in M10.
 
 ---
 
+## M3-PRE — Market-Data Fixture *(prerequisite slice; REQUIRED before M3)*
+
+**Objective:** Build the deterministic synthetic price dataset + **fixture data contract** that M1
+deferred. **First consumer:** the `MarketData` adapter / as-of `DataView` used by the M3 graph
+evaluator (and the M4 engine). **This slice must land before M3 begins.**
+
+✅ Fixture data contract implemented and documented: exchange calendar; timezone; valid market
+sessions; session open/close instants; open & close prices; **data-availability timestamps**; ≥1
+weekend/holiday boundary; enough history for warm-up tests. **No corporate actions**; unambiguous
+prices; no undocumented adjusted-price behavior.
+
+**Dependencies:** M1 (IR), M2 (node param shapes that reference data). **Risks:** ⚠ availability-time
+mistakes (mitigate: explicit per-session availability timestamps + look-ahead tests at M3).
+
+---
+
 ## M3 — Graph evaluator + compositional component resolution *(single eval instant; no UI)*
 
 **Objective:** Evaluate a strategy graph at one evaluation instant over an as-of `DataView`,
@@ -98,9 +127,11 @@ transitive recursion rejection, port mapping, parameter binding.
 ✅ Both reference strategies' graphs evaluate at a single instant over the fixture; a simple
 component is evaluated end-to-end.
 ✅ Look-ahead test at evaluator level (an instant's evaluation cannot read data with availability >
-that instant).
+that instant). *(Transitive component recursion is rejected here at full resolution time — over
+fetched definitions — completing the bounded supplied-set check M1 performs.)*
 
-**Dependencies:** M1, M2. **Risks:** ⚠ component port/param edge cases (mitigate: dedicated tests).
+**Dependencies:** M1, M2, **M3-PRE** (market-data fixture). **Risks:** ⚠ component port/param edge
+cases (mitigate: dedicated tests).
 
 ---
 

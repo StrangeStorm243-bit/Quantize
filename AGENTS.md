@@ -40,7 +40,9 @@ visual canvas is an editor for the IR — never the source of truth.
    `ComponentDefinition` documents + pinned `ComponentRef`s. Not visual groups; never flattened; no
    stub expansion; **direct and transitive** recursion rejected; traces preserve hierarchy. Component
    runtime precedes any milestone that executes components; component authoring UI is separate.
-9. **Fail loud** on unknown node types / unsupported schema versions.
+9. **Fail loud — at the right layer.** Unsupported `schema_version` → fails at **structural load
+   (M1)**. Unknown node `type_id` → fails at **M2 registry** (M1 *accepts* unknown future `type_id`,
+   preserving the block seam). Never silently ignored.
 10. **Explicit data rules** — no silent forward-fill/drop; documented and tested.
 11. **Vectorization only as a test-proven-equivalent optimization** for pure nodes.
 

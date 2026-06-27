@@ -48,6 +48,37 @@ v0). Components are **not embedded**; a strategy references them by pinned refer
 }
 ```
 
+### Persisted-JSON & extension policy
+
+- **Strict governed structures.** Core IR models reject unknown fields (`extra="forbid"` in the v0
+  Pydantic implementation). Generic open holders are exactly `params`, `ui`, `extensions`, and a
+  component's `ExposedParam.schema`.
+- **Portable values.** All persisted values are a finite recursive `JsonValue`
+  (`null | bool | JS-safe-int | finite-float | str | list | object`); **NaN and ±Infinity are
+  rejected** on both parse and serialize. Integers must lie in the JavaScript-safe range
+  `[-(2^53-1), 2^53-1]` (larger magnitudes must be strings), so the TypeScript editor reads them
+  losslessly. Round-trip is byte-portable JSON.
+- **Datetimes** (e.g. `provenance.created_at`) are **timezone-aware**, normalized to **UTC**, and
+  serialized as **RFC 3339**; naive datetimes are rejected.
+- **Presentation vs. semantics.** `ui` is **presentation-only and non-semantic** — it is preserved
+  through round-trip but **removed by `semantic_projection`** (below) and never affects execution.
+  `extensions` is **namespaced, preserved, and semantic by default** — it is kept by
+  `semantic_projection` and therefore affects document identity. Only fields documented
+  presentation-only may be removed by the projection; an unknown extension may affect future
+  executable behavior and so must never change execution without also changing semantic comparison.
+
+### `semantic_projection` (semantic equality of documents)
+
+`semantic_projection(document)` produces a canonical form for comparison; `documents_semantically_
+equal(a, b) := semantic_projection(a) == semantic_projection(b)`. It operates only on **structurally
+valid** documents (invalid input is rejected explicitly). It **removes** presentation-only fields
+(`ui`), **preserves** all executable content (`type_id`, `type_version`, `params`, node identities,
+`edges`, `schedule`, `execution_policy`, `component_refs`, `ref`, and `extensions`), and
+**canonicalizes declared-non-semantic ordering** (`nodes` by id, `edges` by endpoints,
+`component_refs` by id, object keys sorted). It makes **no** claim of graph isomorphism or algebraic
+equivalence — it is a documented field projection plus canonical ordering. (Full spec:
+`docs/plans/M1_IMPLEMENTATION_PLAN.md` §5.)
+
 ### Failing loud — and at the right layer
 
 The structural/semantic split is **normative** and unambiguous (see also §4):
@@ -82,7 +113,7 @@ deliberately small in v0 — a rigorous extensible contract, not a complete type
 | `CrossSection[Boolean]` | one bool per asset @ eval instant | a mask (≡ "BooleanMask") |
 | `TimeSeries[Number]` | per-asset history of numbers | e.g. price history, MA history |
 | `PortfolioTargets` | asset → target weight | desired allocation; weights finite, ≥ 0; `Σw ≤ 1`; cash = `1 − Σw` |
-| `OrderList` | list of proposed orders | **engine-produced only**; never a user-graph value (§3, §6) |
+| `OrderList` | list of proposed orders | **engine-produced only**; never a user-graph value and **not a constructible exposed-port type** (§3, §6) |
 
 `BooleanMask` is **conceptually** `CrossSection[Boolean]` — one canonical type, not two.
 
@@ -177,7 +208,23 @@ trace_schema         the structured trace events this node emits, each conformin
                      minimal trace-event envelope (below)
 ```
 
-A node **instance** in the IR is minimal: `{ "id": "n2", "type": "...", "params": {...}, "ui": {...} }`.
+A node **instance** in the IR carries:
+`{ "id": "n2", "type_id": "transform.rank", "type_version": "1.0.0", "params": {...}, "ui"?: {...}, "extensions"?: {...} }`.
+
+- **`type_id`** is an open **namespaced** string (never a closed enum) — an ordinary `type_id`
+  matches a dotted pattern (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, ≥1 dot, e.g. `transform.rank`),
+  with `"component"` the one reserved non-dotted exception; bare/empty ids like `"rank"`/`""` are
+  rejected. **`type_version`** (a `SemVer`) is **required** for ordinary registered nodes — a saved
+  strategy never resolves an unspecified version to "latest". `type_id` + `type_version` together pin the **node-contract version** (version axis 3,
+  §8) the strategy was authored against; M1 checks their presence/shape, M2 resolves them.
+- The **reserved `component` node** (`type_id: "component"`) uses a *different* mechanism: it carries
+  `ref` (to a `component_refs` entry) and **no** `type_version`; its version is the pinned
+  **`ComponentRef.version`** (the component-*definition* version, axis 4), which is **not** a
+  node-contract version. Structural rule: `type_id == "component"` ⇒ `ref` required & `type_version`
+  absent; otherwise ⇒ `type_version` required & `ref` absent.
+- **`ui`** is explicitly presentation-only and **non-semantic** (removed by `semantic_projection`,
+  §1). **`extensions`** is namespaced, preserved, and **semantic by default** (kept by projection;
+  affects document identity). See the persisted-JSON policy in §1.
 
 ### Minimal trace-event envelope (defined at M2 so registered nodes can declare trace output)
 
@@ -389,12 +436,15 @@ by a **pinned `ComponentRef`**. Components are first-class compositional objects
   "component_refs": [                 // pinned dependency collection (same purpose as a strategy's)
     { "id": "d1", "component_id": "uuid-of-dep", "version": "2.1.0" }   // ref_id, component_id, version
   ],
-  "graph": {
-    "nodes": [
-      /* internal nodes; a component-instance node refers to a dependency by ref id: */
-      { "id": "intDep", "type": "component", "ref": "d1", "params": { /* exposed params */ } }
-    ],
-    "edges": [ /* internal */ ]
+  "implementation": {                 // v0 ships ONLY "graph"; other kinds are future schema additions
+    "kind": "graph",
+    "graph": {
+      "nodes": [
+        /* internal nodes; a component-instance node refers to a dependency by ref id: */
+        { "id": "intDep", "type_id": "component", "ref": "d1", "params": { /* exposed params */ } }
+      ],
+      "edges": [ /* internal */ ]
+    }
   },
   "exposed_inputs":  [ { "name": "prices",    "type": { "kind": "TimeSeries", "dtype": "Number" },
                          "maps_to": ["intPriceNode", "series"] } ],     // exposed→internal port map
@@ -406,10 +456,16 @@ by a **pinned `ComponentRef`**. Components are first-class compositional objects
 }
 ```
 
+A `ComponentDefinition`'s **implementation** is held behind an explicit discriminator
+(`implementation.kind`). **v0 ships only `kind: "graph"`**; additional kinds (`formula`, `builtin`,
+`sandboxed`, `model`, `external`) are **future schema additions, not implemented in v0/M1** — the
+seam exists so the consuming strategy depends only on the exposed ports/params + pinned identity,
+never on the implementation mode.
+
 A `ComponentDefinition` carries its **own pinned `component_refs` dependency collection**, equivalent
 in purpose to the one a strategy carries. Each reference contains a **stable reference id**, a
 **component id**, and an **immutable component version**. A **component-instance node inside the
-component's internal graph** (`type: "component"`) must point at one of these reference ids via its
+component's internal graph** (`type_id: "component"`) must point at one of these reference ids via its
 `ref` field — it never names a `(component_id, version)` directly.
 
 ```jsonc
@@ -420,7 +476,7 @@ component's internal graph** (`type: "component"`) must point at one of these re
 ```jsonc
 // A component-instance node in a strategy graph points at a strategy-level ref id and may override
 // exposed params:
-{ "id": "cInst", "type": "component", "ref": "c1", "params": { "n": 3 }, "ui": { "collapsed": true } }
+{ "id": "cInst", "type_id": "component", "ref": "c1", "params": { "n": 3 }, "ui": { "collapsed": true } }
 ```
 
 A component-instance node's exposed ports participate in edges like any node's ports.
@@ -433,11 +489,17 @@ A component-instance node's exposed ports participate in edges like any node's p
 - **Pinned-version requirement:** every `component_refs` entry **must** carry an explicit immutable
   `version`; an unpinned/floating reference is a structural error.
 - **Direct recursion:** a `ComponentDefinition` whose `component_refs` includes its own
-  `component_id` is rejected.
+  `component_id` is rejected — detectable from that **single definition alone**.
 - **Transitive recursion:** **no dependency chain may contain a cycle** — the graph of
-  `ComponentDefinition → component_refs → ComponentDefinition` must be acyclic; any cycle is rejected.
-- **Dependency-resolution failure:** if a referenced `(component_id, version)` cannot be located, or
-  recursion/cycle is detected, resolution **fails loudly** with a clear, structured error.
+  `ComponentDefinition → component_refs → ComponentDefinition` must be acyclic. M1 detects transitive
+  cycles only over a **caller-supplied set** of definitions, via a bounded structural operation
+  `validate_component_set(definitions)` (no fetching, no node catalog). References to a
+  `(component_id, version)` **outside the supplied set** are reported as **unresolved** — their
+  cycle status is deferred to component **resolution** in M2/M3, not claimed by M1. (Spec:
+  `docs/plans/M1_IMPLEMENTATION_PLAN.md` §5.)
+- **Resolution failure (M2/M3, not M1):** *fetching* a referenced `(component_id, version)` from a
+  store and confirming its availability is component **resolution** — out of M1's scope. M1 validates
+  the **shape** and the **supplied-set** dependency graph only.
 
 **Resolution & runtime semantics (M3):**
 - **Parameter binding:** each `exposed_param` binds to a specific internal `(node, param)`; an
@@ -467,13 +529,17 @@ ratings/remote execution/automatic upgrades are deferred (see `ARCHITECTURE.md �
 
 ## 8. Versioning
 
-Three version axes:
+**Four** version axes — distinct, never collapsed into one ambiguous field:
 1. **`schema_version`** — IR *format* (`MAJOR.MINOR.PATCH`). The engine declares a supported range;
    out-of-range documents fail loudly. Migrations are explicit, named, and tested.
 2. **`strategy.version`** — monotonic integer per strategy `id`, incremented per saved revision.
    `(id, version)` is immutable history; `forked_from` records lineage.
-3. **`ComponentDefinition.version`** — immutable per `component_id`; consumers pin a specific version,
-   so publishing new behavior never disturbs existing consumers.
+3. **node `type_version`** — the **node-contract version** a node instance was authored against
+   (`SemVer`, §3). Required on ordinary nodes and explicitly pinned; never resolved to "latest". This
+   is a property of the persisted node instance, resolved by the registry in M2.
+4. **`ComponentDefinition.version`** (pinned by `ComponentRef.version`) — immutable per `component_id`;
+   consumers pin a specific version, so publishing new behavior never disturbs existing consumers.
+   This is the component-*definition* version and is **not** the same as a node `type_version`.
 
 ---
 
@@ -491,15 +557,16 @@ not the graph — produces orders.
   "execution_policy": { "policy": "close_signal_next_session_open", "valuation": "session_close",
                         "transaction_costs": { "model": "bps", "bps": 5.0 } },
   "schedule": { "kind": "monthly" },     // close of the last valid session each calendar month
+  // every ordinary node carries type_id + type_version (versions illustrative)
   "nodes": [
-    { "id": "u",   "type": "universe.fixed_list",       "params": { "tickers": ["EFA","GLD","IWM","QQQ","SPY","TLT"] } },
-    { "id": "px",  "type": "data.price",                "params": {} },
-    { "id": "ret", "type": "transform.trailing_return", "params": { "lookback_sessions": 126 } },
-    { "id": "rk",  "type": "transform.rank",            "params": { "descending": true } },
-    { "id": "sel", "type": "portfolio.select_top_n",    "params": { "n": 3 } },
-    { "id": "ew",  "type": "portfolio.equal_weight",    "params": {} },
-    { "id": "cap", "type": "risk.max_weight",           "params": { "max": 0.4 } },
-    { "id": "tp",  "type": "output.target_portfolio",   "params": {} }
+    { "id": "u",   "type_id": "universe.fixed_list",       "type_version": "1.0.0", "params": { "tickers": ["EFA","GLD","IWM","QQQ","SPY","TLT"] } },
+    { "id": "px",  "type_id": "data.price",                "type_version": "1.0.0", "params": {} },
+    { "id": "ret", "type_id": "transform.trailing_return", "type_version": "1.0.0", "params": { "lookback_sessions": 126 } },
+    { "id": "rk",  "type_id": "transform.rank",            "type_version": "1.0.0", "params": { "descending": true } },
+    { "id": "sel", "type_id": "portfolio.select_top_n",    "type_version": "1.0.0", "params": { "n": 3 } },
+    { "id": "ew",  "type_id": "portfolio.equal_weight",    "type_version": "1.0.0", "params": {} },
+    { "id": "cap", "type_id": "risk.max_weight",           "type_version": "1.0.0", "params": { "max": 0.4 } },
+    { "id": "tp",  "type_id": "output.target_portfolio",   "type_version": "1.0.0", "params": {} }
   ],
   "edges": [
     { "from": ["u","assets"],   "to": ["px","assets"] },   // AssetSet binds which prices to load
@@ -526,16 +593,17 @@ not the graph — produces orders.
   "execution_policy": { "policy": "close_signal_next_session_open", "valuation": "session_close",
                         "transaction_costs": { "model": "bps", "bps": 5.0 } },
   "schedule": { "kind": "weekly" },      // close of the last valid session each Monday–Sunday week
+  // every ordinary node carries type_id + type_version (versions illustrative)
   "nodes": [
-    { "id": "u",    "type": "universe.fixed_list",       "params": { "tickers": ["AGG","EFA","SPY","VNQ"] } },
-    { "id": "px",   "type": "data.price",                "params": {} },
-    { "id": "ma",   "type": "transform.moving_average",  "params": { "window": 200 } },
-    { "id": "maL",  "type": "transform.latest",          "params": {} },
-    { "id": "pxL",  "type": "transform.latest",          "params": {} },
-    { "id": "gt",   "type": "logic.greater_than",        "params": {} },
-    { "id": "fw",   "type": "portfolio.fixed_weight",    "params": { "weight_per_asset": "equal" } },
-    { "id": "mask", "type": "portfolio.apply_mask",      "params": {} },
-    { "id": "tp",   "type": "output.target_portfolio",   "params": {} }
+    { "id": "u",    "type_id": "universe.fixed_list",       "type_version": "1.0.0", "params": { "tickers": ["AGG","EFA","SPY","VNQ"] } },
+    { "id": "px",   "type_id": "data.price",                "type_version": "1.0.0", "params": {} },
+    { "id": "ma",   "type_id": "transform.moving_average",  "type_version": "1.0.0", "params": { "window": 200 } },
+    { "id": "maL",  "type_id": "transform.latest",          "type_version": "1.0.0", "params": {} },
+    { "id": "pxL",  "type_id": "transform.latest",          "type_version": "1.0.0", "params": {} },
+    { "id": "gt",   "type_id": "logic.greater_than",        "type_version": "1.0.0", "params": {} },
+    { "id": "fw",   "type_id": "portfolio.fixed_weight",    "type_version": "1.0.0", "params": { "weight_per_asset": "equal" } },
+    { "id": "mask", "type_id": "portfolio.apply_mask",      "type_version": "1.0.0", "params": {} },
+    { "id": "tp",   "type_id": "output.target_portfolio",   "type_version": "1.0.0", "params": {} }
   ],
   "edges": [
     { "from": ["u","assets"],   "to": ["px","assets"] },   // AssetSet

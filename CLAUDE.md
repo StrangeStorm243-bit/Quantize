@@ -61,8 +61,11 @@ with **structured decision tracing**. The visual canvas is only an editor for th
    (never flattened, no stub/temporary expansion); **direct and transitive recursion rejected**.
    Traces preserve the component hierarchy. Component **runtime** lands before any milestone that
    executes components; component **authoring UI** is a separate, later milestone.
-9. **Fail loud.** Unknown node types and unsupported schema versions raise clear errors — never
-   silently ignored or best-effort parsed.
+9. **Fail loud — at the right layer.** An **unsupported `schema_version`** fails at **structural
+   load (M1)**. An **unknown node `type_id`** fails at **M2 registry-semantic validation** — **not**
+   M1: M1 *accepts* a structurally valid document referencing an unknown future `type_id` (the
+   extensible-block seam), and M2 rejects the unresolved type. Neither is ever silently ignored or
+   best-effort parsed.
 10. **Explicit data rules.** No silent forward-fill or data dropping. Any fill/alignment rule is
     documented at the node and asserted in a test.
 11. **Vectorization is a fenced future optimization** — admissible only with a test proving identical
