@@ -1,0 +1,9 @@
+{
+  "name": "quantize",
+  "private": true,
+  "description": "Quantize — Node toolchain for TypeScript type generation (used from M1.3).",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "comment": "Node 24 LTS is the project baseline. devDependencies (e.g. json-schema-to-typescript) and package-lock.json are added in M1.3, under Node 24 — NOT under an EOL Node line (see docs/plans/M1_IMPLEMENTATION_PLAN.md §6, HIGH-6)."
+}

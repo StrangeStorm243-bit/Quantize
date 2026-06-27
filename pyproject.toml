@@ -1,0 +1,43 @@
+[build-system]
+# hatchling is intentionally unconstrained for now and may float independently; build-backend
+# reproducibility (pinning/hashing the build deps) is deferred with the broader locking hardening.
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "quantize"
+version = "0.0.0"
+description = "Quantize — a visual operating system for quantitative trading (runtime)"
+readme = "README.md"
+# Tested range supports 3.13 and 3.14; the M1.0 toolchain gate confirms the canonical version
+# responsible for committed generated artifacts (see docs/plans/M1_IMPLEMENTATION_PLAN.md §6).
+requires-python = ">=3.13,<3.15"
+dependencies = [
+    "pydantic>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["quantize"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["quantize", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

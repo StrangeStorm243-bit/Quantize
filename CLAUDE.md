@@ -22,13 +22,23 @@ with **structured decision tracing**. The visual canvas is only an editor for th
 
 > Filled in as milestones land. Keep this section current — it is the first thing a new agent reads.
 
-- **Python env / install:** _TBD (M1)_
-- **Run backend / API:** _TBD (M9)_
-- **Run frontend (editor):** _TBD (M11)_
-- **Generate JSON Schema + TS types (codegen):** _TBD (M1)_ — deterministic; CI fails if TS types
+- **Python:** canonical **3.14** (toolchain-gate-verified, M1.0; tested range `>=3.13,<3.15`).
+- **Create env:** `python -m venv .venv` then activate (`.venv\Scripts\activate` on Windows /
+  `source .venv/bin/activate` on POSIX). Direct interpreter on Windows: `.venv/Scripts/python.exe`.
+- **Install (dev):** `python -m pip install -e ".[dev]"`. Pinned lock: `requirements.lock.txt`
+  (regenerate with `python -m pip freeze --exclude-editable > requirements.lock.txt`).
+  `requirements.lock.txt` records the exact package versions used by the canonical development
+  environment (Python 3.14). CI installs those pinned versions to reduce dependency drift.
+  Artifact-level and cross-platform reproducibility are **not guaranteed yet** because hash pinning
+  and platform-aware locking are deferred; the lock is canonical to 3.14 and is not portable to other
+  Python versions verbatim.
+- **Run tests:** `pytest` (runtime; frontend tests from M11).
+- **Lint:** `ruff check .` · **Format check:** `ruff format --check .` · **Type-check:** `mypy`.
+  Run all three before claiming a milestone done.
+- **Node:** baseline **24 LTS** (`.nvmrc`); the TS toolchain + lock land in **M1.3** under Node 24.
+- **Run backend / API:** _TBD (M9)_  ·  **Run frontend (editor):** _TBD (M11)_
+- **Generate JSON Schema + TS types (codegen):** _TBD (M1.3)_ — deterministic; CI fails if TS types
   are stale.
-- **Run tests:** _TBD (M1)_ — `pytest` for runtime; frontend tests from M11.
-- **Lint / format / type-check:** _TBD (M1)_ — run all three before claiming a milestone done.
 
 ## Architectural invariants (do not violate without an ADR)
 
