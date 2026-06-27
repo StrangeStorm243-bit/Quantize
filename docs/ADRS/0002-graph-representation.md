@@ -14,9 +14,12 @@ relates to all of it. The chief risks are (a) coupling the IR to the current UI/
 
 **A UI-independent, typed, versioned DAG IR is the source of truth; the canvas is an editor for it.**
 
-1. **The persisted IR is authoritative.** Nodes carry `id`, `type`, `params`, and a `ui` object.
-   `ui` is **preserved through round-trip** but **excluded from execution and semantic equality** —
-   never discarded. Documents differing only in `ui.*` are semantically identical.
+1. **The persisted IR is authoritative.** An ordinary node carries `id`, `type_id`, `type_version`,
+   `params`, and optional `ui`/`extensions` (reserved `component` node: `id`, `type_id:"component"`,
+   `ref`, …); the field-level shape is normative in `STRATEGY_LANGUAGE.md` §3. `ui` is **preserved
+   through round-trip** but **excluded from execution and semantic equality** (`extensions` is
+   preserved and **semantic**); never discarded. Documents differing only in `ui.*` are semantically
+   identical.
 2. **Typed ports.** Every edge connects `(node, output_port) → (node, input_port)` and is valid
    only if a single central `is_compatible(out_type, in_type)` returns true. The type lattice and
    compatibility rules are specified in STRATEGY_LANGUAGE.md.
@@ -30,8 +33,10 @@ relates to all of it. The chief risks are (a) coupling the IR to the current UI/
    version)`. They are evaluated compositionally (never flattened, no stub expansion) and rejected on
    direct or transitive recursion. Embedded/exported bundles may inline dependencies for portability,
    but the standalone document + pinned reference is the primary persisted model.
-6. **Two version axes:** `schema_version` (IR format) and `strategy.version` (monotonic per
-   strategy id), with components versioned independently.
+6. **Four version axes** (distinct, never collapsed): `schema_version` (IR format),
+   `strategy.version` (monotonic per strategy id), node `type_version` (node-contract version per
+   ordinary node instance), and `ComponentDefinition.version` (pinned by `ComponentRef.version`). See
+   `STRATEGY_LANGUAGE.md` §8.
 
 ## Alternatives considered
 

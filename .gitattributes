@@ -1,0 +1,5 @@
+# Generated codegen artifacts are emitted with LF and byte-compared by the staleness gate.
+# Pin them to LF so git never rewrites line endings across Windows/Linux checkouts.
+schema/quantize.schema.json text eol=lf
+ts/quantize-ir.d.ts text eol=lf
+ts/fixtures/*.ts text eol=lf

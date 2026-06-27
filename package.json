@@ -1,0 +1,16 @@
+{
+  "name": "quantize",
+  "private": true,
+  "description": "Quantize — Node toolchain for TypeScript type generation (used from M1.3).",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "15.0.4",
+    "typescript": "6.0.3"
+  },
+  "comment": "Node 24 LTS is the project baseline. Generated artifacts (schema/quantize.schema.json, ts/quantize-ir.d.ts) are produced by `python -m quantize.codegen generate` and verified by `python -m quantize.codegen check`. Dependencies are exact-pinned and locked in package-lock.json; CI uses `npm ci` on Node 24. See docs/plans/M1_IMPLEMENTATION_PLAN.md §7."
+}

@@ -22,13 +22,30 @@ with **structured decision tracing**. The visual canvas is only an editor for th
 
 > Filled in as milestones land. Keep this section current — it is the first thing a new agent reads.
 
-- **Python env / install:** _TBD (M1)_
-- **Run backend / API:** _TBD (M9)_
-- **Run frontend (editor):** _TBD (M11)_
-- **Generate JSON Schema + TS types (codegen):** _TBD (M1)_ — deterministic; CI fails if TS types
-  are stale.
-- **Run tests:** _TBD (M1)_ — `pytest` for runtime; frontend tests from M11.
-- **Lint / format / type-check:** _TBD (M1)_ — run all three before claiming a milestone done.
+- **Python:** canonical **3.14** (toolchain-gate-verified, M1.0; tested range `>=3.13,<3.15`).
+- **Create env:** `python -m venv .venv` then activate (`.venv\Scripts\activate` on Windows /
+  `source .venv/bin/activate` on POSIX). Direct interpreter on Windows: `.venv/Scripts/python.exe`.
+- **Install (dev):** `python -m pip install -e ".[dev]"`. Pinned lock: `requirements.lock.txt`
+  (regenerate with `python -m pip freeze --exclude-editable > requirements.lock.txt`).
+  `requirements.lock.txt` records the exact package versions used by the canonical development
+  environment (Python 3.14). CI installs those pinned versions to reduce dependency drift.
+  Artifact-level and cross-platform reproducibility are **not guaranteed yet** because hash pinning
+  and platform-aware locking are deferred; the lock is canonical to 3.14 and is not portable to other
+  Python versions verbatim.
+- **Run tests:** `pytest` (runtime; frontend tests from M11).
+- **Lint:** `ruff check .` · **Format check:** `ruff format --check .` · **Type-check:** `mypy`.
+  Run all three before claiming a milestone done.
+- **Node:** baseline **24 LTS** (`.nvmrc`). Install locked deps with `npm ci` under Node 24 (CI uses
+  `npm ci`; never run the Node toolchain under Node 25+). Local activation example (fnm): `fnm use`
+  reads `.nvmrc`.
+- **Run backend / API:** _TBD (M9)_  ·  **Run frontend (editor):** _TBD (M11)_
+- **Generate JSON Schema + TS types (codegen):** `python -m quantize.codegen generate` (emits
+  `schema/quantize.schema.json` + `ts/quantize-ir.d.ts`; needs Node 24 on PATH for the TS step).
+  Verify without writing: `python -m quantize.codegen check`. TypeScript compile gate: `npm run
+  typecheck` (`tsc --noEmit`). Output is deterministic and byte-stable (LF; see `.gitattributes`),
+  committed, and CI’s `codegen` job fails if the committed artifacts are stale. The committed JSON
+  Schema is the exported structural contract; the `.d.ts` is a **derived** artifact — never hand-edit
+  it, regenerate instead.
 
 ## Architectural invariants (do not violate without an ADR)
 
@@ -61,8 +78,11 @@ with **structured decision tracing**. The visual canvas is only an editor for th
    (never flattened, no stub/temporary expansion); **direct and transitive recursion rejected**.
    Traces preserve the component hierarchy. Component **runtime** lands before any milestone that
    executes components; component **authoring UI** is a separate, later milestone.
-9. **Fail loud.** Unknown node types and unsupported schema versions raise clear errors — never
-   silently ignored or best-effort parsed.
+9. **Fail loud — at the right layer.** An **unsupported `schema_version`** fails at **structural
+   load (M1)**. An **unknown node `type_id`** fails at **M2 registry-semantic validation** — **not**
+   M1: M1 *accepts* a structurally valid document referencing an unknown future `type_id` (the
+   extensible-block seam), and M2 rejects the unresolved type. Neither is ever silently ignored or
+   best-effort parsed.
 10. **Explicit data rules.** No silent forward-fill or data dropping. Any fill/alignment rule is
     documented at the node and asserted in a test.
 11. **Vectorization is a fenced future optimization** — admissible only with a test proving identical
