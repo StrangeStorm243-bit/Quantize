@@ -276,6 +276,53 @@ component-set boundary regressions are applied. M1.3 (codegen) not started.
 
 ---
 
+## M1 Walkthrough + M2 Readiness (2026-06-29) — DEMONSTRATED
+
+Full operational review of the merged M1 implementation across seven lessons, then M2 concept
+preparation. Goal was supervisory understanding (trace, locate, predict, judge), not line-by-line
+recall.
+
+**Demonstrated:**
+- **Strict / portable data** — parse vs. mutate vs. serialize as three distinct moments; why the
+  canonical serializer (`to_ir_dict`/`to_ir_json`) re-validates portability rather than trusting
+  in-memory state; `extra="forbid"` and `strict` numerics fail at *parse*; bool rejected as a number
+  two ways (strict governed fields vs. the explicit guard in `_to_finite_number`).
+- **Semantic projection** — only `ui` is non-semantic; `extensions` is semantic by default; 6/6 on
+  equality prediction incl. the `extensions`-present and node-rename traps.
+- **Testing & independent review** — the test families; the headline that M1 had 54 passing tests
+  *and* three Codex BLOCKERS simultaneously (silent defaults, serialization NaN→null, bool coercion);
+  deterministic tools vs. model self-review vs. independent (Codex) review as defense in depth.
+- **Source vs. derived artifacts** — generated `schema/quantize.schema.json` + `ts/quantize-ir.d.ts`
+  (and `requirements.lock.txt`/`package-lock.json`) are tool-produced; the codegen chain
+  `Pydantic → JSON Schema → TypeScript` and the staleness gate (`codegen check`).
+
+**Operational (reinforced):**
+- **The M1/M2 boundary.** Needed repeated correction before stabilizing on the single test:
+  *"can I answer this from the document + a constant alone? → M1; do I need the node-type registry?
+  → M2."* Final reflexive mapping: `schema_version` unsupported → **M1/constant**; duplicate/dangling
+  /cycle → **M1/scan**; `type_id` unknown → **M2/registry**; port-name existence + type compatibility
+  → **M2/registry**. Edge endpoint `(node_id, port_name)`: left = M1, right = M2.
+
+**M2 readiness gate — passed (6/6):** structural-vs-semantic; why `type_id` stays an open string;
+registry maps `(type_id, type_version) → descriptor`; node params belong to the descriptor, not the
+central IR; `is_compatible` centralized as one shared function so editor and validator can't drift;
+M2 *resolves* meaning, M3 *runs* it.
+
+**Files studied:** `quantize/schema/{primitives,types,nodes,document,schedule,version,serialization,
+semantics,components}.py`; `quantize/validation/{structural,errors}.py`; `quantize/codegen/
+{schema,typescript,pipeline}.py`; generated `schema/quantize.schema.json` + `ts/quantize-ir.d.ts` +
+`ts/fixtures/usage.ts`; representative `tests/*` and `tests/fixtures/*`; `docs/reviews/
+M1_1_CODEX_REVIEW.md`; `pyproject.toml`, `.github/workflows/ci.yml`, `package.json`.
+
+**Watch:** tendency to answer "how is X centralized?" with the *behavior* instead of the
+*architecture* (one source of truth → no drift) — relevant throughout M2 (registry, `is_compatible`,
+descriptor model).
+
+**Status:** M1 understanding operational-to-demonstrated across all stages; **founder cleared to
+supervise M2** (registry + semantic validation). Next: M2.1 registry + descriptor model.
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
