@@ -323,6 +323,60 @@ supervise M2** (registry + semantic validation). Next: M2.1 registry + descripto
 
 ---
 
+## M2.1 — Node Registry & Descriptor Model (2026-06-29)
+
+First M2 slice, executed founder-supervised (founder directed the design via brainstorming; agent
+implemented; independent Codex review). Founder hand-implementation begins from M3/M4.
+
+**Concepts introduced:**
+- **The registry pattern (open/closed).** A registry maps a key to a registered description so the
+  system is *open* for new node types (add a registration) but *closed* for modification (no central
+  switch to edit) — invariant 7. Here `(type_id, type_version) → NodeDescriptor`. This is the other
+  half of M1's open `type_id`: M1 leaves the string meaningless; the registry gives it meaning.
+- **Static descriptor vs. full node contract.** `NodeDescriptor` (in `quantize/registry/descriptor.py`)
+  is the *static, editor-facing subset* — identity, typed input/output ports, metadata — **not** the
+  executable contract (parameter schema, evaluate, trace schema, purity, warm-up), which lands later.
+- **Dependency injection + Protocol (capability separation).** Consumers depend on a narrow read-only
+  `NodeRegistryView` Protocol that **omits `register()`**, so a validator can resolve but never mutate
+  the catalog → deterministic validation (same document + same view ⇒ same diagnostics). mypy proves
+  the concrete `NodeRegistry` satisfies the Protocol.
+- **Exact-version resolution + non-throwing results.** `resolve()` matches the *exact* pinned
+  `(type_id, type_version)` — never latest/range/fallback — and returns a typed `NodeResolution`
+  (`OK` / `UNKNOWN_TYPE` / `VERSION_UNAVAILABLE`) rather than raising, so M2.2 can accumulate
+  deterministic diagnostics. Registration misuse (a duplicate key) *does* fail loud.
+- **Errors vs. diagnostics (the M2.1 split).** Registration is a programming act → raise
+  (`DuplicateRegistrationError`); resolution is a query over user data → return a result. Descriptor
+  construction failures are ordinary Pydantic `ValidationError`s, not registry errors.
+- **Runtime infra is neither source-of-truth nor derived.** Descriptors are authored in code and
+  never persisted/serialized, so they do **not** touch the Pydantic IR → JSON Schema → TypeScript
+  codegen chain; the staleness gate is irrelevant to them (confirmed: `codegen check` clean, no
+  `schema/`/`ts/` diff).
+
+**Founder design decisions (made during brainstorming):** split `InputPortSpec`/`OutputPortSpec`
+(`required` on inputs only); `port_type` over `type`; frozen Pydantic descriptors + a separate narrow
+injection Protocol; **defer `parameter_schema`** after the report showed `jsonschema` is dev-only and
+using it at runtime would be an out-of-scope dependency change (deferring also yields a deeply
+immutable descriptor); required `metadata`; infrastructure exceptions only.
+
+**Codex review fixes applied:** hardened `NodeResolution.__post_init__` to reject non-enum status and
+empty `VERSION_UNAVAILABLE` (BLOCKER); made `required` a strict bool so `"false"` is rejected, not
+coerced (MEDIUM); added frozen-mutation tests for `NodeDescriptor`/`NodeMetadata` (LOW).
+
+**Files studied / created:** `quantize/registry/{descriptor,registry,errors,__init__}.py`;
+`tests/{test_registry,test_registry_descriptor,test_registry_fixtures,registry_fixtures}.py`;
+`docs/plans/2026-06-29-m2-registry-design.md` (design) + `2026-06-29-m2-registry.md` (plan);
+`docs/reviews/M2_1_CODEX_REVIEW.md`.
+
+**Exercise for next time (M3/M4 onward, hand-implemented):** the M2.2 semantic validator that consumes
+`NodeRegistryView` over a real `StrategyDocument` — resolve each node, accumulate diagnostics in the
+M1.2 deterministic style. *Prediction to make first:* which resolution status maps to which diagnostic
+code, and at which layer (M2) does it sit?
+
+**Status:** M2.1 implemented, gate green (185 tests; ruff/format/mypy clean), Codex review addressed,
+founder-approved. Next: M2.2 (semantic validation) — first founder hand-implementation slice.
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
