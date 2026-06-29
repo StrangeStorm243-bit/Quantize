@@ -28,7 +28,7 @@ def test_output_port_has_no_required_field() -> None:
 def test_port_spec_is_frozen() -> None:
     port = InputPortSpec(name="values", port_type=_CS_NUM)
     with pytest.raises(ValidationError):
-        port.name = "other"  # type: ignore[misc]
+        port.name = "other"
 
 
 def _descriptor(**overrides: object) -> NodeDescriptor:
