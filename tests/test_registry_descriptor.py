@@ -31,6 +31,11 @@ def test_port_spec_is_frozen() -> None:
         port.name = "other"
 
 
+def test_required_rejects_string_coercion() -> None:
+    with pytest.raises(ValidationError):
+        InputPortSpec(name="x", port_type=_CS_NUM, required="false")  # type: ignore[arg-type]
+
+
 def _descriptor(**overrides: object) -> NodeDescriptor:
     base: dict[str, object] = dict(
         type_id="transform.rank",
@@ -96,3 +101,13 @@ def test_rejects_duplicate_output_names() -> None:
 def test_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError):
         _descriptor(flavor="spicy")
+
+
+def test_node_metadata_is_frozen() -> None:
+    with pytest.raises(ValidationError):
+        _META.display_name = "other"
+
+
+def test_node_descriptor_is_frozen() -> None:
+    with pytest.raises(ValidationError):
+        _descriptor().type_id = "transform.other"

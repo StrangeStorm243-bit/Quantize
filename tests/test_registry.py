@@ -76,6 +76,16 @@ def test_invalid_ok_resolution_is_rejected() -> None:
         NodeResolution(ResolutionStatus.OK, None, ())
 
 
+def test_non_enum_status_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        NodeResolution("bad")  # type: ignore[arg-type]
+
+
+def test_version_unavailable_requires_at_least_one_version() -> None:
+    with pytest.raises(ValueError):
+        NodeResolution.version_unavailable(())
+
+
 # --- NodeRegistry ----------------------------------------------------------------------------
 
 

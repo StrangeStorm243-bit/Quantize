@@ -25,7 +25,8 @@ class InputPortSpec(_FrozenGoverned):
 
     name: PortName
     port_type: PortType
-    required: bool = True
+    # strict: a typo like required="false" must fail loud, never coerce to a boolean.
+    required: bool = Field(default=True, strict=True)
 
 
 class OutputPortSpec(_FrozenGoverned):

@@ -41,6 +41,8 @@ class NodeResolution:
     available_versions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.status, ResolutionStatus):
+            raise ValueError(f"status must be a ResolutionStatus, got {self.status!r}")
         if self.status is ResolutionStatus.OK:
             if self.descriptor is None or self.available_versions != ():
                 raise ValueError("OK resolution must carry a descriptor and no available_versions")
@@ -50,6 +52,8 @@ class NodeResolution:
         else:  # VERSION_UNAVAILABLE
             if self.descriptor is not None:
                 raise ValueError("VERSION_UNAVAILABLE resolution must have no descriptor")
+            if not self.available_versions:
+                raise ValueError("VERSION_UNAVAILABLE resolution must report >=1 available version")
             if list(self.available_versions) != sorted(self.available_versions):
                 raise ValueError("available_versions must be sorted")
 
