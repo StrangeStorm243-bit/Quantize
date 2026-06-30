@@ -377,6 +377,61 @@ founder-approved. Next: M2.2 (semantic validation) — first founder hand-implem
 
 ---
 
+## M2.2 — Semantic Validation (registry resolution + wiring by name) (2026-06-30)
+
+Second M2 slice, executed founder-supervised (founder directed the design via brainstorming; agent
+implemented; independent Codex review). Founder hand-implementation begins from M3.
+
+**Concepts introduced:**
+- **The third validation layer.** `parse (Pydantic) → structural (M1.2, registry-free) → semantic
+  (M2.2, registry-dependent)`. Each layer needs what the one below produces; semantic runs on an
+  already-parsed, structurally-valid document and must **not** rerun structural checks.
+- **The "exists" split, completed.** On an edge endpoint `(node_id, port_name)`, M1 answered "does the
+  *node* exist?" (scan). M2.2 now answers "does the *port* exist on the node's type?" — only the
+  registry can, so this is the port-half you drilled, finally implemented (`semantic.py`).
+- **DRY across layers via a read-only Protocol.** The deterministic `(loc, code, subject)` sort was
+  extracted to `validation/diagnostics.py` behind a `HasLocCodeSubject` Protocol whose members are
+  **read-only properties** — so *frozen* dataclasses (`StructuralError`, `SemanticDiagnostic`) satisfy
+  it. A plain-attribute Protocol would have rejected frozen types (caught by mypy). The structural
+  refactor was **behavior-preserving**, proven by the unchanged M1.2 tests.
+- **Distinct result type, deliberate naming.** `SemanticDiagnostic`/`SemanticValidation` mirror the
+  structural shape but stay separate; the field is `diagnostics` (not `errors`) to leave room for
+  future warning/info findings — v0 keeps `ok = not diagnostics`.
+- **Errors vs. diagnostics, again.** Registration misuse raises; *resolution outcomes over user
+  documents* (unknown type, version unavailable, bad port, unconnected required input) are accumulated
+  diagnostics, never exceptions.
+- **Two subtle rules.** (1) **Per-endpoint** component skip: an edge touching a component node skips
+  only that endpoint; a resolved registered endpoint is still checked. (2) **No-cascade**
+  connectivity: a required input counts as connected by *any* edge targeting it, even if the source
+  failed resolution — avoiding noisy cascades (type-compat is M2.3's job).
+- **Test against doubles.** A `build_reference_registry()` of descriptor doubles (port *names* from
+  the committed strategies, plausible lattice *types*) proves Strategy A and B wirings resolve by name
+  without needing the real node implementations.
+
+**Founder design decisions (brainstorming):** parallel `SemanticDiagnostic` with M1.2 untouched;
+extract the shared sort helper (Approach A); broaden `errors.py` docstring; explicit semantic
+precondition; `diagnostics` over `errors`; include **both** reference strategies; reference registry
+is test-only doubles with real lattice port types so M2.3 can reuse it.
+
+**Codex review fixes applied:** added the Edit-1 component-endpoint tests (BLOCKER — proves
+per-endpoint skip); version-unavailable test now asserts the message lists available versions;
+determinism test now asserts the exact `(loc, code, subject)` order.
+
+**Files studied / created:** `quantize/validation/{diagnostics,semantic,errors,structural}.py`;
+`tests/{test_semantic_validation,registry_fixtures}.py`;
+`docs/plans/2026-06-30-m2-semantic-validation{-design,}.md`.
+
+**Exercise (M3 onward, hand-implemented):** M2.3's single shared `is_compatible(output_type,
+input_type)` over the `PortType` lattice (exact match + the one widening `Scalar[Integer] →
+Scalar[Number]`; no implicit meaning changes) and a per-edge compatibility check reusing
+`build_reference_registry()`. *Prediction to make first:* which Strategy A/B edge would the lattice
+reject if a `TimeSeries[Number]` fed a port expecting `CrossSection[Number]`, and which node fixes it?
+
+**Status:** M2.2 implemented, gate green (200 tests; ruff/format/mypy clean), Codex review addressed,
+founder-approved. Next: M2.3 (single shared `is_compatible` + per-edge port-type compatibility).
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
