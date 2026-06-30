@@ -276,6 +276,221 @@ component-set boundary regressions are applied. M1.3 (codegen) not started.
 
 ---
 
+## M1 Walkthrough + M2 Readiness (2026-06-29) — DEMONSTRATED
+
+Full operational review of the merged M1 implementation across seven lessons, then M2 concept
+preparation. Goal was supervisory understanding (trace, locate, predict, judge), not line-by-line
+recall.
+
+**Demonstrated:**
+- **Strict / portable data** — parse vs. mutate vs. serialize as three distinct moments; why the
+  canonical serializer (`to_ir_dict`/`to_ir_json`) re-validates portability rather than trusting
+  in-memory state; `extra="forbid"` and `strict` numerics fail at *parse*; bool rejected as a number
+  two ways (strict governed fields vs. the explicit guard in `_to_finite_number`).
+- **Semantic projection** — only `ui` is non-semantic; `extensions` is semantic by default; 6/6 on
+  equality prediction incl. the `extensions`-present and node-rename traps.
+- **Testing & independent review** — the test families; the headline that M1 had 54 passing tests
+  *and* three Codex BLOCKERS simultaneously (silent defaults, serialization NaN→null, bool coercion);
+  deterministic tools vs. model self-review vs. independent (Codex) review as defense in depth.
+- **Source vs. derived artifacts** — generated `schema/quantize.schema.json` + `ts/quantize-ir.d.ts`
+  (and `requirements.lock.txt`/`package-lock.json`) are tool-produced; the codegen chain
+  `Pydantic → JSON Schema → TypeScript` and the staleness gate (`codegen check`).
+
+**Operational (reinforced):**
+- **The M1/M2 boundary.** Needed repeated correction before stabilizing on the single test:
+  *"can I answer this from the document + a constant alone? → M1; do I need the node-type registry?
+  → M2."* Final reflexive mapping: `schema_version` unsupported → **M1/constant**; duplicate/dangling
+  /cycle → **M1/scan**; `type_id` unknown → **M2/registry**; port-name existence + type compatibility
+  → **M2/registry**. Edge endpoint `(node_id, port_name)`: left = M1, right = M2.
+
+**M2 readiness gate — passed (6/6):** structural-vs-semantic; why `type_id` stays an open string;
+registry maps `(type_id, type_version) → descriptor`; node params belong to the descriptor, not the
+central IR; `is_compatible` centralized as one shared function so editor and validator can't drift;
+M2 *resolves* meaning, M3 *runs* it.
+
+**Files studied:** `quantize/schema/{primitives,types,nodes,document,schedule,version,serialization,
+semantics,components}.py`; `quantize/validation/{structural,errors}.py`; `quantize/codegen/
+{schema,typescript,pipeline}.py`; generated `schema/quantize.schema.json` + `ts/quantize-ir.d.ts` +
+`ts/fixtures/usage.ts`; representative `tests/*` and `tests/fixtures/*`; `docs/reviews/
+M1_1_CODEX_REVIEW.md`; `pyproject.toml`, `.github/workflows/ci.yml`, `package.json`.
+
+**Watch:** tendency to answer "how is X centralized?" with the *behavior* instead of the
+*architecture* (one source of truth → no drift) — relevant throughout M2 (registry, `is_compatible`,
+descriptor model).
+
+**Status:** M1 understanding operational-to-demonstrated across all stages; **founder cleared to
+supervise M2** (registry + semantic validation). Next: M2.1 registry + descriptor model.
+
+---
+
+## M2.1 — Node Registry & Descriptor Model (2026-06-29)
+
+First M2 slice, executed founder-supervised (founder directed the design via brainstorming; agent
+implemented; independent Codex review). Founder hand-implementation begins from M3/M4.
+
+**Concepts introduced:**
+- **The registry pattern (open/closed).** A registry maps a key to a registered description so the
+  system is *open* for new node types (add a registration) but *closed* for modification (no central
+  switch to edit) — invariant 7. Here `(type_id, type_version) → NodeDescriptor`. This is the other
+  half of M1's open `type_id`: M1 leaves the string meaningless; the registry gives it meaning.
+- **Static descriptor vs. full node contract.** `NodeDescriptor` (in `quantize/registry/descriptor.py`)
+  is the *static, editor-facing subset* — identity, typed input/output ports, metadata — **not** the
+  executable contract (parameter schema, evaluate, trace schema, purity, warm-up), which lands later.
+- **Dependency injection + Protocol (capability separation).** Consumers depend on a narrow read-only
+  `NodeRegistryView` Protocol that **omits `register()`**, so a validator can resolve but never mutate
+  the catalog → deterministic validation (same document + same view ⇒ same diagnostics). mypy proves
+  the concrete `NodeRegistry` satisfies the Protocol.
+- **Exact-version resolution + non-throwing results.** `resolve()` matches the *exact* pinned
+  `(type_id, type_version)` — never latest/range/fallback — and returns a typed `NodeResolution`
+  (`OK` / `UNKNOWN_TYPE` / `VERSION_UNAVAILABLE`) rather than raising, so M2.2 can accumulate
+  deterministic diagnostics. Registration misuse (a duplicate key) *does* fail loud.
+- **Errors vs. diagnostics (the M2.1 split).** Registration is a programming act → raise
+  (`DuplicateRegistrationError`); resolution is a query over user data → return a result. Descriptor
+  construction failures are ordinary Pydantic `ValidationError`s, not registry errors.
+- **Runtime infra is neither source-of-truth nor derived.** Descriptors are authored in code and
+  never persisted/serialized, so they do **not** touch the Pydantic IR → JSON Schema → TypeScript
+  codegen chain; the staleness gate is irrelevant to them (confirmed: `codegen check` clean, no
+  `schema/`/`ts/` diff).
+
+**Founder design decisions (made during brainstorming):** split `InputPortSpec`/`OutputPortSpec`
+(`required` on inputs only); `port_type` over `type`; frozen Pydantic descriptors + a separate narrow
+injection Protocol; **defer `parameter_schema`** after the report showed `jsonschema` is dev-only and
+using it at runtime would be an out-of-scope dependency change (deferring also yields a deeply
+immutable descriptor); required `metadata`; infrastructure exceptions only.
+
+**Codex review fixes applied:** hardened `NodeResolution.__post_init__` to reject non-enum status and
+empty `VERSION_UNAVAILABLE` (BLOCKER); made `required` a strict bool so `"false"` is rejected, not
+coerced (MEDIUM); added frozen-mutation tests for `NodeDescriptor`/`NodeMetadata` (LOW).
+
+**Files studied / created:** `quantize/registry/{descriptor,registry,errors,__init__}.py`;
+`tests/{test_registry,test_registry_descriptor,test_registry_fixtures,registry_fixtures}.py`;
+`docs/plans/2026-06-29-m2-registry-design.md` (design) + `2026-06-29-m2-registry.md` (plan);
+`docs/reviews/M2_1_CODEX_REVIEW.md`.
+
+**Exercise for next time (M3/M4 onward, hand-implemented):** the M2.2 semantic validator that consumes
+`NodeRegistryView` over a real `StrategyDocument` — resolve each node, accumulate diagnostics in the
+M1.2 deterministic style. *Prediction to make first:* which resolution status maps to which diagnostic
+code, and at which layer (M2) does it sit?
+
+**Status:** M2.1 implemented, gate green (185 tests; ruff/format/mypy clean), Codex review addressed,
+founder-approved. Next: M2.2 (semantic validation) — first founder hand-implementation slice.
+
+---
+
+## M2.2 — Semantic Validation (registry resolution + wiring by name) (2026-06-30)
+
+Second M2 slice, executed founder-supervised (founder directed the design via brainstorming; agent
+implemented; independent Codex review). Founder hand-implementation begins from M3.
+
+**Concepts introduced:**
+- **The third validation layer.** `parse (Pydantic) → structural (M1.2, registry-free) → semantic
+  (M2.2, registry-dependent)`. Each layer needs what the one below produces; semantic runs on an
+  already-parsed, structurally-valid document and must **not** rerun structural checks.
+- **The "exists" split, completed.** On an edge endpoint `(node_id, port_name)`, M1 answered "does the
+  *node* exist?" (scan). M2.2 now answers "does the *port* exist on the node's type?" — only the
+  registry can, so this is the port-half you drilled, finally implemented (`semantic.py`).
+- **DRY across layers via a read-only Protocol.** The deterministic `(loc, code, subject)` sort was
+  extracted to `validation/diagnostics.py` behind a `HasLocCodeSubject` Protocol whose members are
+  **read-only properties** — so *frozen* dataclasses (`StructuralError`, `SemanticDiagnostic`) satisfy
+  it. A plain-attribute Protocol would have rejected frozen types (caught by mypy). The structural
+  refactor was **behavior-preserving**, proven by the unchanged M1.2 tests.
+- **Distinct result type, deliberate naming.** `SemanticDiagnostic`/`SemanticValidation` mirror the
+  structural shape but stay separate; the field is `diagnostics` (not `errors`) to leave room for
+  future warning/info findings — v0 keeps `ok = not diagnostics`.
+- **Errors vs. diagnostics, again.** Registration misuse raises; *resolution outcomes over user
+  documents* (unknown type, version unavailable, bad port, unconnected required input) are accumulated
+  diagnostics, never exceptions.
+- **Two subtle rules.** (1) **Per-endpoint** component skip: an edge touching a component node skips
+  only that endpoint; a resolved registered endpoint is still checked. (2) **No-cascade**
+  connectivity: a required input counts as connected by *any* edge targeting it, even if the source
+  failed resolution — avoiding noisy cascades (type-compat is M2.3's job).
+- **Test against doubles.** A `build_reference_registry()` of descriptor doubles (port *names* from
+  the committed strategies, plausible lattice *types*) proves Strategy A and B wirings resolve by name
+  without needing the real node implementations.
+
+**Founder design decisions (brainstorming):** parallel `SemanticDiagnostic` with M1.2 untouched;
+extract the shared sort helper (Approach A); broaden `errors.py` docstring; explicit semantic
+precondition; `diagnostics` over `errors`; include **both** reference strategies; reference registry
+is test-only doubles with real lattice port types so M2.3 can reuse it.
+
+**Codex review fixes applied:** added the Edit-1 component-endpoint tests (BLOCKER — proves
+per-endpoint skip); version-unavailable test now asserts the message lists available versions;
+determinism test now asserts the exact `(loc, code, subject)` order.
+
+**Files studied / created:** `quantize/validation/{diagnostics,semantic,errors,structural}.py`;
+`tests/{test_semantic_validation,registry_fixtures}.py`;
+`docs/plans/2026-06-30-m2-semantic-validation{-design,}.md`.
+
+**Exercise (M3 onward, hand-implemented):** M2.3's single shared `is_compatible(output_type,
+input_type)` over the `PortType` lattice (exact match + the one widening `Scalar[Integer] →
+Scalar[Number]`; no implicit meaning changes) and a per-edge compatibility check reusing
+`build_reference_registry()`. *Prediction to make first:* which Strategy A/B edge would the lattice
+reject if a `TimeSeries[Number]` fed a port expecting `CrossSection[Number]`, and which node fixes it?
+
+**Status:** M2.2 implemented, gate green (200 tests; ruff/format/mypy clean), Codex review addressed,
+founder-approved. Next: M2.3 (single shared `is_compatible` + per-edge port-type compatibility).
+
+---
+
+## M2.3–M2.4 — Compatibility, parameter validation, trace envelope (M2 completion) (2026-06-30)
+
+The remaining M2 contract/validation surface, executed founder-supervised (founder directed each
+design via brainstorming; agent implemented; independent Codex review per slice). The **12 node
+implementations** and **node-specific validation** are deferred to the M3 phase / first real node.
+Founder hand-implementation begins at M3.
+
+**Concepts introduced:**
+- **The single shared compatibility function (invariants 4/5/7).** `quantize/compatibility.py`'s
+  `is_compatible(source, destination)` is the *only* place edge compatibility is decided, so the
+  validator and the future editor cannot drift. It is an **allow-list**: exact match (via `PortType`
+  value-equality) plus the one explicit widening `Scalar[Integer] → Scalar[Number]`; everything else
+  (the "no implicit meaning change" cases) falls through to `False`. Allow-list, not deny-list — you
+  don't enumerate every forbidden pairing.
+- **Gating to avoid cascades.** Port-type compatibility is checked only when *both* endpoints resolve
+  *and* both named ports exist; a missing port yields only `unknown_*_port`, never also
+  `incompatible_port_types`. This completes the "exists" split: `from_[0]` (node id) is M1,
+  `from_[1]` (port name + type) is M2.
+- **A value-object that makes a contract true.** `JsonSchemaSpec` (M2.4) guarantees
+  *construction validates → `errors()` never raises*. The Codex review proved why that matters:
+  `check_schema` accepts an unresolvable `$ref`, which then throws mid-`iter_errors` — so construction
+  must also reject references (v0 schemas are self-contained) and non-portable content (schemas are
+  language-neutral JSON for the editor). A documented invariant is only real if construction enforces
+  every precondition the method relies on.
+- **Parameter validation with structured diagnostics.** `errors()` returns `JsonSchemaIssue`
+  (`path`, `json_path`, `message`), so the validator builds precise `loc`s like
+  `("nodes", i, "params", "n")` and accumulates rather than throwing.
+- **An approved, documented dependency change.** Promoting `jsonschema` from a dev-only to a runtime
+  dependency was a deliberate, founder-approved scope expansion (runtime semantic validation must ship
+  it) — not a silent drift. Lock regenerated; mypy comment updated.
+- **The trace-event envelope as a fixed contract.** `quantize/tracing/events.py::TraceEvent`
+  (`run_id, timestamp, node_id, component_path, event_type, payload`) is *fixed at M2* so nodes can
+  declare a `trace_schema` for the payload; construction (M6) and persistence (M7) build on the shape.
+  Reusing the IR primitives means trace data obeys the same portable-JSON rules as the IR.
+- **YAGNI in practice.** `node_validate` was designed, then deferred — a Python-only hook with no
+  production consumer would have a speculative diagnostic contract. It arrives with the first real node
+  that needs a rule JSON Schema cannot express.
+
+**Codex review fixes applied (across the slices):** non-enum/empty `NodeResolution` hardening (M2.1
+follow-on); component-endpoint per-endpoint tests; tightened diagnostic-contract assertions; and the
+`JsonSchemaSpec` construction hardening (reference + non-portable rejection) that made the
+errors-never-raises contract real.
+
+**Files studied / created:** `quantize/compatibility.py`; `quantize/registry/schema_spec.py`;
+`quantize/registry/descriptor.py`; `quantize/validation/{semantic,errors}.py`;
+`quantize/tracing/events.py`; `tests/{test_compatibility,test_schema_spec,test_trace_events,
+test_semantic_validation,registry_fixtures}.py`; `pyproject.toml`; design/plan docs dated 2026-06-30.
+
+**Exercise (M3 onward, hand-implemented):** see the M3 prep — the graph evaluator. *Prediction to make
+first:* given Strategy A's topological order `u, px, ret, rk, sel, ew, cap, tp`, which node first needs
+**warm-up** history, and why can't its `CrossSection` be computed at the very first session?
+
+**Status:** M2 complete for its **registry + validation contract** (resolution, version, port-name,
+required connectivity, port-type compatibility, parameter validation; trace envelope fixed). Deferred:
+node-specific validation, the 12 node implementations. Gate green (237 tests; ruff/format/mypy/codegen
+clean). Founder-approved. Next: **M3-PRE → M3** (graph evaluator) — first founder hand-implementation.
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)

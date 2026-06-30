@@ -14,6 +14,9 @@ readme = "README.md"
 requires-python = ">=3.13,<3.15"
 dependencies = [
     "pydantic>=2.9",
+    # Runtime semantic validation (M2.4): validates node params against a descriptor's
+    # parameter_schema, and validates declared schemas. Draft 2020-12 support requires >=4.18.
+    "jsonschema>=4.20",
 ]
 
 [project.optional-dependencies]
@@ -21,9 +24,6 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "mypy>=1.11",
-    # Validates representative persisted documents against the *exported* JSON Schema,
-    # independently of Pydantic (M1.3 contract test). Draft 2020-12 support requires >=4.18.
-    "jsonschema>=4.20",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -41,8 +41,8 @@ python_version = "3.13"
 strict = true
 files = ["quantize", "tests"]
 
-# jsonschema ships no type stubs; it is used only by the M1.3 contract test. Ignore its missing
-# imports rather than pull in a separate stub package as a dev/lock dependency.
+# jsonschema is a runtime dependency (M2.4 parameter validation; also the M1.3 contract test) that
+# ships no type stubs. Ignore its missing imports rather than pull in a separate stub package.
 [[tool.mypy.overrides]]
 module = "jsonschema.*"
 ignore_missing_imports = true

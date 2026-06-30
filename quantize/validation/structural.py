@@ -17,12 +17,13 @@ separate from error presentation.
 
 from __future__ import annotations
 
-from collections.abc import Hashable, Iterable, Iterator, Sequence
+from collections.abc import Hashable, Iterator, Sequence
 
 from quantize.schema.components import ComponentDefinition, ComponentRef
 from quantize.schema.document import StrategyDocument
 from quantize.schema.nodes import ComponentRefNode, Edge, NodeInstance
 from quantize.schema.version import SUPPORTED_SCHEMA_VERSIONS, is_supported_schema_version
+from quantize.validation.diagnostics import sort_diagnostics
 from quantize.validation.errors import (
     COMPONENT_CYCLE,
     COMPONENT_DIRECT_RECURSION,
@@ -39,20 +40,6 @@ from quantize.validation.errors import (
     StructuralError,
     StructuralValidation,
 )
-
-# --- Deterministic ordering ------------------------------------------------------------------
-
-
-def _error_sort_key(error: StructuralError) -> tuple[object, ...]:
-    # Map each loc element to (type_rank, value) so mixed int/str paths order deterministically
-    # regardless of input dict/list ordering, then break ties by code and subject.
-    loc = tuple((0, element) if isinstance(element, int) else (1, element) for element in error.loc)
-    return (loc, error.code, error.subject or "")
-
-
-def _sorted(errors: Iterable[StructuralError]) -> tuple[StructuralError, ...]:
-    return tuple(sorted(errors, key=_error_sort_key))
-
 
 # --- Pure cycle detection (algorithm, no presentation) ---------------------------------------
 
@@ -243,7 +230,7 @@ def validate_strategy_document(document: StrategyDocument) -> StructuralValidati
     errors += _duplicate_ref_id_errors(document.component_refs, ())
     declared_ref_ids = {ref.id for ref in document.component_refs}
     errors += _validate_graph(document.nodes, document.edges, declared_ref_ids, ())
-    ordered = _sorted(errors)
+    ordered = sort_diagnostics(errors)
     return StructuralValidation(ok=not ordered, errors=ordered)
 
 
@@ -274,7 +261,7 @@ def validate_component_definition(definition: ComponentDefinition) -> Structural
     errors += _validate_graph(
         graph.nodes, graph.edges, declared_ref_ids, ("implementation", "graph")
     )
-    ordered = _sorted(errors)
+    ordered = sort_diagnostics(errors)
     return StructuralValidation(ok=not ordered, errors=ordered)
 
 
@@ -351,7 +338,7 @@ def validate_component_set(definitions: Sequence[ComponentDefinition]) -> Compon
             )
         )
 
-    ordered = _sorted(errors)
+    ordered = sort_diagnostics(errors)
     return ComponentSetValidation(
         ok=not ordered,
         errors=ordered,
