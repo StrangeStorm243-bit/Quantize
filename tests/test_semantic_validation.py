@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from quantize.registry.registry import NodeRegistry
 from quantize.schema.document import StrategyDocument
 from quantize.validation.errors import SemanticDiagnostic, SemanticValidation
@@ -11,6 +13,7 @@ from tests.registry_fixtures import (
     build_component_edge_document,
     build_fixture_registry,
     build_incompatible_document,
+    build_param_document,
     build_reference_registry,
     build_unknown_source_document,
     build_wired_document,
@@ -154,6 +157,27 @@ def test_no_compat_diagnostic_when_source_node_unresolved() -> None:
 def test_no_compat_diagnostic_for_component_endpoint() -> None:
     v = validate_strategy_semantics(build_component_edge_document(), build_fixture_registry())
     assert all(d.code != "incompatible_port_types" for d in v.diagnostics)
+
+
+# --- parameter validation (M2.4) -------------------------------------------------------------
+
+
+def test_valid_params_pass() -> None:
+    v = validate_strategy_semantics(build_param_document({"n": 3}), build_fixture_registry())
+    assert all(d.code != "invalid_parameters" for d in v.diagnostics)
+
+
+@pytest.mark.parametrize("params", [{}, {"n": "x"}, {"n": 0}, {"n": 1, "extra": True}])
+def test_invalid_params_detected(params: dict[str, object]) -> None:
+    v = validate_strategy_semantics(build_param_document(params), build_fixture_registry())
+    assert any(d.code == "invalid_parameters" for d in v.diagnostics)
+
+
+def test_invalid_params_loc_and_subject() -> None:
+    v = validate_strategy_semantics(build_param_document({"n": 0}), build_fixture_registry())
+    diag = next(d for d in v.diagnostics if d.code == "invalid_parameters")
+    assert diag.loc[:3] == ("nodes", 0, "params")
+    assert diag.subject == "p"
 
 
 # --- determinism -----------------------------------------------------------------------------

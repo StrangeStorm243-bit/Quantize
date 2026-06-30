@@ -19,6 +19,7 @@ from quantize.schema.types import PortType
 from quantize.validation.diagnostics import sort_diagnostics
 from quantize.validation.errors import (
     INCOMPATIBLE_PORT_TYPES,
+    INVALID_PARAMETERS,
     NODE_VERSION_UNAVAILABLE,
     REQUIRED_INPUT_UNCONNECTED,
     UNKNOWN_INPUT_PORT,
@@ -141,5 +142,20 @@ def validate_strategy_semantics(
                         port.name,
                     )
                 )
+
+    # 4. Parameter validation: node params must satisfy the descriptor's parameter_schema (if any).
+    for index, node in enumerate(document.nodes):
+        descriptor = resolved.get(node.id)
+        if descriptor is None or descriptor.parameter_schema is None:
+            continue
+        for issue in descriptor.parameter_schema.errors(node.params):
+            diagnostics.append(
+                SemanticDiagnostic(
+                    INVALID_PARAMETERS,
+                    f"{issue.json_path}: {issue.message}",
+                    ("nodes", index, "params", *issue.path),
+                    node.id,
+                )
+            )
 
     return SemanticValidation(ok=not diagnostics, diagnostics=sort_diagnostics(diagnostics))

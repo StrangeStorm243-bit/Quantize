@@ -9,7 +9,7 @@ contract validation needs.
   ``ComponentSetValidation`` — registry-free, cross-element well-formedness.
 * **Semantic** (M2.2–M2.3): ``SemanticDiagnostic`` / ``SemanticValidation`` — registry-dependent
   meaning (node-type existence, version availability, port-name existence, required connectivity,
-  port-type compatibility).
+  port-type compatibility, parameter validation).
 """
 
 from __future__ import annotations
@@ -92,6 +92,7 @@ UNKNOWN_OUTPUT_PORT = "unknown_output_port"
 UNKNOWN_INPUT_PORT = "unknown_input_port"
 REQUIRED_INPUT_UNCONNECTED = "required_input_unconnected"
 INCOMPATIBLE_PORT_TYPES = "incompatible_port_types"
+INVALID_PARAMETERS = "invalid_parameters"
 
 
 @dataclass(frozen=True)

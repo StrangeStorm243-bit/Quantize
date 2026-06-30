@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from quantize.registry.descriptor import (
     InputPortSpec,
@@ -10,6 +11,7 @@ from quantize.registry.descriptor import (
     OutputPortSpec,
 )
 from quantize.registry.registry import NodeRegistry
+from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.schema.components import ComponentRef
 from quantize.schema.document import (
     ExecutionPolicy,
@@ -72,13 +74,43 @@ def _tsource() -> NodeDescriptor:
     )
 
 
+_PARAM_SCHEMA = JsonSchemaSpec(
+    {
+        "type": "object",
+        "properties": {"n": {"type": "integer", "minimum": 1}},
+        "required": ["n"],
+        "additionalProperties": False,
+    }
+)
+
+
+def _param_node() -> NodeDescriptor:
+    return NodeDescriptor(
+        type_id="test.param",
+        type_version="1.0.0",
+        inputs=(),
+        outputs=(OutputPortSpec(name="out", port_type=_CS_NUM),),
+        metadata=NodeMetadata(display_name="Param", description="Synthetic parameterized node."),
+        parameter_schema=_PARAM_SCHEMA,
+    )
+
+
 def build_fixture_registry() -> NodeRegistry:
     registry = NodeRegistry()
     registry.register(_source("1.0.0"))
     registry.register(_source("1.1.0"))
     registry.register(_sink())
     registry.register(_tsource())
+    registry.register(_param_node())
     return registry
+
+
+def build_param_document(params: dict[str, Any]) -> StrategyDocument:
+    """A single test.param node carrying *params* (no edges; an unconsumed output is fine)."""
+    nodes: list[NodeInstance] = [
+        RegisteredNode(id="p", type_id="test.param", type_version="1.0.0", params=params)
+    ]
+    return _document(nodes, [])
 
 
 # --- synthetic strategy documents (real StrategyDocument, not dicts) -------------------------
