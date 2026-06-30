@@ -62,11 +62,22 @@ def _sink() -> NodeDescriptor:
     )
 
 
+def _tsource() -> NodeDescriptor:
+    return NodeDescriptor(
+        type_id="test.tsource",
+        type_version="1.0.0",
+        inputs=(),
+        outputs=(OutputPortSpec(name="out", port_type=_TS_NUM),),
+        metadata=NodeMetadata(display_name="TSource", description="Synthetic TimeSeries source."),
+    )
+
+
 def build_fixture_registry() -> NodeRegistry:
     registry = NodeRegistry()
     registry.register(_source("1.0.0"))
     registry.register(_source("1.1.0"))
     registry.register(_sink())
+    registry.register(_tsource())
     return registry
 
 
@@ -124,6 +135,16 @@ def build_unknown_source_document() -> StrategyDocument:
     fails resolution (exercises the no-cascade connectivity rule)."""
     nodes: list[NodeInstance] = [
         RegisteredNode(id="s", type_id="unknown.thing", type_version="1.0.0", params={}),
+        RegisteredNode(id="k", type_id="test.sink", type_version="1.0.0", params={}),
+    ]
+    edges = [Edge.model_validate({"from": ("s", "out"), "to": ("k", "in")})]
+    return _document(nodes, edges)
+
+
+def build_incompatible_document() -> StrategyDocument:
+    """Incompatible edge: a TimeSeries[Number] output wired into a CrossSection[Number] input."""
+    nodes: list[NodeInstance] = [
+        RegisteredNode(id="s", type_id="test.tsource", type_version="1.0.0", params={}),
         RegisteredNode(id="k", type_id="test.sink", type_version="1.0.0", params={}),
     ]
     edges = [Edge.model_validate({"from": ("s", "out"), "to": ("k", "in")})]

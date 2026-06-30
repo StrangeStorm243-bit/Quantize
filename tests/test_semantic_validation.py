@@ -10,6 +10,7 @@ from quantize.validation.semantic import validate_strategy_semantics
 from tests.registry_fixtures import (
     build_component_edge_document,
     build_fixture_registry,
+    build_incompatible_document,
     build_reference_registry,
     build_unknown_source_document,
     build_wired_document,
@@ -117,6 +118,39 @@ def test_component_endpoint_skipped_but_registered_endpoint_still_validated() ->
     codes = {d.code for d in v.diagnostics}
     assert "unknown_input_port" in codes  # registered endpoint validated
     assert "unknown_output_port" not in codes  # component endpoint skipped
+
+
+# --- port-type compatibility (M2.3) ----------------------------------------------------------
+
+
+def test_incompatible_port_types_detected() -> None:
+    v = validate_strategy_semantics(build_incompatible_document(), build_fixture_registry())
+    diags = [d for d in v.diagnostics if d.code == "incompatible_port_types"]
+    assert diags
+    assert "TimeSeries[Number]" in diags[0].message and "CrossSection[Number]" in diags[0].message
+
+
+def test_no_compat_diagnostic_when_input_port_missing() -> None:
+    doc = build_wired_document(sink_in_port="nope")
+    codes = {d.code for d in validate_strategy_semantics(doc, build_fixture_registry()).diagnostics}
+    assert "unknown_input_port" in codes and "incompatible_port_types" not in codes
+
+
+def test_no_compat_diagnostic_when_output_port_missing() -> None:
+    doc = build_wired_document(source_out_port="nope")
+    codes = {d.code for d in validate_strategy_semantics(doc, build_fixture_registry()).diagnostics}
+    assert "unknown_output_port" in codes and "incompatible_port_types" not in codes
+
+
+def test_no_compat_diagnostic_when_source_node_unresolved() -> None:
+    doc = build_unknown_source_document()
+    codes = {d.code for d in validate_strategy_semantics(doc, build_fixture_registry()).diagnostics}
+    assert "unknown_node_type" in codes and "incompatible_port_types" not in codes
+
+
+def test_no_compat_diagnostic_for_component_endpoint() -> None:
+    v = validate_strategy_semantics(build_component_edge_document(), build_fixture_registry())
+    assert all(d.code != "incompatible_port_types" for d in v.diagnostics)
 
 
 # --- determinism -----------------------------------------------------------------------------
