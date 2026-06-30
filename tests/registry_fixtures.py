@@ -10,13 +10,14 @@ from quantize.registry.descriptor import (
     OutputPortSpec,
 )
 from quantize.registry.registry import NodeRegistry
+from quantize.schema.components import ComponentRef
 from quantize.schema.document import (
     ExecutionPolicy,
     StrategyDocument,
     StrategyMeta,
     TransactionCosts,
 )
-from quantize.schema.nodes import Edge, NodeInstance, RegisteredNode
+from quantize.schema.nodes import ComponentRefNode, Edge, NodeInstance, RegisteredNode
 from quantize.schema.provenance import Provenance, StrategyForkRef
 from quantize.schema.schedule import ScheduleDaily
 from quantize.schema.types import (
@@ -83,7 +84,11 @@ def _provenance() -> Provenance[StrategyForkRef]:
     )
 
 
-def _document(nodes: list[NodeInstance], edges: list[Edge]) -> StrategyDocument:
+def _document(
+    nodes: list[NodeInstance],
+    edges: list[Edge],
+    component_refs: list[ComponentRef] | None = None,
+) -> StrategyDocument:
     return StrategyDocument(
         schema_version="0.1.0",
         strategy=StrategyMeta(id=_OWNER, version=1, name="fixture", provenance=_provenance()),
@@ -95,7 +100,7 @@ def _document(nodes: list[NodeInstance], edges: list[Edge]) -> StrategyDocument:
         schedule=ScheduleDaily(kind="daily"),
         nodes=nodes,
         edges=edges,
-        component_refs=[],
+        component_refs=component_refs or [],
     )
 
 
@@ -123,6 +128,20 @@ def build_unknown_source_document() -> StrategyDocument:
     ]
     edges = [Edge.model_validate({"from": ("s", "out"), "to": ("k", "in")})]
     return _document(nodes, edges)
+
+
+def build_component_edge_document(*, sink_in_port: str = "in") -> StrategyDocument:
+    """A component node's output feeding test.sink. The component endpoint is skipped (not
+    registry-resolved), but the registered sink endpoint's port name is still validated."""
+    nodes: list[NodeInstance] = [
+        ComponentRefNode(id="c", type_id="component", ref="r", params={}),
+        RegisteredNode(id="k", type_id="test.sink", type_version="1.0.0", params={}),
+    ]
+    edges = [Edge.model_validate({"from": ("c", "out"), "to": ("k", sink_in_port)})]
+    refs = [
+        ComponentRef(id="r", component_id="33333333-3333-3333-3333-333333333333", version="1.0.0")
+    ]
+    return _document(nodes, edges, refs)
 
 
 # --- reference-strategy registry (descriptor doubles for Strategy A & B node types) ----------

@@ -8,6 +8,7 @@ from quantize.schema.document import StrategyDocument
 from quantize.validation.errors import SemanticDiagnostic, SemanticValidation
 from quantize.validation.semantic import validate_strategy_semantics
 from tests.registry_fixtures import (
+    build_component_edge_document,
     build_fixture_registry,
     build_reference_registry,
     build_unknown_source_document,
@@ -50,9 +51,14 @@ def test_unknown_node_type() -> None:
 def test_node_version_unavailable() -> None:
     doc = build_wired_document(source_type_version="9.9.9")
     v = validate_strategy_semantics(doc, build_fixture_registry())
-    assert any(
-        d.code == "node_version_unavailable" and d.subject == "test.source" for d in v.diagnostics
-    )
+    matches = [
+        d
+        for d in v.diagnostics
+        if d.code == "node_version_unavailable" and d.subject == "test.source"
+    ]
+    assert matches
+    # the message lists the available versions (registry has test.source@1.0.0 and @1.1.0)
+    assert "1.0.0" in matches[0].message and "1.1.0" in matches[0].message
 
 
 # --- port-name existence ---------------------------------------------------------------------
@@ -93,14 +99,42 @@ def test_connectivity_satisfied_even_if_source_unknown() -> None:
     assert "required_input_unconnected" not in codes
 
 
+# --- component endpoint (per-endpoint skip) --------------------------------------------------
+
+
+def test_component_endpoint_skipped_registered_endpoint_clean() -> None:
+    # Edit-1: a component node's output feeds a valid sink input. The component endpoint is skipped
+    # (no port diagnostic for it), the registered endpoint is fine, so the document is clean.
+    v = validate_strategy_semantics(build_component_edge_document(), build_fixture_registry())
+    assert v.ok and v.diagnostics == ()
+
+
+def test_component_endpoint_skipped_but_registered_endpoint_still_validated() -> None:
+    # Edit-1: the component (source) endpoint is skipped, but the registered (sink) endpoint's bad
+    # port name is still reported — proving only the component endpoint is skipped, not the edge.
+    doc = build_component_edge_document(sink_in_port="nope")
+    v = validate_strategy_semantics(doc, build_fixture_registry())
+    codes = {d.code for d in v.diagnostics}
+    assert "unknown_input_port" in codes  # registered endpoint validated
+    assert "unknown_output_port" not in codes  # component endpoint skipped
+
+
 # --- determinism -----------------------------------------------------------------------------
 
 
 def test_diagnostics_are_deterministically_ordered() -> None:
+    # Bad output + bad input on edges[0], plus the now-unconnected required sink input on nodes[1].
+    # Order is (loc, code, subject): edge findings precede the node finding ("edges" < "nodes"),
+    # and within edges[0] "from" precedes "to".
     doc = build_wired_document(source_out_port="nope", sink_in_port="nope")
-    a = validate_strategy_semantics(doc, build_fixture_registry()).diagnostics
-    b = validate_strategy_semantics(doc, build_fixture_registry()).diagnostics
-    assert a == b
+    v = validate_strategy_semantics(doc, build_fixture_registry())
+    assert [d.code for d in v.diagnostics] == [
+        "unknown_output_port",
+        "unknown_input_port",
+        "required_input_unconnected",
+    ]
+    # repeatable across runs
+    assert v.diagnostics == validate_strategy_semantics(doc, build_fixture_registry()).diagnostics
 
 
 # --- reference strategies --------------------------------------------------------------------
