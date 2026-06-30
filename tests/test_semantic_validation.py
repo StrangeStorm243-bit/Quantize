@@ -127,6 +127,9 @@ def test_incompatible_port_types_detected() -> None:
     v = validate_strategy_semantics(build_incompatible_document(), build_fixture_registry())
     diags = [d for d in v.diagnostics if d.code == "incompatible_port_types"]
     assert diags
+    # lock the diagnostic contract: edge-level loc and the destination input as subject
+    assert diags[0].loc == ("edges", 0)
+    assert diags[0].subject == "in"
     assert "TimeSeries[Number]" in diags[0].message and "CrossSection[Number]" in diags[0].message
 
 

@@ -7,8 +7,9 @@ contract validation needs.
 
 * **Structural** (M1.2): ``StructuralError`` / ``StructuralValidation`` + ``ComponentKey`` /
   ``ComponentSetValidation`` — registry-free, cross-element well-formedness.
-* **Semantic** (M2.2): ``SemanticDiagnostic`` / ``SemanticValidation`` — registry-dependent meaning
-  (node-type existence, version availability, port-name existence, required connectivity).
+* **Semantic** (M2.2–M2.3): ``SemanticDiagnostic`` / ``SemanticValidation`` — registry-dependent
+  meaning (node-type existence, version availability, port-name existence, required connectivity,
+  port-type compatibility).
 """
 
 from __future__ import annotations
@@ -83,7 +84,7 @@ class ComponentSetValidation:
     unresolved_refs: tuple[ComponentKey, ...] = field(default_factory=tuple)
 
 
-# --- Semantic diagnostics (M2.2) -------------------------------------------------------------
+# --- Semantic diagnostics (M2.2–M2.3) --------------------------------------------------------
 # Machine-stable identifiers (an editor/API keys on these, not on the human message text).
 UNKNOWN_NODE_TYPE = "unknown_node_type"
 NODE_VERSION_UNAVAILABLE = "node_version_unavailable"
