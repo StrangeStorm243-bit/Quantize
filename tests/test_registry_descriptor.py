@@ -9,6 +9,7 @@ from quantize.registry.descriptor import (
     NodeMetadata,
     OutputPortSpec,
 )
+from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.schema.types import CrossSectionType
 
 _CS_NUM = CrossSectionType(kind="CrossSection", dtype="Number")
@@ -111,3 +112,15 @@ def test_node_metadata_is_frozen() -> None:
 def test_node_descriptor_is_frozen() -> None:
     with pytest.raises(ValidationError):
         _descriptor().type_id = "transform.other"
+
+
+def test_descriptor_schemas_default_none() -> None:
+    d = _descriptor()
+    assert d.parameter_schema is None and d.trace_schema is None
+
+
+def test_descriptor_accepts_parameter_and_trace_schema() -> None:
+    params = JsonSchemaSpec({"type": "object"})
+    trace = JsonSchemaSpec({"type": "object"})
+    d = _descriptor(parameter_schema=params, trace_schema=trace)
+    assert d.parameter_schema is params and d.trace_schema is trace

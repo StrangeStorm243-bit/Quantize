@@ -12,6 +12,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.schema.primitives import PortName, RegisteredTypeId, SemVer
 from quantize.schema.types import PortType
 
@@ -44,18 +45,26 @@ class NodeMetadata(_FrozenGoverned):
 
 
 class NodeDescriptor(_FrozenGoverned):
-    """The static semantic descriptor for a node type: identity, ports, and metadata.
+    """The static semantic descriptor for a node type: identity, ports, metadata, and schemas.
 
-    This is the M2.1 subset, not the full executable contract. ``RegisteredTypeId`` excludes the
-    reserved ``"component"`` node; ``PortType`` excludes engine-only ``OrderList``. An input and an
-    output may share a name; duplicates *within* inputs or *within* outputs are rejected.
+    ``RegisteredTypeId`` excludes the reserved ``"component"`` node; ``PortType`` excludes engine-only
+    ``OrderList``. An input and an output may share a name; duplicates *within* inputs or *within*
+    outputs are rejected. ``parameter_schema`` validates node ``params`` (M2.4); ``trace_schema`` is
+    the schema of ``TraceEvent.payload`` this node emits (declared now, used at M6). Node-specific
+    validation hooks are deferred until a real node needs a rule JSON Schema cannot express.
     """
+
+    # arbitrary_types_allowed: the *_schema fields hold the non-Pydantic JsonSchemaSpec. Scoped to
+    # this model — ports and metadata stay on the stricter shared base.
+    model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
 
     type_id: RegisteredTypeId
     type_version: SemVer
     inputs: tuple[InputPortSpec, ...]
     outputs: tuple[OutputPortSpec, ...]
     metadata: NodeMetadata
+    parameter_schema: JsonSchemaSpec | None = None
+    trace_schema: JsonSchemaSpec | None = None
 
     @model_validator(mode="after")
     def _reject_duplicate_port_names(self) -> Self:
