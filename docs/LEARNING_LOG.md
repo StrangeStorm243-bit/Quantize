@@ -432,6 +432,65 @@ founder-approved. Next: M2.3 (single shared `is_compatible` + per-edge port-type
 
 ---
 
+## M2.3–M2.4 — Compatibility, parameter validation, trace envelope (M2 completion) (2026-06-30)
+
+The remaining M2 contract/validation surface, executed founder-supervised (founder directed each
+design via brainstorming; agent implemented; independent Codex review per slice). The **12 node
+implementations** and **node-specific validation** are deferred to the M3 phase / first real node.
+Founder hand-implementation begins at M3.
+
+**Concepts introduced:**
+- **The single shared compatibility function (invariants 4/5/7).** `quantize/compatibility.py`'s
+  `is_compatible(source, destination)` is the *only* place edge compatibility is decided, so the
+  validator and the future editor cannot drift. It is an **allow-list**: exact match (via `PortType`
+  value-equality) plus the one explicit widening `Scalar[Integer] → Scalar[Number]`; everything else
+  (the "no implicit meaning change" cases) falls through to `False`. Allow-list, not deny-list — you
+  don't enumerate every forbidden pairing.
+- **Gating to avoid cascades.** Port-type compatibility is checked only when *both* endpoints resolve
+  *and* both named ports exist; a missing port yields only `unknown_*_port`, never also
+  `incompatible_port_types`. This completes the "exists" split: `from_[0]` (node id) is M1,
+  `from_[1]` (port name + type) is M2.
+- **A value-object that makes a contract true.** `JsonSchemaSpec` (M2.4) guarantees
+  *construction validates → `errors()` never raises*. The Codex review proved why that matters:
+  `check_schema` accepts an unresolvable `$ref`, which then throws mid-`iter_errors` — so construction
+  must also reject references (v0 schemas are self-contained) and non-portable content (schemas are
+  language-neutral JSON for the editor). A documented invariant is only real if construction enforces
+  every precondition the method relies on.
+- **Parameter validation with structured diagnostics.** `errors()` returns `JsonSchemaIssue`
+  (`path`, `json_path`, `message`), so the validator builds precise `loc`s like
+  `("nodes", i, "params", "n")` and accumulates rather than throwing.
+- **An approved, documented dependency change.** Promoting `jsonschema` from a dev-only to a runtime
+  dependency was a deliberate, founder-approved scope expansion (runtime semantic validation must ship
+  it) — not a silent drift. Lock regenerated; mypy comment updated.
+- **The trace-event envelope as a fixed contract.** `quantize/tracing/events.py::TraceEvent`
+  (`run_id, timestamp, node_id, component_path, event_type, payload`) is *fixed at M2* so nodes can
+  declare a `trace_schema` for the payload; construction (M6) and persistence (M7) build on the shape.
+  Reusing the IR primitives means trace data obeys the same portable-JSON rules as the IR.
+- **YAGNI in practice.** `node_validate` was designed, then deferred — a Python-only hook with no
+  production consumer would have a speculative diagnostic contract. It arrives with the first real node
+  that needs a rule JSON Schema cannot express.
+
+**Codex review fixes applied (across the slices):** non-enum/empty `NodeResolution` hardening (M2.1
+follow-on); component-endpoint per-endpoint tests; tightened diagnostic-contract assertions; and the
+`JsonSchemaSpec` construction hardening (reference + non-portable rejection) that made the
+errors-never-raises contract real.
+
+**Files studied / created:** `quantize/compatibility.py`; `quantize/registry/schema_spec.py`;
+`quantize/registry/descriptor.py`; `quantize/validation/{semantic,errors}.py`;
+`quantize/tracing/events.py`; `tests/{test_compatibility,test_schema_spec,test_trace_events,
+test_semantic_validation,registry_fixtures}.py`; `pyproject.toml`; design/plan docs dated 2026-06-30.
+
+**Exercise (M3 onward, hand-implemented):** see the M3 prep — the graph evaluator. *Prediction to make
+first:* given Strategy A's topological order `u, px, ret, rk, sel, ew, cap, tp`, which node first needs
+**warm-up** history, and why can't its `CrossSection` be computed at the very first session?
+
+**Status:** M2 complete for its **registry + validation contract** (resolution, version, port-name,
+required connectivity, port-type compatibility, parameter validation; trace envelope fixed). Deferred:
+node-specific validation, the 12 node implementations. Gate green (237 tests; ruff/format/mypy/codegen
+clean). Founder-approved. Next: **M3-PRE → M3** (graph evaluator) — first founder hand-implementation.
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
