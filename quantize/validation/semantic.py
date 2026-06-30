@@ -1,11 +1,11 @@
-"""Semantic validation — registry resolution, port wiring by name, and port-type compatibility.
+"""Semantic validation — registry resolution, port wiring, compatibility, and parameter validation.
 
 Operates on an ALREADY-PARSED, STRUCTURALLY-VALID ``StrategyDocument``; it does not rerun or
 duplicate M1 structural checks. Pure, deterministic, registry-injected (read-only
 ``NodeRegistryView``). Covers (M2.2) registered-node resolution, port-name existence, required-input
-connectivity, and (M2.3) port-type compatibility via the single shared ``is_compatible``.
-Out of scope (later slices): parameter validation (M2.4) and component resolution (M3);
-``ComponentRefNode``s are not registry-resolved here.
+connectivity; (M2.3) port-type compatibility via the single shared ``is_compatible``; and (M2.4)
+parameter validation against each descriptor's ``parameter_schema``. Out of scope (later slices):
+component resolution (M3) — ``ComponentRefNode``s are not registry-resolved here.
 """
 
 from __future__ import annotations
@@ -144,6 +144,8 @@ def validate_strategy_semantics(
                 )
 
     # 4. Parameter validation: node params must satisfy the descriptor's parameter_schema (if any).
+    #    Note: `required`/`additionalProperties` errors localize to the object root in v0 (loc
+    #    ("nodes", i, "params")); finer per-field localization can come with the editor (M10+).
     for index, node in enumerate(document.nodes):
         descriptor = resolved.get(node.id)
         if descriptor is None or descriptor.parameter_schema is None:

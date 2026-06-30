@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from jsonschema.exceptions import SchemaError
+from pydantic import ValidationError
 
 from quantize.registry.schema_spec import JsonSchemaSpec
 
@@ -34,6 +35,17 @@ def test_minimum_violation_has_path() -> None:
 def test_malformed_schema_raises() -> None:
     with pytest.raises(SchemaError):
         JsonSchemaSpec({"type": "not_a_real_type"})
+
+
+def test_rejects_references_so_errors_cannot_throw() -> None:
+    # an unresolvable $ref passes check_schema but would throw during iter_errors; reject up front
+    with pytest.raises(ValueError):
+        JsonSchemaSpec({"$ref": "#/$defs/missing"})
+
+
+def test_rejects_non_portable_schema_content() -> None:
+    with pytest.raises(ValidationError):
+        JsonSchemaSpec({"type": "object", "x-python": object()})
 
 
 def test_validates_non_object_instance() -> None:
