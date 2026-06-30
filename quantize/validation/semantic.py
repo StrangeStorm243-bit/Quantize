@@ -1,20 +1,24 @@
-"""M2.2 semantic validation — registry resolution + port wiring by name.
+"""Semantic validation — registry resolution, port wiring by name, and port-type compatibility.
 
 Operates on an ALREADY-PARSED, STRUCTURALLY-VALID ``StrategyDocument``; it does not rerun or
 duplicate M1 structural checks. Pure, deterministic, registry-injected (read-only
-``NodeRegistryView``). Out of scope (later slices): port-type compatibility / ``is_compatible``
-(M2.3), parameter validation (M2.4), and component resolution (M3) — ``ComponentRefNode``s are not
-registry-resolved here.
+``NodeRegistryView``). Covers (M2.2) registered-node resolution, port-name existence, required-input
+connectivity, and (M2.3) port-type compatibility via the single shared ``is_compatible``.
+Out of scope (later slices): parameter validation (M2.4) and component resolution (M3);
+``ComponentRefNode``s are not registry-resolved here.
 """
 
 from __future__ import annotations
 
+from quantize.compatibility import is_compatible
 from quantize.registry.descriptor import NodeDescriptor
 from quantize.registry.registry import NodeRegistryView, ResolutionStatus
 from quantize.schema.document import StrategyDocument
 from quantize.schema.nodes import RegisteredNode
+from quantize.schema.types import PortType
 from quantize.validation.diagnostics import sort_diagnostics
 from quantize.validation.errors import (
+    INCOMPATIBLE_PORT_TYPES,
     NODE_VERSION_UNAVAILABLE,
     REQUIRED_INPUT_UNCONNECTED,
     UNKNOWN_INPUT_PORT,
@@ -23,6 +27,12 @@ from quantize.validation.errors import (
     SemanticDiagnostic,
     SemanticValidation,
 )
+
+
+def _render_type(port_type: PortType) -> str:
+    """Compact human rendering of a port type — total over current PortType variants."""
+    dtype = getattr(port_type, "dtype", None)
+    return f"{port_type.kind}[{dtype}]" if dtype is not None else port_type.kind
 
 
 def validate_strategy_semantics(
@@ -62,14 +72,22 @@ def validate_strategy_semantics(
                 )
             )
 
-    # 2. Port-name existence on edges. Endpoints are gated independently, so an unresolved endpoint
-    #    (component node / failed resolution) is skipped while its resolved counterpart is checked.
-    output_names = {nid: {port.name for port in desc.outputs} for nid, desc in resolved.items()}
-    input_names = {nid: {port.name for port in desc.inputs} for nid, desc in resolved.items()}
+    # 2. Port-name existence + port-type compatibility on edges. Endpoints are gated independently,
+    #    so an unresolved endpoint (component node / failed resolution) is skipped. Compatibility is
+    #    checked only when BOTH endpoints resolved AND both named ports exist (no cascade on a
+    #    missing port).
+    output_ports = {
+        nid: {p.name: p.port_type for p in desc.outputs} for nid, desc in resolved.items()
+    }
+    input_ports = {
+        nid: {p.name: p.port_type for p in desc.inputs} for nid, desc in resolved.items()
+    }
     for index, edge in enumerate(document.edges):
         src_id, src_port = edge.from_
         dst_id, dst_port = edge.to
-        if src_id in output_names and src_port not in output_names[src_id]:
+        src_outputs = output_ports.get(src_id)
+        dst_inputs = input_ports.get(dst_id)
+        if src_outputs is not None and src_port not in src_outputs:
             diagnostics.append(
                 SemanticDiagnostic(
                     UNKNOWN_OUTPUT_PORT,
@@ -78,12 +96,30 @@ def validate_strategy_semantics(
                     src_port,
                 )
             )
-        if dst_id in input_names and dst_port not in input_names[dst_id]:
+        if dst_inputs is not None and dst_port not in dst_inputs:
             diagnostics.append(
                 SemanticDiagnostic(
                     UNKNOWN_INPUT_PORT,
                     f"node {dst_id!r} has no input port {dst_port!r}",
                     ("edges", index, "to"),
+                    dst_port,
+                )
+            )
+        if (
+            src_outputs is not None
+            and src_port in src_outputs
+            and dst_inputs is not None
+            and dst_port in dst_inputs
+            and not is_compatible(src_outputs[src_port], dst_inputs[dst_port])
+        ):
+            source = src_outputs[src_port]
+            destination = dst_inputs[dst_port]
+            diagnostics.append(
+                SemanticDiagnostic(
+                    INCOMPATIBLE_PORT_TYPES,
+                    f"port type {_render_type(source)} from {src_id!r}.{src_port!r} is not "
+                    f"compatible with {_render_type(destination)} at {dst_id!r}.{dst_port!r}",
+                    ("edges", index),
                     dst_port,
                 )
             )

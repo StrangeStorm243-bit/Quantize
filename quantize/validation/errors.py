@@ -90,6 +90,7 @@ NODE_VERSION_UNAVAILABLE = "node_version_unavailable"
 UNKNOWN_OUTPUT_PORT = "unknown_output_port"
 UNKNOWN_INPUT_PORT = "unknown_input_port"
 REQUIRED_INPUT_UNCONNECTED = "required_input_unconnected"
+INCOMPATIBLE_PORT_TYPES = "incompatible_port_types"
 
 
 @dataclass(frozen=True)
