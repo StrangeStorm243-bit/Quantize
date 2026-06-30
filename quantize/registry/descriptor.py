@@ -47,10 +47,10 @@ class NodeMetadata(_FrozenGoverned):
 class NodeDescriptor(_FrozenGoverned):
     """The static semantic descriptor for a node type: identity, ports, metadata, and schemas.
 
-    ``RegisteredTypeId`` excludes the reserved ``"component"`` node; ``PortType`` excludes engine-only
-    ``OrderList``. An input and an output may share a name; duplicates *within* inputs or *within*
-    outputs are rejected. ``parameter_schema`` validates node ``params`` (M2.4); ``trace_schema`` is
-    the schema of ``TraceEvent.payload`` this node emits (declared now, used at M6). Node-specific
+    ``RegisteredTypeId`` excludes the reserved ``"component"`` node; ``PortType`` excludes the
+    engine-only ``OrderList``. An input and an output may share a name; duplicates within inputs
+    (or within outputs) are rejected. ``parameter_schema`` validates node ``params`` (M2.4);
+    ``trace_schema`` describes ``TraceEvent.payload`` (declared now, used at M6). Node-specific
     validation hooks are deferred until a real node needs a rule JSON Schema cannot express.
     """
 

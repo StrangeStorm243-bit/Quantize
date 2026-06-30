@@ -1,5 +1,7 @@
 """M2.4 — JsonSchemaSpec (immutable Draft 2020-12 schema)."""
 
+from typing import Any
+
 import pytest
 from jsonschema.exceptions import SchemaError
 
@@ -41,7 +43,7 @@ def test_validates_non_object_instance() -> None:
 
 
 def test_deep_copy_ownership() -> None:
-    raw = {"type": "object", "properties": {"n": {"type": "integer"}}}
+    raw: dict[str, Any] = {"type": "object", "properties": {"n": {"type": "integer"}}}
     spec = JsonSchemaSpec(raw)
     raw["properties"]["n"]["type"] = "string"  # mutate the caller's dict after construction
     assert spec.errors({"n": 1}) == ()  # unaffected — spec owns a deep copy

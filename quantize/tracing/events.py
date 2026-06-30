@@ -1,8 +1,8 @@
 """The minimal trace-event envelope (fixed at M2).
 
-M2 fixes only the shape so registered nodes can declare a ``trace_schema`` for ``TraceEvent.payload``.
-Trace CONSTRUCTION is M6; payload validation against ``trace_schema`` is M6; persistence is M7. The
-envelope reuses the IR primitives so timestamps, ids, and payloads obey the same portable-JSON rules.
+M2 fixes only the shape so registered nodes can declare a ``trace_schema`` for the payload. Trace
+CONSTRUCTION is M6; payload validation against ``trace_schema`` is M6; persistence is M7. The
+envelope reuses the IR primitives, so ids/timestamps/payloads obey the same portable-JSON rules.
 """
 
 from __future__ import annotations

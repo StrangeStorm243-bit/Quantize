@@ -1,9 +1,9 @@
 """Immutable, Draft 2020-12-validated JSON Schema for validating JSON instances.
 
-Runtime infrastructure (descriptor ``parameter_schema`` / ``trace_schema``) — NOT persisted IR.
-Construction validates the schema and takes ownership via a deep copy; the schema lives only inside a
-private validator, so the caller's mapping cannot mutate it afterward (practical immutability — not
-hardened against a deliberate reach-in, which is acceptable for runtime infra).
+Runtime infrastructure (descriptor ``parameter_schema`` / ``trace_schema``); not persisted IR.
+Construction validates the schema and deep-copies it; the schema lives only inside a private
+validator, so the caller's mapping cannot mutate it afterward (practical immutability — not hardened
+against a deliberate reach-in, which is acceptable for runtime infra).
 """
 
 from __future__ import annotations
