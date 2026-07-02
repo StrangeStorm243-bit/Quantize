@@ -237,3 +237,73 @@ def test_strategy_b_repeated_run_identical(
     strategy_b_result: BacktestResult, market: MarketDataSet
 ) -> None:
     assert _run(_load("strategy_b"), market) == strategy_b_result
+
+
+# --- Strategy B: M5 golden + exact first-rebalance hand math -------------------------------------
+
+
+def test_strategy_b_first_rebalance_hand_computed(
+    strategy_b_result: BacktestResult, market: MarketDataSet
+) -> None:
+    """All-cash 1,000,000 at the first post-warm-up weekly firing:
+
+    targets AGG/EFA/SPY 0.25 each (VNQ masked to 0) -> buy 250,000/close each; fills at the next
+    session's open == that Friday's close (fixture identity); total cost 750,000 x 1.0005 =
+    750,375 < 1,000,000 so NOTHING scales; post-fill cash = exactly 249,625.
+    """
+    first = strategy_b_result.evaluations[0]
+    calendar = market.calendar
+    index = calendar.session_dates.index(first.session_date)
+    assert index + 1 > 200  # the 200-session warm-up gate
+
+    assert dict(first.target_weights) == {"AGG": 0.25, "EFA": 0.25, "SPY": 0.25, "VNQ": 0.0}
+    assert first.reconciliation.portfolio_value == INITIAL_CASH
+    assert first.reconciliation.target_cash == pytest.approx(0.25 * INITIAL_CASH)
+    # VNQ is unheld with weight 0: dropped at ingestion — no plan row, no order (ADR-0005 D5).
+    assert [p.asset for p in first.reconciliation.plans] == ["AGG", "EFA", "SPY"]
+
+    expected_quantities = {
+        asset: (0.25 * INITIAL_CASH) / fixture_close(asset, index)
+        for asset in ("AGG", "EFA", "SPY")
+    }
+    orders = {o.asset: o for o in first.reconciliation.orders}
+    assert set(orders) == {"AGG", "EFA", "SPY"}
+    assert all(o.side == "buy" for o in orders.values())
+    for asset, quantity in expected_quantities.items():
+        assert orders[asset].quantity == pytest.approx(quantity, rel=1e-12)
+
+    assert first.fill_session is not None
+    fill_events = [e for e in strategy_b_result.fills if e.session_date == first.fill_session]
+    assert [e.fill.asset for e in fill_events] == ["AGG", "EFA", "SPY"]
+    for event in fill_events:
+        assert event.fill.price == pytest.approx(fixture_close(event.fill.asset, index), rel=1e-12)
+        assert not event.fill.scaled  # 750,375 < 1,000,000: nothing scales
+    total_spend = -sum(e.fill.cash_delta for e in fill_events)
+    assert total_spend == pytest.approx(750_375.0, abs=1e-6)
+    # Value at the fill session's close = residual cash (exactly 249,625 up to float noise on
+    # the spends) + the three sleeves marked at that session's closes.
+    fill_session = first.fill_session
+    fill_day_index = [d for d, _ in strategy_b_result.valuations].index(fill_session)
+    value_at_fill_close = strategy_b_result.valuations[fill_day_index][1]
+    expected_invested = sum(
+        expected_quantities[a] * fixture_close(a, index + 1) for a in ("AGG", "EFA", "SPY")
+    )
+    assert value_at_fill_close == pytest.approx(249_625.0 + expected_invested, rel=1e-9)
+
+
+def test_strategy_b_target_cash_is_the_sleeve_remainder(
+    strategy_b_result: BacktestResult,
+) -> None:
+    # MVP_PLAN §M5: cash = 1 − Σ(surviving sleeves) at every evaluation, never renormalized.
+    for record in strategy_b_result.evaluations:
+        assert record.reconciliation.portfolio_value is not None
+        assert record.reconciliation.target_cash is not None
+        assert record.reconciliation.target_cash == pytest.approx(
+            0.25 * record.reconciliation.portfolio_value
+        )
+
+
+def test_strategy_b_golden(strategy_b_result: BacktestResult, update_goldens: bool) -> None:
+    # Object-level repeated-run determinism is covered by test_strategy_b_repeated_run_identical;
+    # the committed file is the independent byte-level oracle here.
+    assert_matches_golden("strategy_b_backtest", strategy_b_result, update_goldens)
