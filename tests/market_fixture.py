@@ -7,9 +7,11 @@ from 2025-01-02 through 2026-06-30. The calendar therefore contains weekend gaps
 holiday boundaries (e.g. Good Friday 2026-04-03).
 
 Prices are exact geometric paths so every derived number is hand-computable: asset ``a`` closes at
-``100 * GROWTH[a] ** i`` on the session with calendar index ``i`` (opens are the prior session's
-close level, ``close / GROWTH[a]``). Availability is honest: an open is available at the session
-open instant, a close at the session close instant.
+``100 * GROWTH[a] ** i`` on the session with calendar index ``i`` — computed as a CUMULATIVE
+PRODUCT so the bytes are platform-identical (see ``_close_path``). Each session's open IS the
+previous session's close, exactly (``open_i == close_{i-1}``; ``100/GROWTH`` at index 0).
+Availability is honest: an open is available at the session open instant, a close at the session
+close instant.
 
 Two deliberate data irregularities exercise missing-data rules:
 
@@ -103,9 +105,37 @@ def build_fixture_calendar(
     )
 
 
+# Enough path entries for the full calendar (374 sessions) with headroom.
+_PATH_LENGTH = 400
+_CLOSE_PATHS: dict[str, tuple[float, ...]] = {}
+
+
+def _close_path(asset: str) -> tuple[float, ...]:
+    """The close path as a CUMULATIVE PRODUCT (platform-deterministic).
+
+    ``GROWTH ** index`` calls libm ``pow``, whose last-ULP result differs across platforms
+    (MSVC vs glibc) — which would make the committed golden CI-unstable. Iterated IEEE-754
+    multiplication is bit-identical everywhere, so the whole downstream pipeline (only
+    ``+ - * /``) stays byte-reproducible. Values differ from the ``pow`` form by ~1e-15
+    relative — well inside every test tolerance.
+    """
+    cached = _CLOSE_PATHS.get(asset)
+    if cached is None:
+        growth = GROWTH[asset]
+        values: list[float] = []
+        value = BASE_PRICE
+        for _ in range(_PATH_LENGTH):
+            values.append(value)
+            value *= growth
+        cached = tuple(values)
+        _CLOSE_PATHS[asset] = cached
+    return cached
+
+
 def fixture_close(asset: str, calendar_index: int) -> float:
-    """The exact fixture close for *asset* at calendar session index *calendar_index*."""
-    return BASE_PRICE * GROWTH[asset] ** calendar_index
+    """The exact fixture close for *asset* at calendar session index *calendar_index*
+    (~``100 * GROWTH ** index``, computed as a cumulative product — see ``_close_path``)."""
+    return _close_path(asset)[calendar_index]
 
 
 def build_market_fixture() -> MarketDataSet:
@@ -120,10 +150,12 @@ def build_market_fixture() -> MarketDataSet:
             if asset == "IWM" and session.session_date == IWM_MISSING_DATE:
                 continue
             close = fixture_close(asset, index)
+            # open_i == close_{i-1} EXACTLY (the identity the reference tests rely on).
+            open_price = fixture_close(asset, index - 1) if index > 0 else BASE_PRICE / growth
             series.append(
                 PriceObservation(
                     session_date=session.session_date,
-                    open_price=close / growth,
+                    open_price=open_price,
                     close_price=close,
                     open_available_at=session.open_at,
                     close_available_at=session.close_at,
