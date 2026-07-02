@@ -100,6 +100,21 @@ def test_empty_targets_pass_through() -> None:
     assert events == []
 
 
+def test_equally_weighted_eligible_receivers_split_excess_equally() -> None:
+    # M5: proportional redistribution with a TIE — two eligible receivers of equal weight get
+    # exactly half the excess each (proportional-by-weight degenerates to an even split),
+    # deterministically in canonical order.
+    # {A: 0.6, B: 0.15, C: 0.15} @ cap 0.4: excess 0.2 -> B, C each +0.1 -> {0.4, 0.25, 0.25}.
+    targets, events = _cap({"AAA": 0.6, "BBB": 0.15, "CCC": 0.15}, 0.4)
+    assert targets.as_dict() == {
+        "AAA": pytest.approx(0.4),
+        "BBB": pytest.approx(0.25),
+        "CCC": pytest.approx(0.25),
+    }
+    assert targets.invested_weight == pytest.approx(0.9)  # conserved: no cash leakage
+    assert events == ["risk.cap_applied"]
+
+
 def test_result_never_exceeds_the_cap() -> None:
     targets, _ = _cap({"AAA": 0.7, "BBB": 0.25, "CCC": 0.05}, 0.3)
     assert all(weight <= 0.3 + 1e-9 for weight in targets.as_dict().values())

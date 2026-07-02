@@ -3,3 +3,4 @@
 schema/quantize.schema.json text eol=lf
 ts/quantize-ir.d.ts text eol=lf
 ts/fixtures/*.ts text eol=lf
+tests/goldens/*.json text eol=lf

@@ -623,6 +623,45 @@ after acceptance: **M5** (Strategy B golden + cap redistribution depth).
 
 ---
 
+## M5 — Strategy B golden + cap-overflow coverage (2026-07-02)
+
+A deliberately small milestone on the M4 engine: no production code changed — tests, goldens,
+one `.gitattributes` line, and the plan (`docs/plans/2026-07-02-m5-strategy-b-plan.md`).
+
+**Concepts introduced:**
+- **Line-ending pins are part of golden discipline.** A fresh Windows checkout CRLF-normalized
+  the M4 golden and broke its byte comparison locally while CI (Linux/LF) stayed green — the
+  mirror image of the earlier libm `pow` lesson (CI red, local green). Committed byte-compared
+  artifacts need BOTH platform-stable math (cumulative products, no libm) and a
+  `.gitattributes` `text eol=lf` pin. `tests/goldens/*.json` is now pinned like the codegen
+  artifacts.
+- **Strategy B's cash identity, end-to-end.** At every evaluation, target cash is exactly
+  `0.25 × PV` (the masked VNQ sleeve) — asserted across all 36 weekly evaluations, with the
+  first rebalance fully hand-computed: buy 250,000/close each of AGG/EFA/SPY, spend
+  750,000×1.0005 = 750,375, cash 249,625, nothing scaled. Total return +7.41% (blended slow
+  growers, 75% invested) — hand-plausible.
+- **What "overflows the cap" can mean in a v0 graph.** Every v0 portfolio constructor emits
+  EQUAL weights, so an in-graph overflow always caps every asset simultaneously — the waterfall's
+  no-eligible-capacity rule (excess to cash, cap never violated). Exercised through the full
+  engine: top-2 momentum at 0.5/0.5 under a 0.4 cap → {0.4, 0.4} + 0.2 cash, `risk.cap_applied`
+  trace event visible in the run record. The unequal-weight PROPORTIONAL waterfall remains
+  unit-level coverage (M3 + a new tie case: equal eligible receivers split excess exactly in
+  half) until a node that produces unequal weights exists.
+
+**Files:** `.gitattributes` (goldens LF pin); `tests/test_engine_cap_overflow.py`;
+`tests/goldens/strategy_b_backtest.json`; Strategy B section of
+`tests/test_reference_backtests.py`; one tie test in `tests/test_nodes_risk.py`.
+
+**Exercise (after review):** from the Strategy B golden, explain why the weekly corrective
+orders are an order of magnitude smaller than Strategy A's monthly ones (answer: drift scales
+with both the inter-asset growth spread AND the rebalance interval — B's weekly cadence and
+narrower growth spread both shrink it).
+
+**Status:** M5 implemented; full gate green (579 tests; ruff/format/mypy/codegen/tsc clean).
+Awaiting review. Not committed. Next after acceptance: **M6** (structured trace construction).
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
