@@ -757,6 +757,48 @@ backtest↔forward consistency), consuming `load_run`/`load_trace` as its stored
 
 ---
 
+## M8 — Deterministic forward replay + backtest↔forward consistency (2026-07-02)
+
+The same engine, driven two ways. Plan-of-record:
+`docs/plans/2026-07-02-m8-forward-replay-plan.md` — both adversarial plan reviewers
+independently converged on the same blocker (the window-tail edge) before a line of code.
+
+**Concepts introduced:**
+- **Extraction as the consistency proof.** `run_backtest`'s loop body moved VERBATIM into
+  `SessionEngine.step` (`quantize/engine/backtest.py`); the backtest drives it over the whole
+  window, `ForwardReplay` (`quantize/engine/forward.py`) drives the SAME step one session at a
+  time. The modes cannot diverge in behavior because there is only one behavior — the
+  extraction gate was the full 657-test suite passing untouched, goldens included.
+- **Bounded replay is a semantic choice, not a convenience.** The engine's tail rule (an
+  evaluation whose fill would land beyond the window is suppressed with a note) requires a
+  KNOWN end; an open-ended driver would instead queue an order that dangles. v0 forward
+  replay REQUIRES `last_session`; open-ended tails are deferred with the live-data adapter.
+- **The calibrated claim, instantiated.** ARCHITECTURE §3 hedges consistency on data-source/
+  history/environment differences — all null in v0 (same fixture, same `as_of` gating). Full
+  field-for-field equality (same run_id, bounded window, advanced to exhaustion) is therefore
+  the STRONGEST valid form of "agreement on overlapping decisions," and it holds for
+  Strategies A and B — targets, orders, fills, valuations, notes, metrics, final state, and
+  the trace with its separately-modeled instants.
+- **Stored facts as the oracle.** The battery saves the backtest via M7, REOPENS the database,
+  and compares the forward run against the LOADED record and trace — never recomputed facts
+  relabeled as stored ones.
+- **Restart determinism:** a checkpoint taken WITH pending overnight orders (they legitimately
+  span an `advance()` boundary) resumes deterministically — twice, identically — and equals
+  both the uninterrupted replay and the backtest.
+- **The test-only stateful accumulator** (STRATEGY_LANGUAGE §5; `tests/stateful_fixture.py`,
+  never the product registry): identical state trajectories across modes, with each firing's
+  last-visible-session doubling as a direct lookahead witness (an evaluation at k never saw
+  k+1). It proves TIMING equivalence; checkpointable node state stays deferred.
+
+**Exercise (after review):** predict what `run_backtest(last_session=k)` and a forward replay
+bounded to the same k each do when k is an evaluation day whose fill would land at k+1 — then
+read `test_bounded_forward_equals_bounded_backtest` and the plan's amendment 1.
+
+**Status:** M8 implemented; full gate green (677 tests after self-review + Codex round 1). Awaiting self-review + founder review +
+Codex audit. Not committed. Next after acceptance: **M9** (API boundary).
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)

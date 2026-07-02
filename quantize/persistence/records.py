@@ -23,6 +23,7 @@ RECORD_FORMAT = 1
 TRACE_FORMAT = 1
 
 RUN_MODE_BACKTEST = "backtest"
+RUN_MODE_FORWARD = "forward"  # M8: deterministic incremental replay
 
 
 class _Frozen(BaseModel):
@@ -120,16 +121,22 @@ class PersistedRunRecord(_Frozen):
 
 
 def record_from_result(
-    result: BacktestResult, *, strategy_id: str, strategy_version: int
+    result: BacktestResult,
+    *,
+    strategy_id: str,
+    strategy_version: int,
+    mode: str = RUN_MODE_BACKTEST,
 ) -> PersistedRunRecord:
     """Copy the run's facts into the durable shape. Pure read — never mutates *result*.
 
-    Strategy identity comes from the DOCUMENT (it is not a ``BacktestResult`` fact).
+    Strategy identity comes from the DOCUMENT (it is not a ``BacktestResult`` fact); *mode*
+    records HOW the facts were produced (backtest vs M8 forward replay) — same engine core,
+    so the record shape is mode-agnostic.
     """
     return PersistedRunRecord(
         record_format=RECORD_FORMAT,
         run_id=result.run_id,
-        mode=RUN_MODE_BACKTEST,
+        mode=mode,
         strategy_id=strategy_id,
         strategy_version=strategy_version,
         ok=result.ok,

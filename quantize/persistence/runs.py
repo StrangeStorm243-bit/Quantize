@@ -25,11 +25,13 @@ from quantize.persistence.errors import (
     ARTIFACT_CONFLICT,
     ARTIFACT_NOT_FOUND,
     CORRUPT_ARTIFACT,
+    INVALID_ARTIFACT,
     PersistenceError,
 )
 from quantize.persistence.migrations import ARTIFACT_MIGRATIONS, ArtifactMigrationRegistry
 from quantize.persistence.records import (
     RECORD_FORMAT,
+    RUN_MODE_BACKTEST,
     TRACE_FORMAT,
     PersistedRunRecord,
     record_from_result,
@@ -85,7 +87,13 @@ class RunRepository:
 
     # --- save -------------------------------------------------------------------------------
 
-    def save_run(self, document: StrategyDocument, result: BacktestResult) -> str:
+    def save_run(
+        self,
+        document: StrategyDocument,
+        result: BacktestResult,
+        *,
+        mode: str = RUN_MODE_BACKTEST,
+    ) -> str:
         """Persist strategy (idempotent) + run facts + trace stream. One atomic unit.
 
         Never mutates *document*, *result*, or any trace event. Duplicate run_id with identical
@@ -95,7 +103,24 @@ class RunRepository:
             result,
             strategy_id=document.strategy.id,
             strategy_version=document.strategy.version,
+            mode=mode,
         )
+        # Fail CLOSED on partial results (Codex M8): a mid-replay ForwardReplay.result() peek
+        # claims ok=True with the full window bounds while holding only a prefix of the facts.
+        # A successful COMPLETED run always values its declared last session; anything else is
+        # not a completed run and must never persist as one. (Pure fact comparison — no
+        # calendar logic re-derived here. Failed runs are honest partials: ok=False persists.)
+        if record.ok and record.last_session is not None:
+            valued_through = record.valuations[-1][0] if record.valuations else None
+            if valued_through != record.last_session:
+                raise PersistenceError(
+                    INVALID_ARTIFACT,
+                    f"run {record.run_id} claims ok through "
+                    f"{record.last_session.isoformat()} but its facts stop at "
+                    f"{valued_through.isoformat() if valued_through else 'nowhere'}; "
+                    "a non-exhausted replay peek is not a completed run",
+                    {"run_id": record.run_id, "mode": mode},
+                )
         stored = artifact_bytes(record, kind="run_record", key=record.run_id)
         digest = content_hash(stored)
         event_rows = [
