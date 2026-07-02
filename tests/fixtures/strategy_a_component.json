@@ -1,0 +1,43 @@
+{
+  "schema_version": "0.1.0",
+  "strategy": {
+    "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    "version": 1,
+    "name": "ETF Momentum Rotation (componentized)",
+    "description": "Strategy A with its momentum selection reused as a pinned component.",
+    "provenance": {
+      "owner": "22222222-2222-2222-2222-222222222222",
+      "creator": "22222222-2222-2222-2222-222222222222",
+      "contributors": [],
+      "forked_from": null,
+      "visibility": "private",
+      "duplicable": false,
+      "created_at": "2026-06-23T00:00:00Z"
+    }
+  },
+  "execution_policy": {
+    "policy": "close_signal_next_session_open",
+    "valuation": "session_close",
+    "transaction_costs": { "model": "bps", "bps": 5.0 }
+  },
+  "schedule": { "kind": "monthly" },
+  "nodes": [
+    { "id": "u", "type_id": "universe.fixed_list", "type_version": "1.0.0", "params": { "tickers": ["EFA", "GLD", "IWM", "QQQ", "SPY", "TLT"] } },
+    { "id": "px", "type_id": "data.price", "type_version": "1.0.0", "params": {} },
+    { "id": "mom", "type_id": "component", "ref": "c1", "params": { "n": 3 } },
+    { "id": "ew", "type_id": "portfolio.equal_weight", "type_version": "1.0.0", "params": {} },
+    { "id": "cap", "type_id": "risk.max_weight", "type_version": "1.0.0", "params": { "max": 0.4 } },
+    { "id": "tp", "type_id": "output.target_portfolio", "type_version": "1.0.0", "params": {} }
+  ],
+  "edges": [
+    { "from": ["u", "assets"], "to": ["px", "assets"] },
+    { "from": ["px", "series"], "to": ["mom", "series"] },
+    { "from": ["u", "assets"], "to": ["mom", "universe"] },
+    { "from": ["mom", "assets"], "to": ["ew", "assets"] },
+    { "from": ["ew", "targets"], "to": ["cap", "targets"] },
+    { "from": ["cap", "targets"], "to": ["tp", "targets"] }
+  ],
+  "component_refs": [
+    { "id": "c1", "component_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "version": "1.0.0" }
+  ]
+}

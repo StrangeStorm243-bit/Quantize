@@ -1,0 +1,42 @@
+{
+  "component_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "version": "1.0.0",
+  "schema_version": "0.1.0",
+  "name": "Momentum Selector",
+  "description": "Trailing-return momentum: rank descending, select the top n of the universe.",
+  "component_refs": [],
+  "implementation": {
+    "kind": "graph",
+    "graph": {
+      "nodes": [
+        { "id": "ret", "type_id": "transform.trailing_return", "type_version": "1.0.0", "params": { "lookback_sessions": 126 } },
+        { "id": "rk", "type_id": "transform.rank", "type_version": "1.0.0", "params": { "descending": true } },
+        { "id": "sel", "type_id": "portfolio.select_top_n", "type_version": "1.0.0", "params": { "n": 3 } }
+      ],
+      "edges": [
+        { "from": ["ret", "values"], "to": ["rk", "values"] },
+        { "from": ["rk", "values"], "to": ["sel", "scores"] }
+      ]
+    }
+  },
+  "exposed_inputs": [
+    { "name": "series", "type": { "kind": "TimeSeries", "dtype": "Number" }, "maps_to": ["ret", "series"] },
+    { "name": "universe", "type": { "kind": "AssetSet" }, "maps_to": ["sel", "universe"] }
+  ],
+  "exposed_outputs": [
+    { "name": "assets", "type": { "kind": "AssetSet" }, "maps_to": ["sel", "assets"] }
+  ],
+  "exposed_params": [
+    { "name": "lookback_sessions", "binds_to": ["ret", "lookback_sessions"], "schema": { "type": "integer", "minimum": 1 } },
+    { "name": "n", "binds_to": ["sel", "n"], "schema": { "type": "integer", "minimum": 1 } }
+  ],
+  "provenance": {
+    "owner": "22222222-2222-2222-2222-222222222222",
+    "creator": "22222222-2222-2222-2222-222222222222",
+    "contributors": [],
+    "forked_from": null,
+    "visibility": "private",
+    "duplicable": false,
+    "created_at": "2026-06-23T00:00:00Z"
+  }
+}

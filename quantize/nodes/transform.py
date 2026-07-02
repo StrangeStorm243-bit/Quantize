@@ -1,0 +1,247 @@
+"""The v0 transformation nodes: trailing return, moving average, latest, rank.
+
+Missing-data behavior (node-specific exclusion, STRATEGY_LANGUAGE.md §2): these nodes exclude an
+asset from their output *values* when the required observations are unavailable — the asset stays
+in the output *domain*, a trace event explains the exclusion, and nothing is forward-filled or
+fabricated. All session arithmetic is calendar-anchored: "the latest session" is the most recent
+close-visible session of the run's calendar (``view.session_dates``), never an asset's own stale
+last observation — reusing an older price where the current session's close is missing would be a
+silent forward-fill.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from datetime import date
+
+from quantize.nodes._params import get_bool, require_int
+from quantize.registry.descriptor import (
+    InputPortSpec,
+    NodeDescriptor,
+    NodeMetadata,
+    OutputPortSpec,
+)
+from quantize.registry.schema_spec import JsonSchemaSpec
+from quantize.runtime.binding import NodeImplementation, NodeInvocation
+from quantize.runtime.values import CrossSectionValue, RuntimeValue, TimeSeriesValue
+from quantize.schema.primitives import JsonValue
+from quantize.schema.types import CrossSectionType, TimeSeriesType
+
+_TS_NUM = TimeSeriesType(kind="TimeSeries", dtype="Number")
+_CS_NUM = CrossSectionType(kind="CrossSection", dtype="Number")
+
+_EMPTY_PARAMS = JsonSchemaSpec({"type": "object", "additionalProperties": False})
+
+
+def _series_input(invocation: NodeInvocation) -> TimeSeriesValue:
+    series = invocation.inputs["series"]
+    assert isinstance(series, TimeSeriesValue)
+    return series
+
+
+# --- transform.trailing_return -----------------------------------------------------------------
+
+
+def _trailing_return_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
+    """``close(D) / close(D - L) - 1`` where D is the latest visible session and D-L is exactly
+    L calendar sessions earlier. An asset missing either observation is excluded (traced)."""
+    lookback = require_int(invocation.params, "lookback_sessions")
+    series = _series_input(invocation)
+    sessions = invocation.view.session_dates
+    values: dict[str, float] = {}
+
+    def exclude(asset: str, reason: str) -> None:
+        invocation.trace("transform.excluded", {"asset": asset, "reason": reason})
+
+    if len(sessions) <= lookback:
+        for asset in series.assets:
+            exclude(asset, "insufficient_sessions")
+    else:
+        current, anchor = sessions[-1], sessions[-1 - lookback]
+        for asset in series.assets:
+            history = dict(series.history(asset))
+            current_close = history.get(current)
+            anchor_close = history.get(anchor)
+            if current_close is None:
+                exclude(asset, "missing_current_close")
+            elif anchor_close is None:
+                exclude(asset, "missing_anchor_close")
+            elif anchor_close == 0.0:
+                exclude(asset, "zero_denominator")
+            else:
+                values[asset] = current_close / anchor_close - 1.0
+    return {"values": CrossSectionValue.numbers(series.assets, values)}
+
+
+TRAILING_RETURN = NodeImplementation(
+    descriptor=NodeDescriptor(
+        type_id="transform.trailing_return",
+        type_version="1.0.0",
+        inputs=(InputPortSpec(name="series", port_type=_TS_NUM),),
+        outputs=(OutputPortSpec(name="values", port_type=_CS_NUM),),
+        metadata=NodeMetadata(
+            display_name="Trailing Return",
+            description=(
+                "Return over the trailing lookback_sessions calendar sessions: "
+                "close(D)/close(D-L) - 1. Assets missing either close are excluded."
+            ),
+        ),
+        parameter_schema=JsonSchemaSpec(
+            {
+                "type": "object",
+                "properties": {"lookback_sessions": {"type": "integer", "minimum": 1}},
+                "required": ["lookback_sessions"],
+                "additionalProperties": False,
+            }
+        ),
+    ),
+    evaluate=_trailing_return_evaluate,
+    warmup=lambda params: require_int(params, "lookback_sessions"),
+)
+
+
+# --- transform.moving_average ------------------------------------------------------------------
+
+
+def _moving_average_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
+    """Simple moving average over the trailing ``window`` calendar sessions ending at each
+    session. A session lacking any of its window observations gets no MA point (no fill)."""
+    window = require_int(invocation.params, "window")
+    series = _series_input(invocation)
+    sessions = invocation.view.session_dates
+    output: dict[str, list[tuple[date, float]]] = {}
+    for asset in series.assets:
+        history = dict(series.history(asset))
+        points: list[tuple[date, float]] = []
+        for index in range(window - 1, len(sessions)):
+            window_dates = sessions[index - window + 1 : index + 1]
+            closes = [history.get(day) for day in window_dates]
+            if all(close is not None for close in closes):
+                total = sum(close for close in closes if close is not None)
+                points.append((sessions[index], total / window))
+        if not points:
+            invocation.trace("transform.excluded", {"asset": asset, "reason": "warmup_unmet"})
+        output[asset] = points
+    return {"series": TimeSeriesValue.of(output)}
+
+
+MOVING_AVERAGE = NodeImplementation(
+    descriptor=NodeDescriptor(
+        type_id="transform.moving_average",
+        type_version="1.0.0",
+        inputs=(InputPortSpec(name="series", port_type=_TS_NUM),),
+        outputs=(OutputPortSpec(name="series", port_type=_TS_NUM),),
+        metadata=NodeMetadata(
+            display_name="Moving Average",
+            description=(
+                "Simple moving average over the trailing window sessions; sessions missing any "
+                "window observation get no point (never forward-filled)."
+            ),
+        ),
+        parameter_schema=JsonSchemaSpec(
+            {
+                "type": "object",
+                "properties": {"window": {"type": "integer", "minimum": 1}},
+                "required": ["window"],
+                "additionalProperties": False,
+            }
+        ),
+    ),
+    evaluate=_moving_average_evaluate,
+    warmup=lambda params: require_int(params, "window"),
+)
+
+
+# --- transform.latest --------------------------------------------------------------------------
+
+
+def _latest_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
+    """The explicit history -> current collapse: each asset's value AT the latest visible
+    session. An asset without an observation at that exact session is excluded (no stale
+    substitution)."""
+    series = _series_input(invocation)
+    current = invocation.view.latest_session_date
+    values: dict[str, float] = {}
+    for asset in series.assets:
+        history = series.history(asset)
+        if history and current is not None and history[-1][0] == current:
+            values[asset] = history[-1][1]
+        else:
+            invocation.trace(
+                "transform.excluded",
+                {"asset": asset, "reason": "missing_current_observation"},
+            )
+    return {"values": CrossSectionValue.numbers(series.assets, values)}
+
+
+LATEST = NodeImplementation(
+    descriptor=NodeDescriptor(
+        type_id="transform.latest",
+        type_version="1.0.0",
+        inputs=(InputPortSpec(name="series", port_type=_TS_NUM),),
+        outputs=(OutputPortSpec(name="values", port_type=_CS_NUM),),
+        metadata=NodeMetadata(
+            display_name="Latest Value",
+            description=(
+                "The value at the latest visible session, per asset; assets without an "
+                "observation at that session are excluded."
+            ),
+        ),
+        parameter_schema=_EMPTY_PARAMS,
+    ),
+    evaluate=_latest_evaluate,
+    warmup=lambda params: 1,
+)
+
+
+# --- transform.rank ----------------------------------------------------------------------------
+
+
+def _rank_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
+    """Ordinal ranks 1..k over the present values (1 = best). Ratified tie-break: equal scores
+    are ordered by ascending canonical ticker; upstream-excluded assets are not ranked."""
+    descending = get_bool(invocation.params, "descending", True)
+    scores = invocation.inputs["values"]
+    assert isinstance(scores, CrossSectionValue)
+
+    items = sorted(scores.values)  # ticker-ascending base order
+    ordered = sorted(items, key=lambda item: item[1], reverse=descending)  # stable: ties stay
+    values: dict[str, float] = {
+        asset: float(position + 1) for position, (asset, _) in enumerate(ordered)
+    }
+
+    by_score: dict[float | bool, list[str]] = {}
+    for asset, score in ordered:
+        by_score.setdefault(score, []).append(asset)
+    for score in sorted(by_score, key=lambda s: float(s)):
+        group = by_score[score]
+        if len(group) > 1:
+            payload: dict[str, JsonValue] = {"assets": list(group), "score": float(score)}
+            invocation.trace("rank.tie_broken", payload)
+
+    return {"values": CrossSectionValue.numbers(scores.domain, values)}
+
+
+RANK = NodeImplementation(
+    descriptor=NodeDescriptor(
+        type_id="transform.rank",
+        type_version="1.0.0",
+        inputs=(InputPortSpec(name="values", port_type=_CS_NUM),),
+        outputs=(OutputPortSpec(name="values", port_type=_CS_NUM),),
+        metadata=NodeMetadata(
+            display_name="Rank",
+            description=(
+                "Ordinal ranks over the present values (1 = best; descending by default); "
+                "ties broken by ascending canonical ticker."
+            ),
+        ),
+        parameter_schema=JsonSchemaSpec(
+            {
+                "type": "object",
+                "properties": {"descending": {"type": "boolean", "default": True}},
+                "additionalProperties": False,
+            }
+        ),
+    ),
+    evaluate=_rank_evaluate,
+)

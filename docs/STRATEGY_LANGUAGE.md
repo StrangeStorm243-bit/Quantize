@@ -236,7 +236,9 @@ So that a node type can declare its `trace_schema` as soon as it is registered (
   "run_id": "uuid",
   "timestamp": "2026-05-29T21:00:00Z",   // a separately-modeled time (e.g. evaluation instant)
   "node_id": "rk",
-  "component_path": ["c1", "rk"],         // nested component path; [] at strategy top level
+  "component_path": ["c1"],               // ENCLOSING component-instance ids only ([] at strategy
+                                          // top level); the emitting node itself is node_id, so a
+                                          // node's full identity is (component_path, node_id)
   "event_type": "rank.tie_broken",        // node-declared event type
   "payload": { /* structured, node-specific */ }
 }
@@ -510,7 +512,8 @@ A component-instance node's exposed ports participate in edges like any node's p
 - **Compositional evaluation:** the engine evaluates the internal graph as a real sub-graph wired
   through exposed ports. It **never flattens** components into anonymous parent nodes and uses **no
   stub/temporary expansion**.
-- **Hierarchical trace paths:** trace events carry a component path (e.g. `c1 / intSelectNode`) so the
+- **Hierarchical trace paths:** trace events carry the enclosing component-instance path plus the
+  emitting node id (e.g. `component_path ["c1"]` + `node_id "intSelectNode"`) so the
   user inspects internal nodes while knowing the owning component.
 - **Migration behavior:** a `ComponentDefinition` targets a `schema_version`; loading one outside the
   engine's supported range is an explicit error with a named migration path — never silent.
