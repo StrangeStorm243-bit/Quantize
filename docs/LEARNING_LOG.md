@@ -712,6 +712,51 @@ Awaiting self-review + founder review + Codex audit. Not committed. Next after a
 
 ---
 
+## M7 — Persistence, migrations, durable run/trace storage (2026-07-02)
+
+SQLite behind a repository layer per ADR-0004 (stdlib `sqlite3`, zero new dependencies), with
+migration discipline from the first persistence commit. Plan-of-record:
+`docs/plans/2026-07-02-m7-persistence-plan.md` — three adversarial reviews BEFORE code caught
+two genuine data-loss bugs in the design (silently loading unsupported IR `schema_version`s;
+dropping the evaluation/scheduled-fill instants along with the calendar) and pinned the SQLite
+transaction configuration.
+
+**Concepts introduced:**
+- **The stdlib sqlite3 transaction trap.** The driver's legacy `isolation_level` mode issues
+  implicit BEGINs and historically auto-commits around DDL — the only deterministic
+  configuration is `isolation_level=None` plus explicit `BEGIN IMMEDIATE`/`COMMIT`/`ROLLBACK`
+  (`quantize/persistence/database.py`). Migration DDL + its bookkeeping INSERT, and the run
+  record + its whole trace stream, are each ONE atomic unit — fault-injection tests prove a
+  mid-stream failure persists nothing.
+- **Two version axes, both gated.** Persistence formats (`record_format`/`trace_format`,
+  migrated forward-only at LOAD through an explicit registry) are independent of the IR's own
+  `schema_version` (gated against M1's supported set — `model_validate` checks SemVer SYNTAX
+  only, a distinction the plan review caught).
+- **Never-silently-lossy as a mechanism, not discipline:** every migration declares its
+  `dropped_keys`; a generic registry test fails on any undeclared key disappearance.
+- **Facts, not recomputation.** `PersistedRunRecord` copies what the engine DID — including the
+  evaluation/scheduled-fill instants, the `returns` series, dust/hold plan rows, and failure
+  diagnostics with node paths. The calendar is an engine INPUT and is not persisted.
+- **Artifact identity = content hash of the EXACT stored bytes** (M1 `to_ir_json`, insertion
+  order — never re-sorted); duplicates are idempotent no-ops, divergent saves under an existing
+  key are structured conflicts, and there is no update API: persisted artifacts are immutable.
+- **Corruption is loud:** tampered bytes fail the recorded hash; a gapped trace `seq` is
+  CORRUPT, never a silently shorter stream; a database AHEAD of the code refuses to open.
+
+**Reading path:** `tests/test_persistence_runs.py::test_format_zero_row_migrates_through_the_production_load_path`
+(the migration seam end-to-end), then `save_run` in `quantize/persistence/runs.py`.
+
+**Exercise (after review):** predict what happens when the same run is saved into two separate
+databases and the stored bytes are compared — then check
+`test_persisted_artifacts_are_deterministic_across_databases` and explain why `saved_at`
+doesn't break it.
+
+**Status:** M7 implemented; full gate green (657 tests after two Codex correction rounds). Awaiting self-review + founder review +
+Codex audit. Not committed. Next after acceptance: **M8** (forward/paper deterministic replay +
+backtest↔forward consistency), consuming `load_run`/`load_trace` as its stored-facts oracle.
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)

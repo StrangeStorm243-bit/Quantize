@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -34,6 +34,8 @@ def _to_portable(value: Any) -> Any:
         return value
     if isinstance(value, datetime):
         return value.isoformat()  # RFC 3339 (aware UTC)
+    if isinstance(value, date):  # after datetime -- datetime subclasses date
+        return value.isoformat()
     if isinstance(value, (list, tuple)):
         return [_to_portable(item) for item in value]
     if isinstance(value, dict):

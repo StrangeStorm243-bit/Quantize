@@ -61,3 +61,19 @@ def test_canonical_serialization_rejects_unsupported_object() -> None:
     doc.nodes[1].params["obj"] = object()  # type: ignore[assignment]
     with pytest.raises(ValueError, match="cannot be persisted"):
         to_ir_json(doc)
+
+
+def test_date_values_serialize_as_iso_strings() -> None:
+    # M7 additive: plain dates (run-record facts) join datetimes in the portable walker;
+    # the datetime branch must win first (datetime subclasses date).
+    from datetime import UTC, date, datetime
+
+    from pydantic import BaseModel
+
+    class WithDates(BaseModel):
+        day: date
+        instant: datetime
+
+    model = WithDates(day=date(2026, 7, 2), instant=datetime(2026, 7, 2, 21, 0, tzinfo=UTC))
+    dumped = to_ir_dict(model)
+    assert dumped == {"day": "2026-07-02", "instant": "2026-07-02T21:00:00+00:00"}
