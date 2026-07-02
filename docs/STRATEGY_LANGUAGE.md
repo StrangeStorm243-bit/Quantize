@@ -271,8 +271,10 @@ construction, persistence, retrieval, visualization, and analysis remain in thei
   ranked)
 
 **Logic**
-- `logic.greater_than` (`CrossSection[Number] × CrossSection[Number] → CrossSection[Boolean]`, or a
-  `Scalar` right operand). **Preserves the full bound asset domain:** the output mask contains every
+- `logic.greater_than` (`CrossSection[Number] × CrossSection[Number] → CrossSection[Boolean]`; a
+  `Scalar` right-operand variant is **deferred** until a strategy needs it — see the M3 design
+  record — and is not part of the v0 registered contract). **Preserves the full bound asset
+  domain:** the output mask contains every
   asset in the universe; if **either operand is unavailable** for an asset, that asset's result is
   **`false`** (not omitted), and the node emits a missing-data trace event. The general comparison
   primitive for v0.

@@ -83,3 +83,14 @@ class ExchangeCalendar:
             if session.session_date == session_date:
                 return session
         return None
+
+    def next_session_after(self, session_date: date) -> MarketSession | None:
+        """The first session STRICTLY after *session_date* ("D+1" = next valid session).
+
+        Weekends/holidays are skipped by construction (they are simply not sessions). Returns
+        ``None`` beyond calendar coverage — the calendar is never silently extended.
+        """
+        for session in self.sessions:
+            if session.session_date > session_date:
+                return session
+        return None

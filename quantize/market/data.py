@@ -124,7 +124,20 @@ class MarketDataSet:
             )
             for asset, series in self.observations.items()
         )
-        return DataView(instant=cutoff, session_dates=visible_sessions, _closes=closes)
+        opens = tuple(
+            (
+                asset,
+                tuple(
+                    (observation.session_date, observation.open_price)
+                    for observation in series
+                    if observation.open_available_at <= cutoff
+                ),
+            )
+            for asset, series in self.observations.items()
+        )
+        return DataView(
+            instant=cutoff, session_dates=visible_sessions, _closes=closes, _opens=opens
+        )
 
 
 @dataclass(frozen=True)
@@ -139,6 +152,9 @@ class DataView:
     instant: datetime
     session_dates: tuple[date, ...]
     _closes: tuple[tuple[str, tuple[tuple[date, float], ...]], ...] = field(repr=False)
+    # Availability-gated opens (M4): visible iff open_available_at <= instant. A view taken AT a
+    # session's open therefore exposes that session's open but not its close.
+    _opens: tuple[tuple[str, tuple[tuple[date, float], ...]], ...] = field(repr=False, default=())
 
     @property
     def latest_session_date(self) -> date | None:
@@ -156,3 +172,17 @@ class DataView:
             if candidate == asset:
                 return series
         return ()
+
+    def open_price(self, asset: str, session_date: date) -> float | None:
+        """The visible open for *asset* AT exactly *session_date*, or ``None``.
+
+        Answers only for the exact (asset, session) requested — a missing or not-yet-available
+        open is ``None``, never a stale or prior-session substitute.
+        """
+        for candidate, series in self._opens:
+            if candidate == asset:
+                for day, price in series:
+                    if day == session_date:
+                        return price
+                return None
+        return None

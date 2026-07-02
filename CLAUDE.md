@@ -34,10 +34,15 @@ with **structured decision tracing**. The visual canvas is only an editor for th
   Python versions verbatim.
 - **Run tests:** `pytest` (runtime; frontend tests from M11).
 - **Lint:** `ruff check .` · **Format check:** `ruff format --check .` · **Type-check:** `mypy`.
-  Run all three before claiming a milestone done.
-- **Node:** baseline **24 LTS** (`.nvmrc`). Install locked deps with `npm ci` under Node 24 (CI uses
-  `npm ci`; never run the Node toolchain under Node 25+). Local activation example (fnm): `fnm use`
-  reads `.nvmrc`.
+- **Full gate (canonical):** `./scripts/gate.ps1` — pytest, ruff check, format check, mypy, Node-24
+  activation, `codegen check`, `npm run typecheck`, fail-fast, from any cwd. Run it before claiming
+  a milestone or slice done.
+- **Node:** baseline **24 LTS** (`.nvmrc`; `engine-strict`). The system Node may differ, and
+  non-interactive shells do not load the user profile, so a bare `node`/`npm`/`tsc`/codegen call can
+  resolve to the wrong Node. Before any Node-dependent command, run `./scripts/node24.ps1` in the
+  same shell process — it locates fnm without a profile, activates Node 24, and asserts `v24.*`
+  (fails loudly otherwise). Interactive terminals may auto-initialize fnm. Install locked deps with
+  `npm ci` under Node 24; never run the Node toolchain under Node 25+.
 - **Run backend / API:** _TBD (M9)_  ·  **Run frontend (editor):** _TBD (M11)_
 - **Generate JSON Schema + TS types (codegen):** `python -m quantize.codegen generate` (emits
   `schema/quantize.schema.json` + `ts/quantize-ir.d.ts`; needs Node 24 on PATH for the TS step).
