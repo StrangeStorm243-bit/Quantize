@@ -491,6 +491,84 @@ clean). Founder-approved. Next: **M3-PRE → M3** (graph evaluator) — first fo
 
 ---
 
+## M3-PRE + M3 — Market data, graph evaluator, the 12 nodes, component runtime (2026-07-01)
+
+Executed as an autonomous agent build sprint at the founder's direction (the earlier
+hand-implementation plan was overridden); this entry is the compact learning handoff.
+
+**System map (evaluation of one instant):** `MarketDataSet.as_of(instant)` builds the
+availability-gated `DataView` (the temporal boundary) → `evaluate_strategy` pre-flights by
+*calling* the M1/M2 validators plus the new M3 checks (component resolution, component-endpoint
+wiring, ambiguous fan-in, the single-terminal rule) → deterministic topological order (Kahn +
+lexicographic tie-break) → each node resolves through the `ImplementationCatalog` by exact
+`(type_id, type_version)`, is invoked with a `NodeInvocation` (effective params, typed inputs,
+view, bound trace sink), and its outputs are checked against its descriptor → component nodes
+recurse into their internal graphs under `path + instance_id` (never flattened) → the value on
+the one `output.target_portfolio` node's input is the run's `PortfolioTargets`.
+
+**Concepts introduced:**
+- **Availability-time gating as a construction property.** `DataView` doesn't *filter* on each
+  query; it is *built* to contain only knowable observations, so a node holding one cannot read
+  the future through it. The dataset contract additionally rejects data available before it
+  exists. Calibrated claim: constrained and tested, not impossible.
+- **Descriptors vs. bindings.** The M2 descriptor says what a node *is* (ports, params); the M3
+  `NodeImplementation` says what it *does* (evaluate, warm-up, purity). The catalog registers
+  both together so the validator and the executor can never disagree.
+- **Domain-carrying values.** `CrossSectionValue`/`TimeSeriesValue` keep the bound asset domain
+  separate from the present values, making missing-data exclusion visible (and making
+  `logic.greater_than`'s domain-preserving false-not-omitted rule structurally honest).
+- **Two missing-data regimes, one per node family** (ratified M0 defaults): comparison preserves
+  the domain (missing → false + trace); scoring/selection excludes per node rule (+ trace);
+  nothing is forward-filled anywhere ("latest" means *at* the latest calendar session — a stale
+  price is never substituted).
+- **Compositional component evaluation.** Resolution fetches the pinned closure, rejects direct
+  + transitive recursion over the *fetched* set (completing M1's bounded check), verifies port
+  mappings/param bindings statically, and produces an instance tree with *effective params*
+  (copies — persisted documents are never mutated). Evaluation recurses; traces carry the
+  component-instance path.
+- **Fail loud at the right layer, runtime edition.** Pre-flight accumulates diagnostics with the
+  original stable codes; execution stops at the first failing node with a structured
+  `RuntimeDiagnostic` (never converting a defect into a missing value).
+
+**Files studied / created:** `quantize/market/{calendar,data}.py`;
+`quantize/runtime/{values,binding,diagnostics}.py`; `quantize/components/resolve.py`;
+`quantize/evaluator/{plan,evaluate,errors}.py`; `quantize/nodes/*`;
+`quantize/tracing/recorder.py`; `tests/market_fixture.py`, `tests/runtime_fixtures.py`,
+`tests/component_fixtures.py`, `tests/node_harness.py`, and the M3 test files;
+`tests/fixtures/{component_momentum,strategy_a_component}.json`.
+
+**Reading path (one complete trace):** run
+`tests/test_reference_strategies_eval.py::test_strategy_a_targets_at_the_main_instant` and follow
+Strategy A's order `u → px → ret → rk → sel → ew → cap → tp`: fixed universe → visible closes →
+`GROWTH**126 − 1` per asset → ranks (QQQ 1 … TLT 6) → top 3 → 1/3 each → 0.4 cap (no-op) →
+targets `{IWM: ⅓, QQQ: ⅓, SPY: ⅓}`, cash ≈ 0. Then the IWM-missing-session variant to watch a
+missing close ripple through exclusion → selection → targets, with the `transform.excluded`
+trace event explaining it.
+
+**Important tests:** `test_market_data.py` (availability vs. session-date gating);
+`test_evaluator.py` (mechanics + determinism + state isolation); `test_component_*` (resolution
+faults, nesting, hierarchy traces); `test_nodes_*` (hand-computed node math, incl. the two-pass
+waterfall `{0.6,0.3,0.1}→{0.4,0.4,0.2}`); `test_reference_strategies_eval.py` (both strategies,
+look-ahead at one minute before the close, componentized-A ≡ flat-A).
+
+**Known limitations:** no engine loop/orders (M4); per-value runtime metadata and detailed trace
+payloads deferred (M4/M6); core nodes declare no `trace_schema` yet (M6); `logic.greater_than`
+has no scalar right operand; moving average is O(sessions × window) per asset (fine at fixture
+scale; vectorization stays fenced).
+
+**Exercise (implement by hand, after review):** add `transform.lowest`/`min` semantics to a copy
+of `_latest_evaluate` — or better: write `portfolio.select_bottom_n` as a *new registration* in a
+scratch branch. *Prediction to make first:* which existing test file must change not at all, and
+which single function in `quantize/nodes/portfolio.py` would you NOT be able to reuse (answer:
+none — the catalog builder is the only integration point; check yourself against
+`tests/test_nodes_descriptors.py::test_catalog_holds_the_twelve_core_nodes_plus_terminal`).
+
+**Status:** M3-PRE + M3 implemented; Codex-audited (approved after corrections, applied); full
+gate green (459 tests; ruff/format/mypy/codegen/tsc clean). Not committed. Next after acceptance:
+**ADR-0005** (order reconciliation) then **M4** (session engine + Strategy A golden).
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)

@@ -25,14 +25,17 @@ and in tests.
 │   schema/        Pydantic models authoring the published JSON Schema  │
 │   validation/    M1 structural · M2 semantic (registry-dependent)     │
 │   registry/      node-type registry (uniform contracts; no switch)    │
+│   runtime/       typed runtime values · executable node bindings (M3) │
+│   market/        calendar · dataset · as-of DataView (M3-PRE; the     │
+│                  MarketData adapter seam)                             │
 │   nodes/         node implementations (pure in v0)                    │
 │   components/    ComponentDefinition resolution + compositional eval   │
 │   evaluator/     single-instant graph evaluation                      │
-│   engine/        session-level event lifecycle (wraps the evaluator)  │
-│   adapters/      Clock · MarketData · Broker/Fills · Storage          │
-│   trace/         structured trace event schemas + emission            │
-│   results/       portfolio value, trades, returns, drawdown           │
-│   persistence/   SQLite repo + migrations (Postgres-targeted schema)  │
+│   engine/        session-level event lifecycle (M4; wraps evaluator)  │
+│   adapters/      Clock · Broker/Fills · Storage (M4+)                 │
+│   tracing/       trace-event envelope (M2) + emission plumbing (M3)   │
+│   results/       portfolio value, trades, returns, drawdown (M4)      │
+│   persistence/   SQLite repo + migrations (M7; Postgres-targeted)     │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -171,7 +174,9 @@ construction is M6** and **persistence/retrieval is M7** (visualization M11). Th
 M2/M6 ordering: the envelope exists at M2; trees and storage come later.
 
 - **Minimal envelope (M2):** `{ run_id, timestamp, node_id, component_path, event_type, payload }`
-  (`STRATEGY_LANGUAGE.md §3`). `component_path` is the nested component path (`[]` at top level).
+  (`STRATEGY_LANGUAGE.md §3`). `component_path` holds the ENCLOSING component-instance ids only
+  (`[]` at top level); the emitting node is `node_id`, so full identity is
+  `(component_path, node_id)`.
 - Each node type declares a `trace_schema` (event types + payload shapes over the envelope) and emits
   typed events during evaluation: inputs seen, outputs produced, conditions passed/failed, assets
   removed by filters or missing-data exclusion, ranking results (with tie-breaks), target weights,
