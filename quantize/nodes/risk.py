@@ -28,8 +28,43 @@ from quantize.runtime.binding import NodeImplementation, NodeInvocation
 from quantize.runtime.values import WEIGHT_TOLERANCE, PortfolioTargetsValue, RuntimeValue
 from quantize.schema.primitives import JsonValue
 from quantize.schema.types import PortfolioTargetsType
+from quantize.tracing.spec import (
+    ASSET_LIST,
+    NUMBER,
+    TraceEventSpec,
+    combined_trace_schema,
+)
 
 _PT = PortfolioTargetsType(kind="PortfolioTargets")
+
+_TRACE_EVENTS = (
+    TraceEventSpec.of(
+        "risk.cap_applied",
+        1,
+        {
+            "capped_assets": ASSET_LIST,
+            "iterations": {"type": "integer", "minimum": 1},
+            "left_in_cash": NUMBER,
+            # EVERY asset whose weight changed: capped assets AND redistribution
+            # recipients, as [asset, before, after] triples.
+            "adjusted": {
+                "type": "array",
+                "items": {
+                    "type": "array",
+                    "prefixItems": [
+                        {"type": "string", "minLength": 1},
+                        {"type": "number"},
+                        {"type": "number"},
+                    ],
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": False,
+                },
+            },
+        },
+        ("capped_assets", "iterations", "left_in_cash", "adjusted"),
+    ),
+)
 
 
 def _evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
@@ -66,12 +101,20 @@ def _evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
     if iterations:
         unallocated = targets.invested_weight - sum(weights.values())
         capped_assets: list[JsonValue] = [asset for asset in sorted(capped)]
+        original = dict(targets.weights)
+        adjusted: list[JsonValue] = [
+            [asset, original[asset], weights[asset]]
+            for asset in assets
+            if weights[asset] != original[asset]
+        ]
         invocation.trace(
             "risk.cap_applied",
             {
+                "v": 1,
                 "capped_assets": capped_assets,
                 "iterations": iterations,
                 "left_in_cash": max(0.0, unallocated),
+                "adjusted": adjusted,
             },
         )
     return {"targets": PortfolioTargetsValue.of(weights)}
@@ -98,6 +141,8 @@ MAX_WEIGHT = NodeImplementation(
                 "additionalProperties": False,
             }
         ),
+        trace_schema=combined_trace_schema(_TRACE_EVENTS),
+        trace_events=_TRACE_EVENTS,
     ),
     evaluate=_evaluate,
 )

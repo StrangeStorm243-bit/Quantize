@@ -1,0 +1,251 @@
+{
+  "golden_format": 1,
+  "instant": "2026-05-15T21:00:00+00:00",
+  "roots": [
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "universe.selected",
+          "payload": {
+            "assets": [
+              "EFA",
+              "GLD",
+              "IWM",
+              "QQQ",
+              "SPY",
+              "TLT"
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "u",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "data.observed",
+          "payload": {
+            "per_asset": [
+              {
+                "asset": "EFA",
+                "first": "2025-01-02",
+                "last": "2026-05-15",
+                "observations": 344
+              },
+              {
+                "asset": "GLD",
+                "first": "2025-03-31",
+                "last": "2026-05-15",
+                "observations": 284
+              },
+              {
+                "asset": "IWM",
+                "first": "2025-01-02",
+                "last": "2026-05-14",
+                "observations": 343
+              },
+              {
+                "asset": "QQQ",
+                "first": "2025-01-02",
+                "last": "2026-05-15",
+                "observations": 344
+              },
+              {
+                "asset": "SPY",
+                "first": "2025-01-02",
+                "last": "2026-05-15",
+                "observations": 344
+              },
+              {
+                "asset": "TLT",
+                "first": "2025-01-02",
+                "last": "2026-05-15",
+                "observations": 344
+              }
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "px",
+      "origin": "node"
+    },
+    {
+      "children": [
+        {
+          "children": [],
+          "component_path": [
+            "mom"
+          ],
+          "events": [
+            {
+              "event_type": "transform.excluded",
+              "payload": {
+                "asset": "IWM",
+                "reason": "missing_current_close",
+                "v": 1
+              }
+            },
+            {
+              "event_type": "transform.computed",
+              "payload": {
+                "computed": [
+                  "EFA",
+                  "GLD",
+                  "QQQ",
+                  "SPY",
+                  "TLT"
+                ],
+                "v": 1
+              }
+            }
+          ],
+          "node_id": "ret",
+          "origin": "node"
+        },
+        {
+          "children": [],
+          "component_path": [
+            "mom"
+          ],
+          "events": [
+            {
+              "event_type": "rank.assigned",
+              "payload": {
+                "descending": true,
+                "ranking": [
+                  [
+                    "EFA",
+                    3.0
+                  ],
+                  [
+                    "GLD",
+                    4.0
+                  ],
+                  [
+                    "QQQ",
+                    1.0
+                  ],
+                  [
+                    "SPY",
+                    2.0
+                  ],
+                  [
+                    "TLT",
+                    5.0
+                  ]
+                ],
+                "v": 1
+              }
+            }
+          ],
+          "node_id": "rk",
+          "origin": "node"
+        },
+        {
+          "children": [],
+          "component_path": [
+            "mom"
+          ],
+          "events": [
+            {
+              "event_type": "select.excluded",
+              "payload": {
+                "asset": "IWM",
+                "reason": "unscored",
+                "v": 1
+              }
+            },
+            {
+              "event_type": "select.selected",
+              "payload": {
+                "n": 3,
+                "selected": [
+                  "EFA",
+                  "QQQ",
+                  "SPY"
+                ],
+                "unselected": [
+                  "GLD",
+                  "TLT"
+                ],
+                "v": 1
+              }
+            }
+          ],
+          "node_id": "sel",
+          "origin": "node"
+        }
+      ],
+      "component_path": [],
+      "events": [],
+      "node_id": "mom",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "portfolio.weighted",
+          "payload": {
+            "cash": 0.0,
+            "v": 1,
+            "weights": [
+              [
+                "EFA",
+                0.3333333333333333
+              ],
+              [
+                "QQQ",
+                0.3333333333333333
+              ],
+              [
+                "SPY",
+                0.3333333333333333
+              ]
+            ]
+          }
+        }
+      ],
+      "node_id": "ew",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "targets.finalized",
+          "payload": {
+            "cash": 0.0,
+            "v": 1,
+            "weights": [
+              [
+                "EFA",
+                0.3333333333333333
+              ],
+              [
+                "QQQ",
+                0.3333333333333333
+              ],
+              [
+                "SPY",
+                0.3333333333333333
+              ]
+            ]
+          }
+        }
+      ],
+      "node_id": "tp",
+      "origin": "node"
+    }
+  ],
+  "run_id": "12121212-1212-1212-1212-121212121212"
+}

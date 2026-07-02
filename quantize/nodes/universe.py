@@ -9,6 +9,9 @@ from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.runtime.binding import NodeImplementation, NodeInvocation
 from quantize.runtime.values import AssetSetValue, RuntimeValue
 from quantize.schema.types import AssetSetType
+from quantize.tracing.spec import ASSET_LIST, TraceEventSpec, combined_trace_schema
+
+_TRACE_EVENTS = (TraceEventSpec.of("universe.selected", 1, {"assets": ASSET_LIST}, ("assets",)),)
 
 
 def _evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
@@ -16,7 +19,9 @@ def _evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
     assert isinstance(tickers, list)
     assets = [ticker for ticker in tickers if isinstance(ticker, str)]
     # Canonical (ascending ticker) order is applied by AssetSetValue itself.
-    return {"assets": AssetSetValue.of(assets)}
+    value = AssetSetValue.of(assets)
+    invocation.trace("universe.selected", {"v": 1, "assets": list(value.assets)})
+    return {"assets": value}
 
 
 FIXED_LIST = NodeImplementation(
@@ -44,6 +49,8 @@ FIXED_LIST = NodeImplementation(
                 "additionalProperties": False,
             }
         ),
+        trace_schema=combined_trace_schema(_TRACE_EVENTS),
+        trace_events=_TRACE_EVENTS,
     ),
     evaluate=_evaluate,
 )

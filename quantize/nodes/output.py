@@ -12,11 +12,31 @@ from collections.abc import Mapping
 from quantize.registry.descriptor import InputPortSpec, NodeDescriptor, NodeMetadata
 from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.runtime.binding import NodeImplementation, NodeInvocation
-from quantize.runtime.values import RuntimeValue
+from quantize.runtime.values import PortfolioTargetsValue, RuntimeValue
+from quantize.schema.primitives import JsonValue
 from quantize.schema.types import PortfolioTargetsType
+from quantize.tracing.spec import (
+    NUMBER,
+    TraceEventSpec,
+    combined_trace_schema,
+    pair_list,
+)
+
+_TRACE_EVENTS = (
+    TraceEventSpec.of(
+        "targets.finalized",
+        1,
+        {"weights": pair_list(NUMBER), "cash": NUMBER},
+        ("weights", "cash"),
+    ),
+)
 
 
 def _evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
+    targets = invocation.inputs["targets"]
+    assert isinstance(targets, PortfolioTargetsValue)
+    weights: list[JsonValue] = [[asset, weight] for asset, weight in targets.weights]
+    invocation.trace("targets.finalized", {"v": 1, "weights": weights, "cash": targets.cash_weight})
     return {}
 
 
@@ -36,6 +56,8 @@ TARGET_PORTFOLIO = NodeImplementation(
             ),
         ),
         parameter_schema=JsonSchemaSpec({"type": "object", "additionalProperties": False}),
+        trace_schema=combined_trace_schema(_TRACE_EVENTS),
+        trace_events=_TRACE_EVENTS,
     ),
     evaluate=_evaluate,
 )

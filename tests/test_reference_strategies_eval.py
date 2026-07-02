@@ -20,6 +20,7 @@ from quantize.nodes import build_core_catalog
 from quantize.runtime.values import CrossSectionValue, PortfolioTargetsValue
 from quantize.schema.components import ComponentDefinition
 from quantize.schema.document import StrategyDocument
+from quantize.tracing.events import TraceEvent
 from quantize.validation.semantic import validate_strategy_semantics
 from quantize.validation.structural import validate_strategy_document
 from tests.helpers import load_fixture
@@ -131,7 +132,7 @@ def test_strategy_a_excludes_iwm_on_its_missing_session(market: MarketDataSet) -
         for event in outcome.trace
         if event.event_type == "transform.excluded" and event.node_id == "ret"
     ]
-    assert {"asset": "IWM", "reason": "missing_current_close"} in exclusions
+    assert {"v": 1, "asset": "IWM", "reason": "missing_current_close"} in exclusions
 
 
 def test_strategy_a_excludes_gld_during_its_warmup(market: MarketDataSet) -> None:
@@ -149,7 +150,7 @@ def test_strategy_a_excludes_gld_during_its_warmup(market: MarketDataSet) -> Non
         for event in outcome.trace
         if event.event_type == "transform.excluded" and event.node_id == "ret"
     ]
-    assert {"asset": "GLD", "reason": "missing_anchor_close"} in exclusions
+    assert {"v": 1, "asset": "GLD", "reason": "missing_anchor_close"} in exclusions
 
 
 def test_strategy_a_no_lookahead_before_the_close(market: MarketDataSet) -> None:
@@ -171,7 +172,12 @@ def test_strategy_a_no_lookahead_before_the_close(market: MarketDataSet) -> None
     )
     assert early.ok and at_previous_close.ok
     assert early.outputs == at_previous_close.outputs
-    assert early.trace == at_previous_close.trace
+
+    # Same knowable data => identical trace CONTENT; only the stamped instant differs.
+    def content(trace: tuple[TraceEvent, ...]) -> list[object]:
+        return [(e.node_id, e.component_path, e.event_type, e.payload) for e in trace]
+
+    assert content(early.trace) == content(at_previous_close.trace)
 
 
 def test_strategy_a_repeated_runs_are_identical(market: MarketDataSet) -> None:
@@ -220,7 +226,7 @@ def test_strategy_b_trend_mask_is_exact(market: MarketDataSet) -> None:
     masked = [
         event.payload for event in outcome.trace if event.event_type == "portfolio.masked_out"
     ]
-    assert masked == [{"asset": "VNQ", "weight_zeroed": 0.25, "reason": "mask_false"}]
+    assert masked == [{"v": 1, "asset": "VNQ", "weight_zeroed": 0.25, "reason": "mask_false"}]
 
 
 def test_strategy_b_repeated_runs_are_identical(market: MarketDataSet) -> None:
@@ -288,7 +294,7 @@ def test_componentized_strategy_a_warmup_exclusion_under_the_component(
         if event.event_type == "transform.excluded" and event.payload.get("asset") == "GLD"
     )
     assert exclusion.component_path == ("mom",)
-    assert exclusion.payload == {"asset": "GLD", "reason": "missing_anchor_close"}
+    assert exclusion.payload == {"v": 1, "asset": "GLD", "reason": "missing_anchor_close"}
 
 
 def test_componentized_strategy_a_trace_carries_the_component_path(
@@ -304,4 +310,4 @@ def test_componentized_strategy_a_trace_carries_the_component_path(
     exclusion = next(event for event in composed.trace if event.event_type == "transform.excluded")
     assert exclusion.component_path == ("mom",)
     assert exclusion.node_id == "ret"
-    assert exclusion.payload == {"asset": "IWM", "reason": "missing_current_close"}
+    assert exclusion.payload == {"v": 1, "asset": "IWM", "reason": "missing_current_close"}

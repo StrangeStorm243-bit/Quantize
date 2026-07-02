@@ -27,7 +27,7 @@ raise.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 from quantize.components.resolve import ComponentCatalog, resolve_strategy_components
 from quantize.engine.errors import (
@@ -59,6 +59,7 @@ from quantize.market.data import DataView, MarketDataSet
 from quantize.runtime.binding import ImplementationCatalog
 from quantize.runtime.diagnostics import RuntimeDiagnostic
 from quantize.schema.document import StrategyDocument
+from quantize.schema.primitives import JsonValue
 from quantize.tracing.events import TraceEvent
 
 
@@ -124,6 +125,7 @@ def run_backtest(
     components: ComponentCatalog | None = None,
     first_session: date | None = None,
     last_session: date | None = None,
+    collect_trace: bool = True,
 ) -> BacktestResult:
     """Run *document* historically over *market_data* (see module docstring for the lifecycle)."""
     run_id = str(uuid.UUID(run_id))
@@ -141,6 +143,21 @@ def run_backtest(
     trace: list[TraceEvent] = []
     state = initial_state
     pending: tuple[OrderList, date] | None = None
+
+    def engine_event(timestamp: datetime, event_type: str, payload: dict[str, JsonValue]) -> None:
+        # Engine events reuse the envelope with node_id="engine" and the reserved "engine."
+        # event-type namespace (quantize/engine/trace.py). Facts come from production objects.
+        if collect_trace:
+            trace.append(
+                TraceEvent(
+                    run_id=run_id,
+                    timestamp=timestamp,
+                    node_id="engine",
+                    component_path=(),
+                    event_type=event_type,
+                    payload=payload,
+                )
+            )
 
     def result(ok: bool, diagnostics: tuple[RuntimeDiagnostic, ...] = ()) -> BacktestResult:
         values = tuple(value for _, value in valuations)
@@ -197,6 +214,30 @@ def run_backtest(
             )
             if fill_diags:
                 return result(False, fill_diags)
+            engine_event(
+                session.open_at,
+                "engine.orders_filled",
+                {
+                    "v": 1,
+                    "session": day.isoformat(),
+                    "fills": [
+                        [f.side, f.asset, f.quantity, f.price, f.cost, f.cash_delta, f.scaled]
+                        for f in event_fills
+                    ],
+                },
+            )
+            engine_event(
+                session.open_at,
+                "engine.state_transition",
+                {
+                    "v": 1,
+                    "session": day.isoformat(),
+                    "cash_before": state.cash,
+                    "cash_after": state_after.cash,
+                    "positions_before": [[a, q] for a, q in state.positions],
+                    "positions_after": [[a, q] for a, q in state_after.positions],
+                },
+            )
             state = state_after
             all_fills.extend(
                 FillEvent(session_date=day, actual_fill_instant=session.open_at, fill=fill)
@@ -217,29 +258,41 @@ def run_backtest(
             continue
         visible_sessions = calendar_index[day] + 1  # history depth is calendar-wide, not window
         if visible_sessions <= warmup_total:
-            notes.append(
-                SessionNote(
-                    day,
-                    NOTE_WARMUP_NOT_SATISFIED,
-                    f"warm-up requires more than {warmup_total} sessions; "
-                    f"only {visible_sessions} visible",
-                )
+            note = SessionNote(
+                day,
+                NOTE_WARMUP_NOT_SATISFIED,
+                f"warm-up requires more than {warmup_total} sessions; "
+                f"only {visible_sessions} visible",
+            )
+            notes.append(note)
+            engine_event(
+                session.close_at,
+                "engine.note",
+                {"v": 1, "session": day.isoformat(), "code": note.code, "message": note.message},
             )
             continue
         next_session = calendar.next_session_after(day)
         if next_session is None:
-            notes.append(
-                SessionNote(day, NOTE_NO_NEXT_SESSION, "no next valid session in the calendar")
+            note = SessionNote(day, NOTE_NO_NEXT_SESSION, "no next valid session in the calendar")
+            notes.append(note)
+            engine_event(
+                session.close_at,
+                "engine.note",
+                {"v": 1, "session": day.isoformat(), "code": note.code, "message": note.message},
             )
             continue
         if last_session is not None and next_session.session_date > last_session:
-            notes.append(
-                SessionNote(
-                    day,
-                    NOTE_FILL_OUTSIDE_WINDOW,
-                    f"scheduled fill session {next_session.session_date.isoformat()} falls "
-                    "outside the run window",
-                )
+            note = SessionNote(
+                day,
+                NOTE_FILL_OUTSIDE_WINDOW,
+                f"scheduled fill session {next_session.session_date.isoformat()} falls "
+                "outside the run window",
+            )
+            notes.append(note)
+            engine_event(
+                session.close_at,
+                "engine.note",
+                {"v": 1, "session": day.isoformat(), "code": note.code, "message": note.message},
             )
             continue
 
@@ -250,6 +303,7 @@ def run_backtest(
             run_id=run_id,
             evaluation_instant=session.close_at,
             components=components,
+            collect_trace=collect_trace,
         )
         trace.extend(outcome.trace)
         if not outcome.ok or outcome.targets is None:
@@ -276,6 +330,28 @@ def run_backtest(
                 scheduled_fill_instant=next_session.open_at,
             )
         )
+        if reconciliation.ok:
+            assert reconciliation.portfolio_value is not None
+            assert reconciliation.target_cash is not None
+            assert reconciliation.projected_cash is not None
+            engine_event(
+                session.close_at,
+                "engine.orders_proposed",
+                {
+                    "v": 1,
+                    "session": day.isoformat(),
+                    "portfolio_value": reconciliation.portfolio_value,
+                    "target_cash": reconciliation.target_cash,
+                    "projected_cash": reconciliation.projected_cash,
+                    "orders": [[o.side, o.asset, o.quantity] for o in reconciliation.orders],
+                    # Planning-layer reasons an order did not fire: dust/hold plan rows.
+                    "omitted": [
+                        [plan.asset, plan.action, plan.delta_quantity]
+                        for plan in reconciliation.plans
+                        if plan.action in ("dust", "hold")
+                    ],
+                },
+            )
         if not reconciliation.ok:
             diagnostics = (
                 RuntimeDiagnostic(

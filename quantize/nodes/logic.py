@@ -21,6 +21,22 @@ from quantize.runtime.binding import NodeImplementation, NodeInvocation
 from quantize.runtime.values import CrossSectionValue, RuntimeValue
 from quantize.schema.primitives import JsonValue
 from quantize.schema.types import CrossSectionType
+from quantize.tracing.spec import ASSET_LIST, STRING, TraceEventSpec, combined_trace_schema
+
+_TRACE_EVENTS = (
+    TraceEventSpec.of(
+        "logic.evaluated",
+        1,
+        {"passed": ASSET_LIST, "failed": ASSET_LIST, "defaulted_missing": ASSET_LIST},
+        ("passed", "failed", "defaulted_missing"),
+    ),
+    TraceEventSpec.of(
+        "logic.missing_operand",
+        1,
+        {"asset": STRING, "missing": ASSET_LIST},
+        ("asset", "missing"),
+    ),
+)
 
 _CS_NUM = CrossSectionType(kind="CrossSection", dtype="Number")
 _CS_BOOL = CrossSectionType(kind="CrossSection", dtype="Boolean")
@@ -35,6 +51,9 @@ def _evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
     left_values = left.as_dict()
     right_values = right.as_dict()
     mask: dict[str, bool] = {}
+    passed: list[JsonValue] = []
+    failed: list[JsonValue] = []
+    defaulted: list[JsonValue] = []
     for asset in domain:
         left_value = left_values.get(asset)
         right_value = right_values.get(asset)
@@ -44,10 +63,18 @@ def _evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
                 for side, value in (("left", left_value), ("right", right_value))
                 if value is None
             ]
-            invocation.trace("logic.missing_operand", {"asset": asset, "missing": missing})
+            invocation.trace("logic.missing_operand", {"v": 1, "asset": asset, "missing": missing})
             mask[asset] = False
+            defaulted.append(asset)
         else:
-            mask[asset] = bool(left_value > right_value)
+            result = bool(left_value > right_value)
+            mask[asset] = result
+            (passed if result else failed).append(asset)
+    # The three-way condition distinction: genuinely-false vs defaulted-false-on-missing.
+    invocation.trace(
+        "logic.evaluated",
+        {"v": 1, "passed": passed, "failed": failed, "defaulted_missing": defaulted},
+    )
     return {"values": CrossSectionValue.booleans(domain, mask)}
 
 
@@ -68,6 +95,8 @@ GREATER_THAN = NodeImplementation(
             ),
         ),
         parameter_schema=JsonSchemaSpec({"type": "object", "additionalProperties": False}),
+        trace_schema=combined_trace_schema(_TRACE_EVENTS),
+        trace_events=_TRACE_EVENTS,
     ),
     evaluate=_evaluate,
 )

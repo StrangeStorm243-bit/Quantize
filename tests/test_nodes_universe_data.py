@@ -29,7 +29,7 @@ def test_fixed_list_emits_canonical_order() -> None:
     assets = outputs["assets"]
     assert isinstance(assets, AssetSetValue)
     assert assets.assets == ("AGG", "QQQ", "SPY")
-    assert events == []
+    assert events == [("universe.selected", {"v": 1, "assets": ["AGG", "QQQ", "SPY"]})]
 
 
 def test_fixed_list_single_ticker() -> None:
@@ -51,7 +51,29 @@ def test_price_emits_visible_history_per_asset() -> None:
     assert series.assets == ("AGG", "SPY")
     assert series.history("SPY") == ((_D1, 100.0), (_D2, 101.0), (_D3, 102.0))
     assert series.history("AGG") == ((_D2, 50.0), (_D3, 51.0))
-    assert events == []
+    # Inputs observed, bounded: per-asset counts + endpoint dates, never the series.
+    assert events == [
+        (
+            "data.observed",
+            {
+                "v": 1,
+                "per_asset": [
+                    {
+                        "asset": "AGG",
+                        "observations": 2,
+                        "first": _D2.isoformat(),
+                        "last": _D3.isoformat(),
+                    },
+                    {
+                        "asset": "SPY",
+                        "observations": 3,
+                        "first": _D1.isoformat(),
+                        "last": _D3.isoformat(),
+                    },
+                ],
+            },
+        )
+    ]
 
 
 def test_price_lookahead_safety_view_truncates_history() -> None:
@@ -71,7 +93,10 @@ def test_price_unknown_asset_gets_empty_history_and_trace() -> None:
     assert isinstance(series, TimeSeriesValue)
     assert series.assets == ("GHOST", "SPY")  # domain preserved
     assert series.history("GHOST") == ()
-    assert events == [("data.missing_asset", {"asset": "GHOST"})]
+    assert [e for e in events if e[0] == "data.missing_asset"] == [
+        ("data.missing_asset", {"v": 1, "asset": "GHOST"})
+    ]
+    assert [e[0] for e in events] == ["data.missing_asset", "data.observed"]
 
 
 def test_price_empty_universe_yields_empty_series() -> None:

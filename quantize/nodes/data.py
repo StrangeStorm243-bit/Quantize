@@ -20,18 +20,56 @@ from quantize.registry.descriptor import (
 from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.runtime.binding import NodeImplementation, NodeInvocation
 from quantize.runtime.values import AssetSetValue, RuntimeValue, TimeSeriesValue
+from quantize.schema.primitives import JsonValue
 from quantize.schema.types import AssetSetType, TimeSeriesType
+from quantize.tracing.spec import STRING, TraceEventSpec, combined_trace_schema
+
+_TRACE_EVENTS = (
+    TraceEventSpec.of("data.missing_asset", 1, {"asset": STRING}, ("asset",)),
+    TraceEventSpec.of(
+        "data.observed",
+        1,
+        {
+            "per_asset": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "asset": STRING,
+                        "observations": {"type": "integer", "minimum": 0},
+                        "first": {"type": ["string", "null"]},
+                        "last": {"type": ["string", "null"]},
+                    },
+                    "required": ["asset", "observations", "first", "last"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        ("per_asset",),
+    ),
+)
 
 
 def _evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
     assets = invocation.inputs["assets"]
     assert isinstance(assets, AssetSetValue)
     series: dict[str, list[tuple[date, float]]] = {}
+    observed: list[JsonValue] = []
     for asset in assets.assets:  # canonical order
         history = invocation.view.close_history(asset)
         if not history:
-            invocation.trace("data.missing_asset", {"asset": asset})
+            invocation.trace("data.missing_asset", {"v": 1, "asset": asset})
         series[asset] = list(history)
+        observed.append(
+            {
+                "asset": asset,
+                "observations": len(history),
+                "first": history[0][0].isoformat() if history else None,
+                "last": history[-1][0].isoformat() if history else None,
+            }
+        )
+    # Inputs observed, bounded: per-asset counts + endpoint dates — never the series itself.
+    invocation.trace("data.observed", {"v": 1, "per_asset": observed})
     return {"series": TimeSeriesValue.of(series)}
 
 
@@ -53,6 +91,8 @@ PRICE = NodeImplementation(
             ),
         ),
         parameter_schema=JsonSchemaSpec({"type": "object", "additionalProperties": False}),
+        trace_schema=combined_trace_schema(_TRACE_EVENTS),
+        trace_events=_TRACE_EVENTS,
     ),
     evaluate=_evaluate,
 )

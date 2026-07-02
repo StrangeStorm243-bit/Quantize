@@ -662,6 +662,56 @@ Awaiting review. Not committed. Next after acceptance: **M6** (structured trace 
 
 ---
 
+## M6 — Structured trace construction (2026-07-02)
+
+Schema-versioned payload contracts over the untouched M2 envelope, deterministic per-instant
+trace trees, and the tracing on/off switch. Plan-of-record:
+`docs/plans/2026-07-02-m6-trace-construction-plan.md` (adversarially reviewed before code; the
+`engine.` namespace reservation, the outputs-produced relabeling of `transform.computed`, and
+the reverse-coverage test all came out of that review).
+
+**Concepts introduced:**
+- **Traces record, never recompute.** Every payload field is read from a value production
+  execution already computed (node locals, `ReconciliationOutcome`, `Fill`, `PortfolioState`) —
+  tracing that re-derives a decision is a second implementation waiting to drift.
+- **Version inside the payload.** The envelope is a fixed M2 contract, so each payload carries a
+  const-pinned `"v"` — schema evolution without envelope churn. Every node declares
+  per-event `TraceEventSpec`s beside its emitter (no central switch); `trace_schema` (the M2
+  field, "used at M6") is now the derived `oneOf`.
+- **Namespaces where identity can't discriminate.** `NodeId` can't express an uncollidable
+  sentinel, so engine events are separated by the reserved `engine.` EVENT-TYPE namespace, enforced at
+  the emission boundary (the node sink refuses `engine.*` outright), by validation (identity
+  must be exactly `engine` at top level), and by tree separation — a user node literally
+  named `engine` keeps its own tree node and cannot spoof engine events.
+- **Structured distinctions as first-class facts:** genuinely-false vs defaulted-on-missing
+  (`logic.evaluated`), unranked vs ranked-but-unselected (`select.excluded` vs
+  `select.selected.unselected`), proposed vs omitted orders (dust/hold plan rows) vs scaled
+  fills.
+- **Reverse coverage.** Beyond "everything emitted is declared and valid," the suite asserts
+  every DECLARED spec is exercised somewhere — a declared-but-dead contract fails loudly.
+- **On/off equivalence as a falsifiable claim:** `collect_trace=False` runs compare equal to
+  traced runs on every field except `trace` (full-object `dataclasses.replace` comparison).
+
+**Files:** `quantize/tracing/{spec,tree,validate}.py`; `quantize/engine/trace.py`; additive
+`descriptor.trace_events`; `TraceRecorder.emit_at`/`enabled`; all node modules; engine events in
+`backtest.py`; `tests/test_trace_{spec,tree,goldens}.py`; three trace goldens.
+
+**Reading path:** `test_trace_goldens.py::test_strategy_b_first_evaluation_tree_golden` — the
+`gt` node's `logic.evaluated` shows VNQ genuinely failing the trend test (not missing), `mask`
+zeroes it, `tp` finalizes the three 0.25 sleeves, and the engine proposes the three buys with
+zero omissions; then open `tests/goldens/trace_strategy_b_first_evaluation.json` and read the
+same story as bytes.
+
+**Exercise (after review):** predict which tree the componentized Strategy A's
+`transform.excluded` for IWM lands in and under whose children — then check
+`test_trace_tree.py::test_nested_component_tree_identity_and_events`.
+
+**Status:** M6 implemented; full gate green (603 tests; ruff/format/mypy/codegen/tsc clean).
+Awaiting self-review + founder review + Codex audit. Not committed. Next after acceptance:
+**M7** (persistence + migrations + durable result/trace storage).
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
