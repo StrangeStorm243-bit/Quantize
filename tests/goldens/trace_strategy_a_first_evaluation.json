@@ -1,0 +1,273 @@
+{
+  "golden_format": 1,
+  "instant": "2025-07-31T21:00:00+00:00",
+  "roots": [
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "universe.selected",
+          "payload": {
+            "assets": [
+              "EFA",
+              "GLD",
+              "IWM",
+              "QQQ",
+              "SPY",
+              "TLT"
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "u",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "data.observed",
+          "payload": {
+            "per_asset": [
+              {
+                "asset": "EFA",
+                "first": "2025-01-02",
+                "last": "2025-07-31",
+                "observations": 145
+              },
+              {
+                "asset": "GLD",
+                "first": "2025-03-31",
+                "last": "2025-07-31",
+                "observations": 85
+              },
+              {
+                "asset": "IWM",
+                "first": "2025-01-02",
+                "last": "2025-07-31",
+                "observations": 145
+              },
+              {
+                "asset": "QQQ",
+                "first": "2025-01-02",
+                "last": "2025-07-31",
+                "observations": 145
+              },
+              {
+                "asset": "SPY",
+                "first": "2025-01-02",
+                "last": "2025-07-31",
+                "observations": 145
+              },
+              {
+                "asset": "TLT",
+                "first": "2025-01-02",
+                "last": "2025-07-31",
+                "observations": 145
+              }
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "px",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "transform.excluded",
+          "payload": {
+            "asset": "GLD",
+            "reason": "missing_anchor_close",
+            "v": 1
+          }
+        },
+        {
+          "event_type": "transform.computed",
+          "payload": {
+            "computed": [
+              "EFA",
+              "IWM",
+              "QQQ",
+              "SPY",
+              "TLT"
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "ret",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "rank.assigned",
+          "payload": {
+            "descending": true,
+            "ranking": [
+              [
+                "EFA",
+                4.0
+              ],
+              [
+                "IWM",
+                3.0
+              ],
+              [
+                "QQQ",
+                1.0
+              ],
+              [
+                "SPY",
+                2.0
+              ],
+              [
+                "TLT",
+                5.0
+              ]
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "rk",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "select.excluded",
+          "payload": {
+            "asset": "GLD",
+            "reason": "unscored",
+            "v": 1
+          }
+        },
+        {
+          "event_type": "select.selected",
+          "payload": {
+            "n": 3,
+            "selected": [
+              "IWM",
+              "QQQ",
+              "SPY"
+            ],
+            "unselected": [
+              "EFA",
+              "TLT"
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "sel",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "portfolio.weighted",
+          "payload": {
+            "cash": 0.0,
+            "v": 1,
+            "weights": [
+              [
+                "IWM",
+                0.3333333333333333
+              ],
+              [
+                "QQQ",
+                0.3333333333333333
+              ],
+              [
+                "SPY",
+                0.3333333333333333
+              ]
+            ]
+          }
+        }
+      ],
+      "node_id": "ew",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "targets.finalized",
+          "payload": {
+            "cash": 0.0,
+            "v": 1,
+            "weights": [
+              [
+                "IWM",
+                0.3333333333333333
+              ],
+              [
+                "QQQ",
+                0.3333333333333333
+              ],
+              [
+                "SPY",
+                0.3333333333333333
+              ]
+            ]
+          }
+        }
+      ],
+      "node_id": "tp",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "engine.orders_proposed",
+          "payload": {
+            "omitted": [],
+            "orders": [
+              [
+                "buy",
+                "IWM",
+                2970.763111661874
+              ],
+              [
+                "buy",
+                "QQQ",
+                2647.873666612765
+              ],
+              [
+                "buy",
+                "SPY",
+                2804.643401930542
+              ]
+            ],
+            "portfolio_value": 1000000.0,
+            "projected_cash": 0.0,
+            "session": "2025-07-31",
+            "target_cash": 0.0,
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "engine",
+      "origin": "engine"
+    }
+  ],
+  "run_id": "99999999-9999-9999-9999-999999999999"
+}

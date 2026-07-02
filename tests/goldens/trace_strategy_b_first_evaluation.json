@@ -1,0 +1,283 @@
+{
+  "golden_format": 1,
+  "instant": "2025-10-24T21:00:00+00:00",
+  "roots": [
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "universe.selected",
+          "payload": {
+            "assets": [
+              "AGG",
+              "EFA",
+              "SPY",
+              "VNQ"
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "u",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "portfolio.weighted",
+          "payload": {
+            "cash": 0.0,
+            "v": 1,
+            "weights": [
+              [
+                "AGG",
+                0.25
+              ],
+              [
+                "EFA",
+                0.25
+              ],
+              [
+                "SPY",
+                0.25
+              ],
+              [
+                "VNQ",
+                0.25
+              ]
+            ]
+          }
+        }
+      ],
+      "node_id": "fw",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "data.observed",
+          "payload": {
+            "per_asset": [
+              {
+                "asset": "AGG",
+                "first": "2025-01-02",
+                "last": "2025-10-24",
+                "observations": 205
+              },
+              {
+                "asset": "EFA",
+                "first": "2025-01-02",
+                "last": "2025-10-24",
+                "observations": 205
+              },
+              {
+                "asset": "SPY",
+                "first": "2025-01-02",
+                "last": "2025-10-24",
+                "observations": 205
+              },
+              {
+                "asset": "VNQ",
+                "first": "2025-01-02",
+                "last": "2025-10-24",
+                "observations": 205
+              }
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "px",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "transform.computed",
+          "payload": {
+            "computed": [
+              "AGG",
+              "EFA",
+              "SPY",
+              "VNQ"
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "ma",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "transform.computed",
+          "payload": {
+            "computed": [
+              "AGG",
+              "EFA",
+              "SPY",
+              "VNQ"
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "maL",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "transform.computed",
+          "payload": {
+            "computed": [
+              "AGG",
+              "EFA",
+              "SPY",
+              "VNQ"
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "pxL",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "logic.evaluated",
+          "payload": {
+            "defaulted_missing": [],
+            "failed": [
+              "VNQ"
+            ],
+            "passed": [
+              "AGG",
+              "EFA",
+              "SPY"
+            ],
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "gt",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "portfolio.masked_out",
+          "payload": {
+            "asset": "VNQ",
+            "reason": "mask_false",
+            "v": 1,
+            "weight_zeroed": 0.25
+          }
+        },
+        {
+          "event_type": "portfolio.mask_applied",
+          "payload": {
+            "kept": [
+              "AGG",
+              "EFA",
+              "SPY"
+            ],
+            "v": 1,
+            "zeroed": [
+              "VNQ"
+            ]
+          }
+        }
+      ],
+      "node_id": "mask",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "targets.finalized",
+          "payload": {
+            "cash": 0.25,
+            "v": 1,
+            "weights": [
+              [
+                "AGG",
+                0.25
+              ],
+              [
+                "EFA",
+                0.25
+              ],
+              [
+                "SPY",
+                0.25
+              ],
+              [
+                "VNQ",
+                0.0
+              ]
+            ]
+          }
+        }
+      ],
+      "node_id": "tp",
+      "origin": "node"
+    },
+    {
+      "children": [],
+      "component_path": [],
+      "events": [
+        {
+          "event_type": "engine.orders_proposed",
+          "payload": {
+            "omitted": [],
+            "orders": [
+              [
+                "buy",
+                "AGG",
+                2449.51917894892
+              ],
+              [
+                "buy",
+                "EFA",
+                2304.138946194867
+              ],
+              [
+                "buy",
+                "SPY",
+                1957.4399949179497
+              ]
+            ],
+            "portfolio_value": 1000000.0,
+            "projected_cash": 250000.0,
+            "session": "2025-10-24",
+            "target_cash": 250000.0,
+            "v": 1
+          }
+        }
+      ],
+      "node_id": "engine",
+      "origin": "engine"
+    }
+  ],
+  "run_id": "99999999-9999-9999-9999-999999999999"
+}

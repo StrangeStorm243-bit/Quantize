@@ -39,7 +39,7 @@ def test_trailing_return_hand_computed() -> None:
     values = outputs["values"]
     assert isinstance(values, CrossSectionValue)
     assert values.as_dict() == {"SPY": pytest.approx(0.21)}  # 121/100 - 1
-    assert events == []
+    assert events == [("transform.computed", {"v": 1, "computed": ["SPY"]})]
 
 
 def test_trailing_return_smallest_lookback() -> None:
@@ -69,7 +69,10 @@ def test_trailing_return_excludes_insufficient_history() -> None:
     assert isinstance(values, CrossSectionValue)
     assert values.present_assets == ("SPY",)
     assert values.missing_assets == ("AGG",)  # excluded but still in the domain
-    assert ("transform.excluded", {"asset": "AGG", "reason": "missing_anchor_close"}) in events
+    assert (
+        "transform.excluded",
+        {"v": 1, "asset": "AGG", "reason": "missing_anchor_close"},
+    ) in events
 
 
 def test_trailing_return_excludes_missing_current_close() -> None:
@@ -84,7 +87,10 @@ def test_trailing_return_excludes_missing_current_close() -> None:
     values = outputs["values"]
     assert isinstance(values, CrossSectionValue)
     assert values.present_assets == ()  # stale D2 close is NOT reused for D3
-    assert ("transform.excluded", {"asset": "SPY", "reason": "missing_current_close"}) in events
+    assert (
+        "transform.excluded",
+        {"v": 1, "asset": "SPY", "reason": "missing_current_close"},
+    ) in events
 
 
 def test_trailing_return_excludes_all_when_calendar_too_short() -> None:
@@ -99,7 +105,10 @@ def test_trailing_return_excludes_all_when_calendar_too_short() -> None:
     values = outputs["values"]
     assert isinstance(values, CrossSectionValue)
     assert values.present_assets == ()
-    assert ("transform.excluded", {"asset": "SPY", "reason": "insufficient_sessions"}) in events
+    assert (
+        "transform.excluded",
+        {"v": 1, "asset": "SPY", "reason": "insufficient_sessions"},
+    ) in events
 
 
 def test_trailing_return_zero_denominator_is_excluded() -> None:
@@ -115,7 +124,7 @@ def test_trailing_return_zero_denominator_is_excluded() -> None:
     values = outputs["values"]
     assert isinstance(values, CrossSectionValue)
     assert values.present_assets == ()
-    assert ("transform.excluded", {"asset": "SPY", "reason": "zero_denominator"}) in events
+    assert ("transform.excluded", {"v": 1, "asset": "SPY", "reason": "zero_denominator"}) in events
 
 
 def test_trailing_return_anchors_to_the_view_not_its_input() -> None:
@@ -181,7 +190,7 @@ def test_moving_average_warmup_unmet_is_traced() -> None:
     series = outputs["series"]
     assert isinstance(series, TimeSeriesValue)
     assert series.history("SPY") == ()
-    assert ("transform.excluded", {"asset": "SPY", "reason": "warmup_unmet"}) in events
+    assert ("transform.excluded", {"v": 1, "asset": "SPY", "reason": "warmup_unmet"}) in events
 
 
 # --- transform.latest ---------------------------------------------------------------------------
@@ -194,7 +203,7 @@ def test_latest_takes_the_value_at_the_latest_session() -> None:
     values = outputs["values"]
     assert isinstance(values, CrossSectionValue)
     assert values.as_dict() == {"SPY": 110.0, "AGG": 51.0}
-    assert events == []
+    assert events == [("transform.computed", {"v": 1, "computed": ["AGG", "SPY"]})]
 
 
 def test_latest_never_reuses_a_stale_observation() -> None:
@@ -207,7 +216,7 @@ def test_latest_never_reuses_a_stale_observation() -> None:
     assert values.domain == ("SPY",)
     assert (
         "transform.excluded",
-        {"asset": "SPY", "reason": "missing_current_observation"},
+        {"v": 1, "asset": "SPY", "reason": "missing_current_observation"},
     ) in events
 
 
@@ -217,7 +226,7 @@ def test_latest_empty_history_is_excluded() -> None:
     values = outputs["values"]
     assert isinstance(values, CrossSectionValue)
     assert values.present_assets == ()
-    assert len(events) == 1
+    assert [e[0] for e in events] == ["transform.excluded", "transform.computed"]
 
 
 # --- transform.rank -----------------------------------------------------------------------------
@@ -261,4 +270,4 @@ def test_rank_preserves_domain_and_skips_excluded_assets() -> None:
 def test_rank_empty_input_is_empty() -> None:
     ranks, events = _rank({})
     assert ranks == {}
-    assert events == []
+    assert events == ["rank.assigned"]

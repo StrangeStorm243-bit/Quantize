@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.schema.primitives import PortName, RegisteredTypeId, SemVer
 from quantize.schema.types import PortType
+from quantize.tracing.spec import TraceEventSpec
 
 
 class _FrozenGoverned(BaseModel):
@@ -65,6 +66,10 @@ class NodeDescriptor(_FrozenGoverned):
     metadata: NodeMetadata
     parameter_schema: JsonSchemaSpec | None = None
     trace_schema: JsonSchemaSpec | None = None
+    # M6: per-event payload contracts (schema-versioned). ``trace_schema`` is their combined
+    # ``oneOf`` form, honoring the M2 field; both stay empty for nodes that emit no events.
+    # Runtime infrastructure — not persisted IR, no codegen impact.
+    trace_events: tuple[TraceEventSpec, ...] = ()
 
     @model_validator(mode="after")
     def _reject_duplicate_port_names(self) -> Self:

@@ -26,7 +26,16 @@ from quantize.runtime.values import (
     PortfolioTargetsValue,
     RuntimeValue,
 )
+from quantize.schema.primitives import JsonValue
 from quantize.schema.types import AssetSetType, CrossSectionType, PortfolioTargetsType
+from quantize.tracing.spec import (
+    ASSET_LIST,
+    NUMBER,
+    STRING,
+    TraceEventSpec,
+    combined_trace_schema,
+    pair_list,
+)
 
 _AS = AssetSetType(kind="AssetSet")
 _PT = PortfolioTargetsType(kind="PortfolioTargets")
@@ -34,6 +43,55 @@ _CS_NUM = CrossSectionType(kind="CrossSection", dtype="Number")
 _CS_BOOL = CrossSectionType(kind="CrossSection", dtype="Boolean")
 
 _EMPTY_PARAMS = JsonSchemaSpec({"type": "object", "additionalProperties": False})
+
+_WEIGHTED_SPEC = TraceEventSpec.of(
+    "portfolio.weighted", 1, {"weights": pair_list(NUMBER), "cash": NUMBER}, ("weights", "cash")
+)
+_SELECT_TRACE_EVENTS = (
+    TraceEventSpec.of(
+        "select.selected",
+        1,
+        {
+            "n": {"type": "integer", "minimum": 1},
+            "selected": ASSET_LIST,
+            "unselected": ASSET_LIST,
+        },
+        ("n", "selected", "unselected"),
+    ),
+    TraceEventSpec.of(
+        "select.excluded", 1, {"asset": STRING, "reason": STRING}, ("asset", "reason")
+    ),
+)
+_EQUAL_WEIGHT_TRACE_EVENTS = (
+    _WEIGHTED_SPEC,
+    TraceEventSpec.of("portfolio.empty_selection", 1, {}, ()),
+)
+_FIXED_WEIGHT_TRACE_EVENTS = (
+    _WEIGHTED_SPEC,
+    TraceEventSpec.of("portfolio.empty_universe", 1, {}, ()),
+)
+_MASK_TRACE_EVENTS = (
+    TraceEventSpec.of(
+        "portfolio.mask_applied",
+        1,
+        {"kept": ASSET_LIST, "zeroed": ASSET_LIST},
+        ("kept", "zeroed"),
+    ),
+    TraceEventSpec.of(
+        "portfolio.masked_out",
+        1,
+        {"asset": STRING, "weight_zeroed": NUMBER, "reason": STRING},
+        ("asset", "weight_zeroed", "reason"),
+    ),
+)
+
+
+def _trace_weighted(invocation: NodeInvocation, targets: PortfolioTargetsValue) -> None:
+    """The outputs-produced weights event shared by the weighting nodes."""
+    weights: list[JsonValue] = [[asset, weight] for asset, weight in targets.weights]
+    invocation.trace(
+        "portfolio.weighted", {"v": 1, "weights": weights, "cash": targets.cash_weight}
+    )
 
 
 # --- portfolio.select_top_n --------------------------------------------------------------------
@@ -54,11 +112,19 @@ def _select_top_n_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeVa
     for asset in universe.assets:  # canonical order
         score = score_values.get(asset)
         if score is None:
-            invocation.trace("select.excluded", {"asset": asset, "reason": "unscored"})
+            invocation.trace("select.excluded", {"v": 1, "asset": asset, "reason": "unscored"})
         else:
             candidates.append((float(score), asset))
     candidates.sort()  # (score asc, ticker asc) — the ratified deterministic order
     selected = [asset for _, asset in candidates[:n]]
+    # Ranked-but-below-cutoff is a DIFFERENT fact from unranked (select.excluded above).
+    unselected = [asset for _, asset in candidates[n:]]
+    selected_out: list[JsonValue] = [asset for asset in sorted(selected)]
+    unselected_out: list[JsonValue] = [asset for asset in sorted(unselected)]
+    invocation.trace(
+        "select.selected",
+        {"v": 1, "n": n, "selected": selected_out, "unselected": unselected_out},
+    )
     return {"assets": AssetSetValue.of(selected)}
 
 
@@ -86,6 +152,8 @@ SELECT_TOP_N = NodeImplementation(
                 "additionalProperties": False,
             }
         ),
+        trace_schema=combined_trace_schema(_SELECT_TRACE_EVENTS),
+        trace_events=_SELECT_TRACE_EVENTS,
     ),
     evaluate=_select_top_n_evaluate,
 )
@@ -100,10 +168,13 @@ def _equal_weight_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeVa
     assets = invocation.inputs["assets"]
     assert isinstance(assets, AssetSetValue)
     if not assets.assets:
-        invocation.trace("portfolio.empty_selection", {})
+        invocation.trace("portfolio.empty_selection", {"v": 1})
+        invocation.trace("portfolio.weighted", {"v": 1, "weights": [], "cash": 1.0})
         return {"targets": PortfolioTargetsValue.of({})}
     weight = 1.0 / len(assets.assets)
-    return {"targets": PortfolioTargetsValue.of({asset: weight for asset in assets.assets})}
+    targets = PortfolioTargetsValue.of({asset: weight for asset in assets.assets})
+    _trace_weighted(invocation, targets)
+    return {"targets": targets}
 
 
 EQUAL_WEIGHT = NodeImplementation(
@@ -120,6 +191,8 @@ EQUAL_WEIGHT = NodeImplementation(
             ),
         ),
         parameter_schema=_EMPTY_PARAMS,
+        trace_schema=combined_trace_schema(_EQUAL_WEIGHT_TRACE_EVENTS),
+        trace_events=_EQUAL_WEIGHT_TRACE_EVENTS,
     ),
     evaluate=_equal_weight_evaluate,
 )
@@ -135,7 +208,8 @@ def _fixed_weight_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeVa
     assert isinstance(assets, AssetSetValue)
     raw = invocation.params["weight_per_asset"]
     if not assets.assets:
-        invocation.trace("portfolio.empty_universe", {})
+        invocation.trace("portfolio.empty_universe", {"v": 1})
+        invocation.trace("portfolio.weighted", {"v": 1, "weights": [], "cash": 1.0})
         return {"targets": PortfolioTargetsValue.of({})}
     if raw == "equal":
         weight = 1.0 / len(assets.assets)
@@ -147,7 +221,9 @@ def _fixed_weight_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeVa
                 f"weight_per_asset={weight} over-allocates across {len(assets.assets)} assets "
                 f"(total {weight * len(assets.assets)!r} > 1)"
             )
-    return {"targets": PortfolioTargetsValue.of({asset: weight for asset in assets.assets})}
+    targets = PortfolioTargetsValue.of({asset: weight for asset in assets.assets})
+    _trace_weighted(invocation, targets)
+    return {"targets": targets}
 
 
 FIXED_WEIGHT = NodeImplementation(
@@ -178,6 +254,8 @@ FIXED_WEIGHT = NodeImplementation(
                 "additionalProperties": False,
             }
         ),
+        trace_schema=combined_trace_schema(_FIXED_WEIGHT_TRACE_EVENTS),
+        trace_events=_FIXED_WEIGHT_TRACE_EVENTS,
     ),
     evaluate=_fixed_weight_evaluate,
 )
@@ -195,17 +273,22 @@ def _apply_mask_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValu
 
     mask_values = mask.as_dict()
     weights: dict[str, float] = {}
+    kept: list[JsonValue] = []
+    zeroed: list[JsonValue] = []
     for asset, weight in targets.weights:  # canonical order
         flag = mask_values.get(asset)
         if flag is True:
             weights[asset] = weight
+            kept.append(asset)
         else:
             reason = "mask_false" if flag is False else "mask_missing"
             invocation.trace(
                 "portfolio.masked_out",
-                {"asset": asset, "weight_zeroed": weight, "reason": reason},
+                {"v": 1, "asset": asset, "weight_zeroed": weight, "reason": reason},
             )
             weights[asset] = 0.0
+            zeroed.append(asset)
+    invocation.trace("portfolio.mask_applied", {"v": 1, "kept": kept, "zeroed": zeroed})
     return {"targets": PortfolioTargetsValue.of(weights)}
 
 
@@ -226,6 +309,8 @@ APPLY_MASK = NodeImplementation(
             ),
         ),
         parameter_schema=_EMPTY_PARAMS,
+        trace_schema=combined_trace_schema(_MASK_TRACE_EVENTS),
+        trace_events=_MASK_TRACE_EVENTS,
     ),
     evaluate=_apply_mask_evaluate,
 )

@@ -402,6 +402,7 @@ def evaluate_strategy(
     run_id: str,
     evaluation_instant: datetime,
     components: ComponentCatalog | None = None,
+    collect_trace: bool = True,
 ) -> EvaluationOutcome:
     """Evaluate *document* at *evaluation_instant* (see module docstring for the contract)."""
     run_id = str(uuid.UUID(run_id))  # caller contract: a UUID; garbage is a programming error
@@ -479,7 +480,7 @@ def evaluate_strategy(
     if diagnostics:
         return outcome(False, None, {}, ())
 
-    recorder = TraceRecorder(run_id, instant)
+    recorder = TraceRecorder(run_id, instant, enabled=collect_trace)
     executor = _Executor(catalog, view, recorder)
     params_by_node: dict[str, Mapping[str, JsonValue]] = {
         node.id: node.params for node in document.nodes

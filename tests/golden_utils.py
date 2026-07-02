@@ -74,11 +74,50 @@ def backtest_summary(result: BacktestResult) -> dict[str, Any]:
     }
 
 
+def trace_tree_summary(tree: object) -> dict[str, Any]:
+    """Canonical serialization of one per-instant trace tree (M6 goldens)."""
+    from quantize.tracing.tree import TraceTree, TraceTreeNode
+
+    assert isinstance(tree, TraceTree)
+
+    def node_summary(node: TraceTreeNode) -> dict[str, Any]:
+        return {
+            "node_id": node.node_id,
+            "component_path": list(node.component_path),
+            "origin": node.origin,
+            "events": [
+                {"event_type": event.event_type, "payload": event.payload} for event in node.events
+            ],
+            "children": [node_summary(child) for child in node.children],
+        }
+
+    return {
+        "golden_format": GOLDEN_FORMAT,
+        "run_id": tree.run_id,
+        "instant": tree.instant.isoformat(),
+        "roots": [node_summary(root) for root in tree.roots],
+    }
+
+
 def golden_bytes(summary: dict[str, Any]) -> bytes:
     # allow_nan=False: a NaN/Infinity anywhere in a run record must fail loud here, never
     # serialize as a non-RFC token.
     dumped = json.dumps(summary, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False)
     return (dumped + "\n").encode("utf-8")
+
+
+def assert_summary_matches_golden(name: str, summary: dict[str, Any], update: bool) -> None:
+    """Byte-compare an arbitrary canonical summary against its committed golden."""
+    path = _GOLDENS / f"{name}.json"
+    actual = golden_bytes(summary)
+    if update:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(actual)
+    committed = path.read_bytes()
+    assert committed == actual, (
+        f"golden {name} differs from the current run; regenerate deliberately with "
+        f"`pytest --update-goldens` and review/explain the diff"
+    )
 
 
 def assert_matches_golden(name: str, result: BacktestResult, update: bool) -> None:

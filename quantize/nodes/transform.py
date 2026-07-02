@@ -26,11 +26,38 @@ from quantize.runtime.binding import NodeImplementation, NodeInvocation
 from quantize.runtime.values import CrossSectionValue, RuntimeValue, TimeSeriesValue
 from quantize.schema.primitives import JsonValue
 from quantize.schema.types import CrossSectionType, TimeSeriesType
+from quantize.tracing.spec import (
+    ASSET_LIST,
+    NUMBER,
+    STRING,
+    TraceEventSpec,
+    combined_trace_schema,
+    pair_list,
+)
 
 _TS_NUM = TimeSeriesType(kind="TimeSeries", dtype="Number")
 _CS_NUM = CrossSectionType(kind="CrossSection", dtype="Number")
 
 _EMPTY_PARAMS = JsonSchemaSpec({"type": "object", "additionalProperties": False})
+
+_EXCLUDED_SPEC = TraceEventSpec.of(
+    "transform.excluded", 1, {"asset": STRING, "reason": STRING}, ("asset", "reason")
+)
+_COMPUTED_SPEC = TraceEventSpec.of("transform.computed", 1, {"computed": ASSET_LIST}, ("computed",))
+# Outputs-produced + node-specific exclusion: one shared pair for the three series transforms.
+_TRANSFORM_TRACE_EVENTS = (_COMPUTED_SPEC, _EXCLUDED_SPEC)
+
+_RANK_TRACE_EVENTS = (
+    TraceEventSpec.of(
+        "rank.assigned",
+        1,
+        {"descending": {"type": "boolean"}, "ranking": pair_list(NUMBER)},
+        ("descending", "ranking"),
+    ),
+    TraceEventSpec.of(
+        "rank.tie_broken", 1, {"assets": ASSET_LIST, "score": NUMBER}, ("assets", "score")
+    ),
+)
 
 
 def _series_input(invocation: NodeInvocation) -> TimeSeriesValue:
@@ -51,7 +78,7 @@ def _trailing_return_evaluate(invocation: NodeInvocation) -> Mapping[str, Runtim
     values: dict[str, float] = {}
 
     def exclude(asset: str, reason: str) -> None:
-        invocation.trace("transform.excluded", {"asset": asset, "reason": reason})
+        invocation.trace("transform.excluded", {"v": 1, "asset": asset, "reason": reason})
 
     if len(sessions) <= lookback:
         for asset in series.assets:
@@ -70,6 +97,8 @@ def _trailing_return_evaluate(invocation: NodeInvocation) -> Mapping[str, Runtim
                 exclude(asset, "zero_denominator")
             else:
                 values[asset] = current_close / anchor_close - 1.0
+    computed: list[JsonValue] = [asset for asset in sorted(values)]
+    invocation.trace("transform.computed", {"v": 1, "computed": computed})
     return {"values": CrossSectionValue.numbers(series.assets, values)}
 
 
@@ -94,6 +123,8 @@ TRAILING_RETURN = NodeImplementation(
                 "additionalProperties": False,
             }
         ),
+        trace_schema=combined_trace_schema(_TRANSFORM_TRACE_EVENTS),
+        trace_events=_TRANSFORM_TRACE_EVENTS,
     ),
     evaluate=_trailing_return_evaluate,
     warmup=lambda params: require_int(params, "lookback_sessions"),
@@ -120,8 +151,14 @@ def _moving_average_evaluate(invocation: NodeInvocation) -> Mapping[str, Runtime
                 total = sum(close for close in closes if close is not None)
                 points.append((sessions[index], total / window))
         if not points:
-            invocation.trace("transform.excluded", {"asset": asset, "reason": "warmup_unmet"})
+            invocation.trace(
+                "transform.excluded", {"v": 1, "asset": asset, "reason": "warmup_unmet"}
+            )
         output[asset] = points
+    computed: list[JsonValue] = [
+        asset for asset in sorted(a for a, points in output.items() if points)
+    ]
+    invocation.trace("transform.computed", {"v": 1, "computed": computed})
     return {"series": TimeSeriesValue.of(output)}
 
 
@@ -146,6 +183,8 @@ MOVING_AVERAGE = NodeImplementation(
                 "additionalProperties": False,
             }
         ),
+        trace_schema=combined_trace_schema(_TRANSFORM_TRACE_EVENTS),
+        trace_events=_TRANSFORM_TRACE_EVENTS,
     ),
     evaluate=_moving_average_evaluate,
     warmup=lambda params: require_int(params, "window"),
@@ -169,8 +208,10 @@ def _latest_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
         else:
             invocation.trace(
                 "transform.excluded",
-                {"asset": asset, "reason": "missing_current_observation"},
+                {"v": 1, "asset": asset, "reason": "missing_current_observation"},
             )
+    computed: list[JsonValue] = [asset for asset in sorted(values)]
+    invocation.trace("transform.computed", {"v": 1, "computed": computed})
     return {"values": CrossSectionValue.numbers(series.assets, values)}
 
 
@@ -188,6 +229,8 @@ LATEST = NodeImplementation(
             ),
         ),
         parameter_schema=_EMPTY_PARAMS,
+        trace_schema=combined_trace_schema(_TRANSFORM_TRACE_EVENTS),
+        trace_events=_TRANSFORM_TRACE_EVENTS,
     ),
     evaluate=_latest_evaluate,
     warmup=lambda params: 1,
@@ -216,9 +259,15 @@ def _rank_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
     for score in sorted(by_score, key=lambda s: float(s)):
         group = by_score[score]
         if len(group) > 1:
-            payload: dict[str, JsonValue] = {"assets": list(group), "score": float(score)}
+            payload: dict[str, JsonValue] = {
+                "v": 1,
+                "assets": list(group),
+                "score": float(score),
+            }
             invocation.trace("rank.tie_broken", payload)
 
+    ranking: list[JsonValue] = [[asset, rank] for asset, rank in sorted(values.items())]
+    invocation.trace("rank.assigned", {"v": 1, "descending": descending, "ranking": ranking})
     return {"values": CrossSectionValue.numbers(scores.domain, values)}
 
 
@@ -242,6 +291,8 @@ RANK = NodeImplementation(
                 "additionalProperties": False,
             }
         ),
+        trace_schema=combined_trace_schema(_RANK_TRACE_EVENTS),
+        trace_events=_RANK_TRACE_EVENTS,
     ),
     evaluate=_rank_evaluate,
 )

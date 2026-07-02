@@ -33,7 +33,13 @@ def test_greater_than_strict_comparison() -> None:
     mask = outputs["values"]
     assert isinstance(mask, CrossSectionValue)
     assert mask.as_dict() == {"AGG": True, "EFA": False, "SPY": False}  # equal is NOT greater
-    assert events == []
+    # The three-way condition distinction: genuine passes/fails, nothing defaulted.
+    assert events == [
+        (
+            "logic.evaluated",
+            {"v": 1, "passed": ["AGG"], "failed": ["EFA", "SPY"], "defaulted_missing": []},
+        )
+    ]
 
 
 def test_greater_than_missing_operand_is_false_not_omitted() -> None:
@@ -44,7 +50,14 @@ def test_greater_than_missing_operand_is_false_not_omitted() -> None:
     assert isinstance(mask, CrossSectionValue)
     # Domain preserved: AGG present and false — not dropped.
     assert mask.as_dict() == {"AGG": False, "SPY": True}
-    assert ("logic.missing_operand", {"asset": "AGG", "missing": ["left"]}) in events
+    assert ("logic.missing_operand", {"v": 1, "asset": "AGG", "missing": ["left"]}) in events
+    # AGG is DEFAULTED false (missing operand), SPY genuinely passed — distinct facts.
+    assert (
+        "logic.evaluated",
+        {"v": 1, "passed": ["SPY"], "failed": [], "defaulted_missing": ["AGG"]},
+    ) in events
+    # Exact event-type set: nothing spurious beside the two declared facts.
+    assert [e[0] for e in events] == ["logic.missing_operand", "logic.evaluated"]
 
 
 def test_greater_than_domain_is_the_union_of_operand_domains() -> None:
@@ -54,7 +67,11 @@ def test_greater_than_domain_is_the_union_of_operand_domains() -> None:
     mask = outputs["values"]
     assert isinstance(mask, CrossSectionValue)
     assert mask.as_dict() == {"AGG": False, "SPY": False}
-    assert len(events) == 2
+    assert [e[0] for e in events] == [
+        "logic.missing_operand",
+        "logic.missing_operand",
+        "logic.evaluated",
+    ]
 
 
 # --- portfolio.select_top_n --------------------------------------------------------------------
@@ -97,8 +114,8 @@ def test_select_top_n_fewer_qualifying_selects_all() -> None:
     selected = outputs["assets"]
     assert isinstance(selected, AssetSetValue)
     assert selected.assets == ("QQQ",)  # allowed, not an error
-    assert ("select.excluded", {"asset": "EFA", "reason": "unscored"}) in events
-    assert ("select.excluded", {"asset": "SPY", "reason": "unscored"}) in events
+    assert ("select.excluded", {"v": 1, "asset": "EFA", "reason": "unscored"}) in events
+    assert ("select.excluded", {"v": 1, "asset": "SPY", "reason": "unscored"}) in events
 
 
 def test_select_top_n_ignores_scores_outside_the_universe() -> None:
@@ -142,7 +159,13 @@ def test_equal_weight_renormalizes_across_selection() -> None:
         "SPY": pytest.approx(1 / 3),
     }
     assert targets.cash_weight == pytest.approx(0.0, abs=1e-12)
-    assert events == []
+    assert [e[0] for e in events] == ["portfolio.weighted"]
+    weighted = events[0][1]
+    assert weighted["weights"] == [
+        ["IWM", pytest.approx(1 / 3)],
+        ["QQQ", pytest.approx(1 / 3)],
+        ["SPY", pytest.approx(1 / 3)],
+    ]
 
 
 def test_equal_weight_single_asset_gets_everything() -> None:
@@ -158,7 +181,7 @@ def test_equal_weight_empty_selection_is_all_cash() -> None:
     assert isinstance(targets, PortfolioTargetsValue)
     assert targets.as_dict() == {}
     assert targets.cash_weight == 1.0
-    assert ("portfolio.empty_selection", {}) in events
+    assert ("portfolio.empty_selection", {"v": 1}) in events
 
 
 # --- portfolio.fixed_weight --------------------------------------------------------------------
@@ -221,7 +244,7 @@ def test_fixed_weight_empty_universe_is_all_cash() -> None:
     targets = outputs["targets"]
     assert isinstance(targets, PortfolioTargetsValue)
     assert targets.as_dict() == {}
-    assert ("portfolio.empty_universe", {}) in events
+    assert ("portfolio.empty_universe", {"v": 1}) in events
 
 
 # --- portfolio.apply_mask ----------------------------------------------------------------------
@@ -256,8 +279,9 @@ def test_apply_mask_missing_mask_entry_zeroes_and_traces() -> None:
     assert result.as_dict() == {"AGG": 0.5, "SPY": 0.0}
     assert (
         "portfolio.masked_out",
-        {"asset": "SPY", "weight_zeroed": 0.5, "reason": "mask_missing"},
+        {"v": 1, "asset": "SPY", "weight_zeroed": 0.5, "reason": "mask_missing"},
     ) in events
+    assert ("portfolio.mask_applied", {"v": 1, "kept": ["AGG"], "zeroed": ["SPY"]}) in events
 
 
 def test_apply_mask_empty_targets_pass_through() -> None:
@@ -267,7 +291,7 @@ def test_apply_mask_empty_targets_pass_through() -> None:
     result = outputs["targets"]
     assert isinstance(result, PortfolioTargetsValue)
     assert result.as_dict() == {}
-    assert events == []
+    assert events == [("portfolio.mask_applied", {"v": 1, "kept": [], "zeroed": []})]
 
 
 # --- output.target_portfolio -------------------------------------------------------------------
@@ -277,4 +301,5 @@ def test_terminal_consumes_targets_and_produces_nothing() -> None:
     targets = PortfolioTargetsValue.of({"SPY": 1.0})
     outputs, events = invoke(TARGET_PORTFOLIO, view=_view(), inputs={"targets": targets})
     assert outputs == {}
-    assert events == []
+    # The terminal now records the final targets it received (outputs-produced fact).
+    assert events == [("targets.finalized", {"v": 1, "weights": [["SPY", 1.0]], "cash": 0.0})]
