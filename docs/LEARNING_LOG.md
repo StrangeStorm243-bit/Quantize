@@ -569,6 +569,60 @@ gate green (459 tests; ruff/format/mypy/codegen/tsc clean). Not committed. Next 
 
 ---
 
+## M4 — Session engine, ADR-0005 reconciliation, fills, Strategy A golden (2026-07-02)
+
+Autonomous build sprint over the founder-ratified ADR-0005 and the pre-M4 audit's plan mandate.
+Plan-of-record: `docs/plans/2026-07-02-m4-engine-plan.md` (adversarially reviewed before code).
+
+**System map (one session, ARCHITECTURE §3):** OPEN — apply fills queued by the previous
+evaluation via `fills.apply_orders` (Broker(sim) seam) through a view taken AT the open →
+CLOSE — mark-to-market (`_mark_to_market`, documented carry rule with recorded `StaleMark`s) →
+CLOSE — if `schedule_fires` ∧ warm-up gate ∧ fill session in window: M3 `evaluate_strategy` →
+`reconcile` (ADR-0005 verbatim) → queue orders for `next_session_after`. The queue is empty at
+every evaluation instant, so ADR R16 holds structurally.
+
+**Concepts introduced:**
+- **Planning price ≠ fill price, by construction.** Reconciliation sizes at session-D closes
+  (the only knowable prices at the instant); fills read the D+1 open through an
+  availability-gated view that exposes that open but NOT that session's close. The fixture's
+  `open_i = close_{i−1}` identity makes the two equal, so the goldens isolate the 5-bps cost
+  drag — and a dedicated synthetic test proves real drift is visible when opens differ.
+- **The cost-drag scaling signature.** A fully-invested rebalance costs `PV·1.0005 > cash`, so
+  the canonical LAST buy scales down (ADR D11.3) on every rebalance — visible in every Strategy A
+  fill event as `scaled=True` on SPY.
+- **Reporting vs trading data rules.** Valuation may carry the most recent visible close
+  (recorded, never silent — the IWM-missing session marks stale and the run continues); trading
+  never may (reconciliation fails atomically on a missing same-session close).
+- **Pure schedule firing.** "Last valid session of week/month" is defined over the calendar's
+  session set — Good-Friday weeks fire Thursday; the truncated final ISO week fires Tuesday
+  2026-06-30 (pinned deliberately).
+- **Result immutability as the Storage seam.** `BacktestResult` is a frozen in-memory record
+  (calendar+timezone echoed; five engine instants recorded); persistence is M7's job.
+
+**Files:** `quantize/engine/{schedule,state,orders,reconcile,fills,metrics,records,backtest,
+errors}.py`; additive `market/calendar.next_session_after` + `DataView` opens; `scripts/
+{node24,gate}.ps1`; `tests/{test_engine_*,test_market_open_access,test_reference_backtests,
+engine_harness,golden_utils,conftest}.py`; `tests/goldens/strategy_a_backtest.json`.
+
+**Reading path:** `test_engine_reconcile.py` (ADR examples A–H as executable truth) →
+`engine/backtest.py` module docstring → `test_reference_backtests.py::
+test_strategy_a_first_rebalance_hand_computed` (1,000,000 all-cash → ⅓ each of IWM/QQQ/SPY sized
+at the 2025-07-31 closes, filled at the 08-01 open, SPY scaled by the cost drag; total return
++31.6% over the fixture, max drawdown < 0.1 bps).
+
+**Exercise (after review):** predict, then verify with the golden, WHY Strategy A produces
+corrective orders at every month-end after the first even though the target trio never changes
+(answer: the cost drag makes realized weights lag targets by ~5 bps of traded notional, and the
+three growth rates diverge realized weights between rebalances).
+
+**Status:** M4 implemented; Codex-audited (request-changes round: engine-unsupported bps cost
+factor now fails structured, run records carry the full calendar + actual-fill instants — all
+applied); full gate green (571 tests; ruff/format/mypy/codegen/tsc clean). Golden file generated
+under `--update-goldens` discipline; the branch is uncommitted pending founder acceptance. Next
+after acceptance: **M5** (Strategy B golden + cap redistribution depth).
+
+---
+
 > Template for future entries:
 >
 > ## M<n> — <title> (<date>)
