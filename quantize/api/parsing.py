@@ -80,3 +80,19 @@ def load_ir_document[M: BaseModel](raw: bytes, model: type[M]) -> M:
             INVALID_BODY,
             f"request body is not a valid document: {error.error_count()} validation error(s)",
         ) from error
+
+
+def load_dto[M: BaseModel](raw: bytes, model: type[M]) -> M:
+    """Depth-safe raw-bytes load of a request DTO: unparseable JSON → 400, but a shape failure on
+    a governed DTO body → 422 (the run/dataset-body semantics, distinct from IR documents)."""
+    try:
+        return model.model_validate_json(raw)
+    except ValidationError as error:
+        errors = error.errors()
+        if errors and errors[0].get("type") == "json_invalid":
+            raise ApiRequestError(400, INVALID_JSON, "request body is not valid JSON") from error
+        raise ApiRequestError(
+            422,
+            INVALID_BODY,
+            f"request body failed validation: {error.error_count()} error(s)",
+        ) from error
