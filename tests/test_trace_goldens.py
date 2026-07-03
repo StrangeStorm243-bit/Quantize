@@ -118,7 +118,11 @@ def test_strategy_a_first_fill_tree_golden(
 def test_strategy_b_first_evaluation_tree_golden(
     strategy_b_result: BacktestResult, market: MarketDataSet, update_goldens: bool
 ) -> None:
-    tree = _tree_at(strategy_b_result, market, date(2025, 10, 24), at_open=False)
+    # First post-warm-up evaluation: 2025-10-17, the first session with 200 visible closes
+    # (the 200-window MA's first mathematically valid session — see the reference tests).
+    first_evaluation = strategy_b_result.evaluations[0].session_date
+    assert first_evaluation == date(2025, 10, 17)
+    tree = _tree_at(strategy_b_result, market, first_evaluation, at_open=False)
     roots = {root.node_id: root for root in tree.roots}
     evaluated = [e for e in roots["gt"].events if e.event_type == "logic.evaluated"][0]
     assert evaluated.payload == {

@@ -13,7 +13,7 @@ from quantize.runtime.binding import ImplementationCatalog, NodeImplementation
 
 
 def core_node_implementations() -> tuple[NodeImplementation, ...]:
-    """The 12 v0 node implementations, in registration order."""
+    """The v0 node implementations (12 core + the graph terminal), in registration order."""
     return (
         universe.FIXED_LIST,
         data.PRICE,

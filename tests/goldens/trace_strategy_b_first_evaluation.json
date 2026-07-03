@@ -1,6 +1,6 @@
 {
   "golden_format": 1,
-  "instant": "2025-10-24T21:00:00+00:00",
+  "instant": "2025-10-17T21:00:00+00:00",
   "roots": [
     {
       "children": [],
@@ -66,26 +66,26 @@
               {
                 "asset": "AGG",
                 "first": "2025-01-02",
-                "last": "2025-10-24",
-                "observations": 205
+                "last": "2025-10-17",
+                "observations": 200
               },
               {
                 "asset": "EFA",
                 "first": "2025-01-02",
-                "last": "2025-10-24",
-                "observations": 205
+                "last": "2025-10-17",
+                "observations": 200
               },
               {
                 "asset": "SPY",
                 "first": "2025-01-02",
-                "last": "2025-10-24",
-                "observations": 205
+                "last": "2025-10-17",
+                "observations": 200
               },
               {
                 "asset": "VNQ",
                 "first": "2025-01-02",
-                "last": "2025-10-24",
-                "observations": 205
+                "last": "2025-10-17",
+                "observations": 200
               }
             ],
             "v": 1
@@ -254,22 +254,22 @@
               [
                 "buy",
                 "AGG",
-                2449.51917894892
+                2450.744183514809
               ],
               [
                 "buy",
                 "EFA",
-                2304.138946194867
+                2308.750912184514
               ],
               [
                 "buy",
                 "SPY",
-                1957.4399949179497
+                1969.2128558682477
               ]
             ],
             "portfolio_value": 1000000.0,
             "projected_cash": 250000.0,
-            "session": "2025-10-24",
+            "session": "2025-10-17",
             "target_cash": 250000.0,
             "v": 1
           }

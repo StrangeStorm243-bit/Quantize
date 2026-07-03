@@ -136,20 +136,45 @@ TRAILING_RETURN = NodeImplementation(
 
 def _moving_average_evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
     """Simple moving average over the trailing ``window`` calendar sessions ending at each
-    session. A session lacking any of its window observations gets no MA point (no fill)."""
+    session. A session lacking any of its window observations gets no MA point (no fill).
+
+    Memo reuse (speed-only, bit-exact): a point computed at an earlier evaluation instant of
+    the same run is immutable — visibility is monotone in the cutoff and the dataset frozen,
+    so its window sum would fold the identical closes — and is replayed from the run's
+    ``EvaluationMemo`` instead of recomputed. An ABSENT point is re-attempted every evaluation
+    (a vendor-lagged close can make it computable later). Behavior with ``memo=None`` is
+    identical by construction and pinned by tests/test_evaluation_memo.py.
+    """
     window = require_int(invocation.params, "window")
     series = _series_input(invocation)
     sessions = invocation.view.session_dates
+    memo = invocation.memo
     output: dict[str, list[tuple[date, float]]] = {}
     for asset in series.assets:
+        cached = (
+            memo.slot(
+                "transform.moving_average", (*invocation.component_path, invocation.node_id), asset
+            )
+            if memo is not None
+            else None
+        )
         history = dict(series.history(asset))
         points: list[tuple[date, float]] = []
         for index in range(window - 1, len(sessions)):
+            day = sessions[index]
+            if cached is not None:
+                hit = cached.get(day)
+                if hit is not None:
+                    points.append((day, hit))
+                    continue
             window_dates = sessions[index - window + 1 : index + 1]
-            closes = [history.get(day) for day in window_dates]
+            closes = [history.get(d) for d in window_dates]
             if all(close is not None for close in closes):
                 total = sum(close for close in closes if close is not None)
-                points.append((sessions[index], total / window))
+                value = total / window
+                points.append((day, value))
+                if cached is not None:
+                    cached[day] = value
         if not points:
             invocation.trace(
                 "transform.excluded", {"v": 1, "asset": asset, "reason": "warmup_unmet"}
@@ -187,7 +212,9 @@ MOVING_AVERAGE = NodeImplementation(
         trace_events=_TRANSFORM_TRACE_EVENTS,
     ),
     evaluate=_moving_average_evaluate,
-    warmup=lambda params: require_int(params, "window"),
+    # Warm-up = sessions required STRICTLY BEFORE the evaluation session (STRATEGY_LANGUAGE §2):
+    # an MA of window W has its first full window AT the W-th visible session, so W-1 prior.
+    warmup=lambda params: require_int(params, "window") - 1,
 )
 
 
@@ -233,7 +260,8 @@ LATEST = NodeImplementation(
         trace_events=_TRANSFORM_TRACE_EVENTS,
     ),
     evaluate=_latest_evaluate,
-    warmup=lambda params: 1,
+    # Needs only the current visible session: zero PRIOR sessions (STRATEGY_LANGUAGE §2).
+    warmup=lambda params: 0,
 )
 
 

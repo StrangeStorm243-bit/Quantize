@@ -21,23 +21,67 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 
-from quantize.persistence.errors import UNSUPPORTED_DATABASE_VERSION, PersistenceError
+from quantize.persistence.errors import (
+    CORRUPT_DATABASE,
+    DATABASE_LOCKED,
+    UNSUPPORTED_DATABASE_VERSION,
+    IntegrityViolationError,
+    PersistenceError,
+)
 from quantize.persistence.migrations import (
     CURRENT_DATABASE_VERSION,
     DATABASE_MIGRATIONS,
 )
 
 
+def _is_lock_error(error: sqlite3.OperationalError) -> bool:
+    """SQLITE_BUSY / SQLITE_LOCKED by PRIMARY error code (extended codes masked to their
+    primary — e.g. SQLITE_BUSY_SNAPSHOT=261 & 0xFF == 5); message check only as a fallback
+    for hand-constructed errors that carry no code."""
+    code = getattr(error, "sqlite_errorcode", None)
+    if code is not None:
+        return (code & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+    return "database is locked" in str(error)
+
+
+def _locked(error: sqlite3.OperationalError, phase: str) -> PersistenceError:
+    return PersistenceError(
+        DATABASE_LOCKED,
+        f"the database is locked by another connection ({phase}): {error}",
+        {"phase": phase},
+    )
+
+
 class Database:
     """One SQLite database, migrated to the current structure at open. Context manager."""
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, *, busy_timeout_ms: int = 5000) -> None:
         self._path = str(path)
         self._connection = sqlite3.connect(self._path, isolation_level=None)
         self._connection.execute("PRAGMA foreign_keys = ON")
+        # Lock-contention grace BEFORE migrations, so migration BEGIN/COMMIT honor it too.
+        # Tests pass a tiny value; contention past the timeout surfaces as structured
+        # ``database_locked`` (below), never a raw sqlite3 error.
+        self._connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
         self._in_transaction = False
         try:
             self._apply_migrations()
+        except sqlite3.DatabaseError as error:
+            self._connection.close()
+            if isinstance(error, sqlite3.OperationalError):
+                # Open-time lock contention is structured like every other lock (query()/
+                # transaction() map it below); OTHER operational faults (e.g. an unopenable
+                # path) are environmental, not corruption — they propagate unchanged.
+                if _is_lock_error(error):
+                    raise _locked(error, "open") from error
+                raise
+            # A garbage or malformed file is an expected environment fault: structured,
+            # per the errors-module contract — never a bare sqlite3 exception.
+            raise PersistenceError(
+                CORRUPT_DATABASE,
+                f"file is not readable as a SQLite database: {error}",
+                {"path": self._path},
+            ) from error
         except BaseException:
             # Never leak an open handle out of a failed construction (Windows file locks).
             self._connection.close()
@@ -64,26 +108,65 @@ class Database:
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
-        """Explicit BEGIN IMMEDIATE ... COMMIT, rolling back on any exception."""
+        """Explicit BEGIN IMMEDIATE ... COMMIT, rolling back on any exception.
+
+        The sqlite3 boundary discipline: lock contention (any phase — acquisition, body,
+        commit) surfaces as structured ``database_locked``; constraint violations surface as
+        ``IntegrityViolationError`` (post-rollback) so repositories never touch sqlite3; every
+        failure path leaves the handle OUT of a transaction — never poisoned.
+        """
         if self._in_transaction:
             raise RuntimeError("nested transactions are not supported")
-        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError as error:
+            # Acquisition failure: no transaction was started (writer-vs-writer contention).
+            if _is_lock_error(error):
+                raise _locked(error, "begin") from error
+            raise
         self._in_transaction = True
         try:
             yield self._connection
-        except BaseException:
+        except BaseException as body_error:
             self._connection.execute("ROLLBACK")
+            if isinstance(body_error, sqlite3.IntegrityError):
+                raise IntegrityViolationError(
+                    f"database constraint violated: {body_error}"
+                ) from body_error
+            if isinstance(body_error, sqlite3.OperationalError) and _is_lock_error(body_error):
+                raise _locked(body_error, "statement") from body_error
             raise
         else:
-            self._connection.execute("COMMIT")
+            try:
+                self._connection.execute("COMMIT")
+            except BaseException as commit_error:
+                # A rejected COMMIT (e.g. SQLITE_BUSY under a reader's shared lock) leaves
+                # the driver mid-transaction; roll back so this instance stays usable and
+                # the commit failure — the real fault — propagates (structured for locks).
+                if self._connection.in_transaction:
+                    self._connection.execute("ROLLBACK")
+                if isinstance(commit_error, sqlite3.OperationalError) and _is_lock_error(
+                    commit_error
+                ):
+                    raise _locked(commit_error, "commit") from commit_error
+                raise
         finally:
             self._in_transaction = False
 
     def query(self, sql: str, parameters: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
         """Read-only fetch, returned as plain tuples (no sqlite3.Row escapes this module)."""
-        cursor = self._connection.execute(sql, parameters)
+        try:
+            cursor = self._connection.execute(sql, parameters)
+        except sqlite3.OperationalError as error:
+            if _is_lock_error(error):
+                raise _locked(error, "query") from error
+            raise
         try:
             return [tuple(row) for row in cursor.fetchall()]
+        except sqlite3.OperationalError as error:  # a mid-fetch BUSY is a lock like any other
+            if _is_lock_error(error):
+                raise _locked(error, "query") from error
+            raise
         finally:
             cursor.close()
 

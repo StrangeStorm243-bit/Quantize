@@ -149,3 +149,22 @@ def test_targets_reject_sum_above_one_beyond_tolerance() -> None:
 def test_targets_accept_sum_within_tolerance() -> None:
     targets = PortfolioTargetsValue.of({"SPY": 0.5, "AGG": 0.5 + WEIGHT_TOLERANCE / 2})
     assert targets.invested_weight == pytest.approx(1.0, abs=1e-8)
+
+
+# --- trusted TimeSeries construction (pre-M9 C3) --------------------------------------------------
+
+
+def test_trusted_time_series_equals_validated_construction() -> None:
+    """`from_view_history` (validation-skipping; ONLY for already-validated DataView data)
+    must produce an object bit-identical to the validated constructor on the same input."""
+    d1, d2, d3 = date(2026, 3, 2), date(2026, 3, 3), date(2026, 3, 4)
+    series = {
+        "AGG": ((d1, 100.0), (d2, 100.5), (d3, 101.0)),
+        "SPY": ((d2, 500.25),),
+        "ZZZ": (),
+    }
+    trusted = TimeSeriesValue.from_view_history(series)
+    validated = TimeSeriesValue.of(series)
+    assert repr(trusted) == repr(validated)
+    assert trusted == validated
+    assert trusted.port_type == TimeSeriesType(kind="TimeSeries", dtype="Number")

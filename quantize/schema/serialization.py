@@ -31,6 +31,12 @@ def _to_portable(value: Any) -> Any:
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError("NaN/Infinity is not portable JSON; cannot persist")
+        # Canonical zero (pre-M9 F): -0.0 == 0.0 numerically but serializes as "-0.0",
+        # splitting content hashes over a sign bit no consumer can act on. Nonzero signs
+        # untouched; historical -0.0 bytes still LOAD fine (their stored hashes re-hash
+        # their stored bytes, never a re-serialized form).
+        if value == 0.0:
+            return 0.0
         return value
     if isinstance(value, datetime):
         return value.isoformat()  # RFC 3339 (aware UTC)

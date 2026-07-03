@@ -17,6 +17,19 @@ from quantize.registry.descriptor import NodeDescriptor
 from quantize.registry.errors import DuplicateRegistrationError
 
 
+def semantic_version_sort_key(version: str) -> tuple[int, tuple[int, ...], str]:
+    """Sort key ordering ``X.Y.Z`` versions numerically (1.9.0 < 1.10.0 < 2.0.0).
+
+    DISPLAY ordering only — resolution stays exact-match. A key that is not plain dotted
+    integers (none exist in v0; prereleases are outside the current version contract) sorts
+    after the conforming ones, lexically, so nothing is ever dropped or mis-grouped.
+    """
+    parts = version.split(".")
+    if parts and all(part.isdigit() for part in parts):
+        return (0, tuple(int(part) for part in parts), version)
+    return (1, (), version)
+
+
 class ResolutionStatus(Enum):
     """The kind of outcome of resolving a node type against the registry."""
 
@@ -54,8 +67,10 @@ class NodeResolution:
                 raise ValueError("VERSION_UNAVAILABLE resolution must have no descriptor")
             if not self.available_versions:
                 raise ValueError("VERSION_UNAVAILABLE resolution must report >=1 available version")
-            if list(self.available_versions) != sorted(self.available_versions):
-                raise ValueError("available_versions must be sorted")
+            if list(self.available_versions) != sorted(
+                self.available_versions, key=semantic_version_sort_key
+            ):
+                raise ValueError("available_versions must be in semantic version order")
 
     @classmethod
     def ok(cls, descriptor: NodeDescriptor) -> NodeResolution:
@@ -67,7 +82,11 @@ class NodeResolution:
 
     @classmethod
     def version_unavailable(cls, available_versions: tuple[str, ...]) -> NodeResolution:
-        return cls(ResolutionStatus.VERSION_UNAVAILABLE, None, tuple(sorted(available_versions)))
+        return cls(
+            ResolutionStatus.VERSION_UNAVAILABLE,
+            None,
+            tuple(sorted(available_versions, key=semantic_version_sort_key)),
+        )
 
 
 class NodeRegistry:
@@ -95,8 +114,12 @@ class NodeRegistry:
         return (type_id, type_version) in self._by_key
 
     def available_versions(self, type_id: str) -> tuple[str, ...]:
-        # String sort: deterministic. Semver-aware ordering is a later refinement if needed.
-        return tuple(sorted(version for (tid, version) in self._by_key if tid == type_id))
+        return tuple(
+            sorted(
+                (version for (tid, version) in self._by_key if tid == type_id),
+                key=semantic_version_sort_key,
+            )
+        )
 
     def descriptors(self) -> tuple[NodeDescriptor, ...]:
         return tuple(self._by_key[key] for key in sorted(self._by_key))

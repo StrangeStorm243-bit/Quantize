@@ -22,6 +22,7 @@ from quantize.engine.state import PortfolioState
 from quantize.market.data import MarketDataSet
 from quantize.nodes import build_core_catalog
 from quantize.persistence.database import Database
+from quantize.persistence.provenance import recorded_input_provenance
 from quantize.persistence.records import RUN_MODE_FORWARD, record_from_result
 from quantize.persistence.runs import RunRepository
 from quantize.schema.document import StrategyDocument
@@ -34,6 +35,8 @@ from tests.stateful_fixture import ACCUMULATOR_TYPE_ID, build_accumulator_catalo
 RUN_ID = "99999999-9999-9999-9999-999999999999"
 FORWARD_RUN_ID = "88888888-8888-8888-8888-888888888888"
 INITIAL_CASH = 1_000_000.0
+# All persisted runs in this module execute over the committed fixture.
+_PROVENANCE = recorded_input_provenance(build_market_fixture())
 
 
 @pytest.fixture(scope="module")
@@ -134,7 +137,9 @@ def test_forward_run_agrees_with_the_stored_backtest_facts(
     document = _document("strategy_a")
     path = tmp_path / "runs.db"
     with Database(path) as database:
-        RunRepository(database).save_run(document, strategy_a_backtest)
+        RunRepository(database).save_run(
+            document, strategy_a_backtest, input_provenance=_PROVENANCE
+        )
     # REOPEN: the stored artifact — not anything in memory — is the historical oracle.
     with Database(path) as database:
         repository = RunRepository(database)
@@ -147,6 +152,7 @@ def test_forward_run_agrees_with_the_stored_backtest_facts(
         forward,
         strategy_id=document.strategy.id,
         strategy_version=document.strategy.version,
+        input_provenance=_PROVENANCE,
     )
     assert forward_record == stored_record  # every persisted fact, incl. instants
     assert forward.trace == stored_trace  # the loaded events, element for element
@@ -313,8 +319,8 @@ def test_forward_run_persists_with_forward_mode(
     forward = replay.result()
     with Database(tmp_path / "runs.db") as database:
         repository = RunRepository(database)
-        repository.save_run(document, strategy_a_backtest)
-        repository.save_run(document, forward, mode=RUN_MODE_FORWARD)
+        repository.save_run(document, strategy_a_backtest, input_provenance=_PROVENANCE)
+        repository.save_run(document, forward, input_provenance=_PROVENANCE, mode=RUN_MODE_FORWARD)
         summaries = {s.run_id: s.mode for s in repository.list_runs()}
         assert summaries == {RUN_ID: "backtest", FORWARD_RUN_ID: "forward"}
         loaded = repository.load_run(FORWARD_RUN_ID)
@@ -324,6 +330,7 @@ def test_forward_run_persists_with_forward_mode(
         strategy_a_backtest,
         strategy_id=document.strategy.id,
         strategy_version=document.strategy.version,
+        input_provenance=_PROVENANCE,
     )
     normalized = loaded.model_copy(update={"mode": "backtest", "run_id": RUN_ID})
     assert normalized == backtest_record
@@ -349,12 +356,14 @@ def test_partial_forward_peek_cannot_persist_as_a_completed_run(
         repository = RunRepository(database)
         for mode_kwargs in ({}, {"mode": RUN_MODE_FORWARD}):
             with pytest.raises(PersistenceError) as caught:
-                repository.save_run(document, peek, **mode_kwargs)
+                repository.save_run(document, peek, input_provenance=_PROVENANCE, **mode_kwargs)
             assert caught.value.code == INVALID_ARTIFACT
         assert repository.list_runs() == ()  # nothing persisted
         # The same replay EXHAUSTED persists fine.
         _exhaust(replay)
-        repository.save_run(document, replay.result(), mode=RUN_MODE_FORWARD)
+        repository.save_run(
+            document, replay.result(), input_provenance=_PROVENANCE, mode=RUN_MODE_FORWARD
+        )
         assert len(repository.list_runs()) == 1
 
 
@@ -389,8 +398,8 @@ def test_failed_and_empty_runs_still_persist_honestly(
     assert empty.ok and empty.last_session is None
     with Database(tmp_path / "runs.db") as database:
         repository = RunRepository(database)
-        repository.save_run(document, failed)
-        repository.save_run(_document("strategy_a"), empty)
+        repository.save_run(document, failed, input_provenance=_PROVENANCE)
+        repository.save_run(_document("strategy_a"), empty, input_provenance=_PROVENANCE)
         assert {s.run_id: s.ok for s in repository.list_runs()} == {
             RUN_ID: False,
             FORWARD_RUN_ID: True,

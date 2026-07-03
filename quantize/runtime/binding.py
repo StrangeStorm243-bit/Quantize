@@ -19,7 +19,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from datetime import datetime
+from typing import Any, Literal
 
 from quantize.market.data import DataView
 from quantize.registry.descriptor import NodeDescriptor
@@ -29,10 +30,52 @@ from quantize.registry.registry import (
     NodeRegistryView,
     NodeResolution,
     ResolutionStatus,
+    semantic_version_sort_key,
 )
 from quantize.runtime.values import RuntimeValue
 from quantize.schema.primitives import JsonValue
 from quantize.tracing.recorder import TraceSink
+
+
+class EvaluationMemo:
+    """Run-scoped, SPEED-ONLY reuse channel for pure nodes (pre-M9 remediation, C1).
+
+    A pure node may stash intermediate results that are provably immutable for the REST of the
+    run — e.g. a moving-average point whose whole window is visible: visibility is monotone in
+    the cutoff and the dataset is frozen, so recomputation would be bit-identical. The memo can
+    therefore never affect WHAT a run produces, only how fast (the engine's memo-on/memo-off
+    bit-exactness battery proves it).
+
+    Safety contract: one memo per (run, dataset), created and owned by the engine — never
+    global, never shared across runs. Because a cached point is only guaranteed visible at the
+    instant that computed it AND LATER, the memo refuses non-monotonic use loudly: feeding a
+    strictly earlier evaluation instant is a programming error, not a recoverable state (a
+    stale-cutoff read-through would be look-ahead).
+    """
+
+    def __init__(self) -> None:
+        self._slots: dict[tuple[object, ...], dict[Any, Any]] = {}
+        self._high_water: datetime | None = None
+
+    def assert_monotonic(self, instant: datetime) -> None:
+        """Reject a strictly earlier evaluation instant (see the class safety contract)."""
+        if self._high_water is not None and instant < self._high_water:
+            raise ValueError(
+                "EvaluationMemo requires non-decreasing evaluation instants: "
+                f"{instant.isoformat()} < {self._high_water.isoformat()}"
+            )
+        self._high_water = instant
+
+    def slot(self, *key: object) -> dict[Any, Any]:
+        """The mutable dict owned by *key* (namespace + node path + node-chosen parts)."""
+        slot = self._slots.get(key)
+        if slot is None:
+            slot = {}
+            self._slots[key] = slot
+        return slot
+
+    def is_empty(self) -> bool:
+        return not self._slots
 
 
 @dataclass(frozen=True)
@@ -43,6 +86,8 @@ class NodeInvocation:
     parameter binding). ``inputs`` holds runtime values keyed by input-port name; optional
     unconnected ports are absent. ``view`` is the availability-gated as-of ``DataView``.
     ``trace`` is bound to this node's identity and the run's deterministic timestamp.
+    ``memo`` is the run's optional speed-only reuse channel (``EvaluationMemo``); a node must
+    behave bit-identically with and without it.
     """
 
     node_id: str
@@ -51,6 +96,7 @@ class NodeInvocation:
     inputs: Mapping[str, RuntimeValue]
     view: DataView
     trace: TraceSink
+    memo: EvaluationMemo | None = None
 
 
 EvaluateFn = Callable[[NodeInvocation], Mapping[str, RuntimeValue]]
@@ -125,7 +171,12 @@ class ImplementationCatalog:
         implementation = self._by_key.get((type_id, type_version))
         if implementation is not None:
             return ImplementationResolution(ResolutionStatus.OK, implementation, ())
-        versions = tuple(sorted(version for (tid, version) in self._by_key if tid == type_id))
+        versions = tuple(
+            sorted(
+                (version for (tid, version) in self._by_key if tid == type_id),
+                key=semantic_version_sort_key,
+            )
+        )
         if not versions:
             return ImplementationResolution(ResolutionStatus.UNKNOWN_TYPE, None, ())
         return ImplementationResolution(ResolutionStatus.VERSION_UNAVAILABLE, None, versions)

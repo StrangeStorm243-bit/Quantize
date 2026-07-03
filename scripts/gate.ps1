@@ -3,6 +3,9 @@
 # Runs every authoritative check, fail-fast, from any current directory. Read-only: leaves the
 # working tree unchanged. Exits non-zero on the first failing stage.
 #
+# PARITY NOTE: scripts/gate.sh is the POSIX sibling and must run the IDENTICAL stage set in the
+# IDENTICAL fail-fast order. If you add/remove/reorder a stage, change BOTH scripts together.
+#
 # Usage:  ./scripts/gate.ps1
 
 $ErrorActionPreference = "Stop"

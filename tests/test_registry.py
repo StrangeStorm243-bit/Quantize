@@ -130,6 +130,31 @@ def test_descriptors_sorted_by_type_id_then_version() -> None:
     assert keys == sorted(keys)
 
 
+def test_available_versions_order_is_semantic_not_lexical() -> None:
+    """1.9.0 < 1.10.0 < 2.0.0 — numeric component order, deterministic, multi-major; and
+    exact resolution stays mandatory (the ordering is DISPLAY-ONLY, never a fallback)."""
+    r = NodeRegistry()
+    for version in ("1.10.0", "2.0.0", "1.9.0", "10.0.1"):
+        r.register(_descriptor(version))
+    assert r.available_versions("test.source") == ("1.9.0", "1.10.0", "2.0.0", "10.0.1")
+    assert r.available_versions("test.source") == r.available_versions("test.source")
+    # No "latest" behavior crept in: an inexact version still refuses to resolve.
+    assert r.resolve("test.source", "1.9.1").status is ResolutionStatus.VERSION_UNAVAILABLE
+
+
+def test_catalog_available_versions_order_matches_the_registry() -> None:
+    """The ImplementationCatalog twin (binding.py) uses the same semantic ordering."""
+    from quantize.runtime.binding import ImplementationCatalog, NodeImplementation
+
+    catalog = ImplementationCatalog()
+    for version in ("1.10.0", "1.9.0"):
+        catalog.register(
+            NodeImplementation(descriptor=_descriptor(version), evaluate=lambda invocation: {})
+        )
+    resolution = catalog.resolve("test.source", "9.9.9")
+    assert resolution.available_versions == ("1.9.0", "1.10.0")
+
+
 # --- NodeRegistryView (DI) -------------------------------------------------------------------
 
 

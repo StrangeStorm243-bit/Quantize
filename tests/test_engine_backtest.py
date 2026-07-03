@@ -162,6 +162,96 @@ def test_warmup_gate_boundary() -> None:
     assert [e.session_date for e in result.evaluations] == [_D3]  # first fired: visible 3 > 2
 
 
+def _series_pipeline(head: list[NodeInstance], head_edges: list[Edge]) -> StrategyDocument:
+    """u -> px -> <head chain> -> rank -> select_top_n(1) -> equal_weight -> terminal."""
+    nodes: list[NodeInstance] = [
+        RegisteredNode(
+            id="u",
+            type_id="universe.fixed_list",
+            type_version="1.0.0",
+            params={"tickers": ["AAA", "BBB"]},
+        ),
+        RegisteredNode(id="px", type_id="data.price", type_version="1.0.0", params={}),
+        *head,
+        RegisteredNode(id="rk", type_id="transform.rank", type_version="1.0.0", params={}),
+        RegisteredNode(
+            id="sel", type_id="portfolio.select_top_n", type_version="1.0.0", params={"n": 1}
+        ),
+        RegisteredNode(id="ew", type_id="portfolio.equal_weight", type_version="1.0.0", params={}),
+        RegisteredNode(id="tp", type_id="output.target_portfolio", type_version="1.0.0", params={}),
+    ]
+    edges = [
+        Edge.model_validate({"from": ("u", "assets"), "to": ("px", "assets")}),
+        *head_edges,
+        Edge.model_validate({"from": ("rk", "values"), "to": ("sel", "scores")}),
+        Edge.model_validate({"from": ("u", "assets"), "to": ("sel", "universe")}),
+        Edge.model_validate({"from": ("sel", "assets"), "to": ("ew", "assets")}),
+        Edge.model_validate({"from": ("ew", "targets"), "to": ("tp", "targets")}),
+    ]
+    return make_document(nodes, edges, bps=0.0)
+
+
+def _trending_dataset() -> MarketDataSet:
+    # Distinct, hand-checkable closes: AAA trends up, BBB trends down.
+    return make_engine_dataset(
+        {
+            "AAA": {_D1: (10.0, 10.0), _D2: (11.0, 11.0), _D3: (12.0, 12.0), _D4: (13.0, 13.0)},
+            "BBB": {_D1: (20.0, 20.0), _D2: (19.0, 19.0), _D3: (18.0, 18.0), _D4: (17.0, 17.0)},
+        }
+    )
+
+
+def test_moving_average_warmup_gate_exact_boundary() -> None:
+    """Warm-up convention: declared = sessions required STRICTLY BEFORE the evaluation session.
+
+    MA(window=3) declares warm-up 2, so the gate skips D1 (visible 1) and D2 (visible 2) and
+    fires at D3 (visible 3) — the FIRST session with a full window, not one session later.
+    Hand check at D3: MA3(AAA) = (10+11+12)/3 = 11, MA3(BBB) = (20+19+18)/3 = 19; descending
+    rank picks BBB; equal weight -> BBB 1.0. All inputs are closes <= D3's close (no look-ahead).
+    """
+    head: list[NodeInstance] = [
+        RegisteredNode(
+            id="ma", type_id="transform.moving_average", type_version="1.0.0", params={"window": 3}
+        ),
+        RegisteredNode(id="lt", type_id="transform.latest", type_version="1.0.0", params={}),
+    ]
+    head_edges = [
+        Edge.model_validate({"from": ("px", "series"), "to": ("ma", "series")}),
+        Edge.model_validate({"from": ("ma", "series"), "to": ("lt", "series")}),
+        Edge.model_validate({"from": ("lt", "values"), "to": ("rk", "values")}),
+    ]
+    result = _run(_series_pipeline(head, head_edges), _trending_dataset())
+    assert result.ok, result.diagnostics
+    warmup_notes = [n.session_date for n in result.notes if n.code == "warmup_not_satisfied"]
+    assert warmup_notes == [_D1, _D2]  # one-before boundary: D2 (visible 2 <= 2) still skipped
+    assert [e.session_date for e in result.evaluations] == [_D3]  # exactly-enough: visible 3 > 2
+    first = result.evaluations[0]
+    assert dict(first.target_weights) == {"BBB": 1.0}
+    assert first.fill_session == _D4
+    # One-after boundary: D4 fires the schedule past warm-up; only the window tail stops it.
+    assert [(n.session_date, n.code) for n in result.notes if n.session_date == _D4] == [
+        (_D4, "no_next_session")
+    ]
+
+
+def test_latest_only_strategy_evaluates_at_the_first_session() -> None:
+    """transform.latest needs zero prior sessions: a latest-driven strategy is evaluable at the
+    very first close (visible 1 > warm-up 0) — no warm-up note is ever emitted."""
+    head: list[NodeInstance] = [
+        RegisteredNode(id="lt", type_id="transform.latest", type_version="1.0.0", params={}),
+    ]
+    head_edges = [
+        Edge.model_validate({"from": ("px", "series"), "to": ("lt", "series")}),
+        Edge.model_validate({"from": ("lt", "values"), "to": ("rk", "values")}),
+    ]
+    result = _run(_series_pipeline(head, head_edges), _trending_dataset())
+    assert result.ok, result.diagnostics
+    assert [n for n in result.notes if n.code == "warmup_not_satisfied"] == []
+    assert [e.session_date for e in result.evaluations] == [_D1, _D2, _D3]
+    # D1 hand check: latest closes AAA 10 / BBB 20 -> descending rank picks BBB.
+    assert dict(result.evaluations[0].target_weights) == {"BBB": 1.0}
+
+
 def test_fill_outside_window_note() -> None:
     result = _run(fixed_weight_strategy(["AAA"]), last_session=_D2)
     assert result.ok

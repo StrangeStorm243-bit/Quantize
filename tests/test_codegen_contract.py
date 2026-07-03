@@ -237,3 +237,31 @@ def test_ts_required_fields_not_optional(ts_source: str) -> None:
     # type_version is required on RegisteredNode; must not be emitted as optional.
     assert "type_version: string;" in ts_source
     assert "type_version?:" not in ts_source
+
+
+# --- node-union exclusivity tripwire (pre-M9 G3) --------------------------------------------------
+
+
+def test_every_legal_node_matches_exactly_one_union_branch() -> None:
+    """The exported node union is a bare oneOf (a callable discriminator has no JSON-Schema
+    equivalent). It is sound today only because the branches are disjoint by construction
+    (namespaced dotted type_id vs const "component") — this tripwire pins that exclusivity:
+    every legal node payload must match EXACTLY ONE branch. A future variant that overlaps
+    (e.g. permitting a non-namespaced registered type_id) fails here before it ships."""
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    defs = schema["$defs"]
+    branches = defs["StrategyDocument"]["properties"]["nodes"]["items"]["oneOf"]
+    assert branches == defs["Graph"]["properties"]["nodes"]["items"]["oneOf"]  # same union
+    validators = [Draft202012Validator({**branch, "$defs": defs}) for branch in branches]
+
+    nodes: list[dict[str, Any]] = []
+    for fixture in ("strategy_a", "strategy_b", "strategy_a_component"):
+        nodes.extend(load_fixture(fixture)["nodes"])
+    nodes.append({"id": "cr", "type_id": "component", "ref": "r9", "params": {}})
+    nodes.append(
+        {"id": "fx", "type_id": "future.unknown_block", "type_version": "1.0.0", "params": {}}
+    )
+    assert len(nodes) >= 10
+    for node in nodes:
+        matches = sum(1 for validator in validators if validator.is_valid(node))
+        assert matches == 1, (node.get("id"), node.get("type_id"), matches)

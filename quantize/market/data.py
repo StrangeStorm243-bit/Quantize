@@ -186,3 +186,103 @@ class DataView:
                         return price
                 return None
         return None
+
+
+class MarketDataCursor:
+    """Runner-local incremental visibility over ONE dataset for ascending instants (pre-M9 C2).
+
+    The engine's per-session needs are three point queries — the latest visible close
+    (valuation marks), the session-D close (planning prices), and the session-D open (fills).
+    Building the full all-asset ``as_of`` view per session just to answer them is
+    O(observations) per call; this cursor answers them incrementally by pre-sorting every
+    observation by its availability instant and incorporating arrivals once as the cutoff
+    advances.
+
+    Exactness contract: every answer equals what ``dataset.as_of(instant)`` would expose —
+    property-tested against ``as_of`` (tests/test_market_cursor.py), never re-derived
+    divergently. The data contract permits arbitrary vendor lag, so arrivals may be OUT of
+    session order: the latest close tracks the maximum session date over the VISIBLE set, not
+    the most recent arrival. A strictly earlier (backward) instant falls back to a fresh
+    ``as_of`` view — exactness over speed. The cursor never mutates the dataset, holds no
+    global state, and one instance serves one runner.
+    """
+
+    def __init__(self, dataset: MarketDataSet) -> None:
+        self._dataset = dataset
+        close_arrivals: list[tuple[datetime, str, date, float]] = []
+        open_arrivals: list[tuple[datetime, str, date, float]] = []
+        for asset, series in dataset.observations.items():
+            for observation in series:
+                close_arrivals.append(
+                    (
+                        observation.close_available_at,
+                        asset,
+                        observation.session_date,
+                        observation.close_price,
+                    )
+                )
+                open_arrivals.append(
+                    (
+                        observation.open_available_at,
+                        asset,
+                        observation.session_date,
+                        observation.open_price,
+                    )
+                )
+        close_arrivals.sort()
+        open_arrivals.sort()
+        self._close_arrivals = close_arrivals
+        self._open_arrivals = open_arrivals
+        self._close_cursor = 0
+        self._open_cursor = 0
+        self._latest_close: dict[str, tuple[date, float]] = {}
+        self._visible_opens: dict[str, dict[date, float]] = {}
+        self._high_water: datetime | None = None
+
+    def _advance(self, cutoff: datetime) -> None:
+        """Incorporate every observation whose availability is <= *cutoff* (inclusive — the
+        same boundary ``as_of`` applies)."""
+        self._high_water = cutoff
+        arrivals = self._close_arrivals
+        index = self._close_cursor
+        while index < len(arrivals) and arrivals[index][0] <= cutoff:
+            _, asset, day, price = arrivals[index]
+            index += 1
+            latest = self._latest_close.get(asset)
+            if latest is None or day > latest[0]:
+                self._latest_close[asset] = (day, price)
+        self._close_cursor = index
+        arrivals = self._open_arrivals
+        index = self._open_cursor
+        while index < len(arrivals) and arrivals[index][0] <= cutoff:
+            _, asset, day, price = arrivals[index]
+            index += 1
+            self._visible_opens.setdefault(asset, {})[day] = price
+        self._open_cursor = index
+
+    def _is_backward(self, cutoff: datetime) -> bool:
+        return self._high_water is not None and cutoff < self._high_water
+
+    def latest_close(self, asset: str, instant: datetime) -> tuple[date, float] | None:
+        """``as_of(instant).close_history(asset)[-1]`` — or ``None`` with no visible close."""
+        cutoff = require_aware_utc(instant, "instant")
+        if self._is_backward(cutoff):
+            history = self._dataset.as_of(cutoff).close_history(asset)
+            return history[-1] if history else None
+        self._advance(cutoff)
+        return self._latest_close.get(asset)
+
+    def session_close(self, asset: str, session_date: date, instant: datetime) -> float | None:
+        """The close AT exactly *session_date* IF it is the latest visible close — the
+        engine's planning-price predicate (``history[-1][0] == session_date``) verbatim."""
+        latest = self.latest_close(asset, instant)
+        return latest[1] if latest is not None and latest[0] == session_date else None
+
+    def open_price(self, asset: str, session_date: date, instant: datetime) -> float | None:
+        """``as_of(instant).open_price(asset, session_date)`` — exact session only, never a
+        stale substitute."""
+        cutoff = require_aware_utc(instant, "instant")
+        if self._is_backward(cutoff):
+            return self._dataset.as_of(cutoff).open_price(asset, session_date)
+        self._advance(cutoff)
+        return self._visible_opens.get(asset, {}).get(session_date)
