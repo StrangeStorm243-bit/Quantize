@@ -14,37 +14,63 @@ import pytest
 
 from quantize.codegen import pipeline
 from quantize.codegen import typescript as ts_mod
+from quantize.codegen.schema import BundleSpec
 from quantize.codegen.typescript import CodegenToolError
 
 
 @pytest.fixture
-def fake_artifacts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path]:
-    """Point the gate at tmp artifacts with a known expected content (no Node required)."""
-    schema_file = tmp_path / "quantize.schema.json"
-    ts_file = tmp_path / "quantize-ir.d.ts"
-    schema_file.write_text("EXPECTED-SCHEMA\n", encoding="utf-8", newline="\n")
-    ts_file.write_text("EXPECTED-TS\n", encoding="utf-8", newline="\n")
-    monkeypatch.setattr(pipeline, "_build_expected", lambda: ("EXPECTED-SCHEMA\n", "EXPECTED-TS\n"))
-    monkeypatch.setattr(pipeline, "SCHEMA_PATH", schema_file)
-    monkeypatch.setattr(pipeline, "TS_PATH", ts_file)
+def fake_artifacts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Path]:
+    """Point the gate at two tmp bundles (IR + API) with known expected content (no Node required).
+
+    ``_expected_for`` is stubbed per-spec so the comparison/error-formatting logic is what's under
+    test, never the Node generator; ``BUNDLES`` is replaced with tmp-backed specs.
+    """
+    files = {
+        "ir_schema": tmp_path / "quantize.schema.json",
+        "ir_ts": tmp_path / "quantize-ir.d.ts",
+        "api_schema": tmp_path / "quantize-api.schema.json",
+        "api_ts": tmp_path / "quantize-api.d.ts",
+    }
+    expected = {
+        "quantize.schema.json": "IR-SCHEMA\n",
+        "quantize-ir.d.ts": "IR-TS\n",
+        "quantize-api.schema.json": "API-SCHEMA\n",
+        "quantize-api.d.ts": "API-TS\n",
+    }
+    for path in files.values():
+        path.write_text(expected[path.name], encoding="utf-8", newline="\n")
+
+    ir_spec = BundleSpec("IR", dict, files["ir_schema"], files["ir_ts"])
+    api_spec = BundleSpec("API", dict, files["api_schema"], files["api_ts"])
+
+    def _fake_expected(spec: BundleSpec) -> tuple[str, str]:
+        return expected[spec.schema_path.name], expected[spec.ts_path.name]
+
+    monkeypatch.setattr(pipeline, "BUNDLES", (ir_spec, api_spec))
+    monkeypatch.setattr(pipeline, "_expected_for", _fake_expected)
     monkeypatch.setattr(pipeline, "REPO_ROOT", tmp_path)  # so relative_to() in messages works
-    return schema_file, ts_file
+    return files
 
 
-def test_check_passes_when_current(fake_artifacts: tuple[Path, Path]) -> None:
+def test_check_passes_when_current(fake_artifacts: dict[str, Path]) -> None:
     assert pipeline.check() == []
 
 
-def test_check_flags_stale_artifact(fake_artifacts: tuple[Path, Path]) -> None:
-    schema_file, _ = fake_artifacts
-    schema_file.write_text("DRIFTED\n", encoding="utf-8", newline="\n")
+def test_check_flags_stale_ir_artifact(fake_artifacts: dict[str, Path]) -> None:
+    fake_artifacts["ir_schema"].write_text("DRIFTED\n", encoding="utf-8", newline="\n")
     errors = pipeline.check()
     assert any("stale" in e and "quantize.schema.json" in e for e in errors)
 
 
-def test_check_flags_missing_artifact(fake_artifacts: tuple[Path, Path]) -> None:
-    _, ts_file = fake_artifacts
-    ts_file.unlink()
+def test_check_flags_stale_api_artifact(fake_artifacts: dict[str, Path]) -> None:
+    """A stale API artifact is flagged by its own filename (the second-bundle staleness gate)."""
+    fake_artifacts["api_ts"].write_text("DRIFTED\n", encoding="utf-8", newline="\n")
+    errors = pipeline.check()
+    assert any("stale" in e and "quantize-api.d.ts" in e for e in errors)
+
+
+def test_check_flags_missing_artifact(fake_artifacts: dict[str, Path]) -> None:
+    fake_artifacts["ir_ts"].unlink()
     errors = pipeline.check()
     assert any("missing" in e and "quantize-ir.d.ts" in e for e in errors)
 
