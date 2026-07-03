@@ -44,7 +44,9 @@ with **structured decision tracing**. The visual canvas is only an editor for th
   same shell process — it locates fnm without a profile, activates Node 24, and asserts `v24.*`
   (fails loudly otherwise). Interactive terminals may auto-initialize fnm. Install locked deps with
   `npm ci` under Node 24; never run the Node toolchain under Node 25+.
-- **Run backend / API:** _TBD (M9)_  ·  **Run frontend (editor):** _TBD (M11)_
+- **Run backend / API (M9):** `uvicorn quantize.api.app:create_app --factory --host 127.0.0.1
+  --port 8000` (localhost binding is the documented default — no auth exists by design; the DB
+  path is `QUANTIZE_DB_PATH`, default `quantize.db`).  ·  **Run frontend (editor):** _TBD (M11)_
 - **Generate JSON Schema + TS types (codegen):** `python -m quantize.codegen generate` (emits
   `schema/quantize.schema.json` + `ts/quantize-ir.d.ts`; needs Node 24 on PATH for the TS step).
   Verify without writing: `python -m quantize.codegen check`. TypeScript compile gate: `npm run
