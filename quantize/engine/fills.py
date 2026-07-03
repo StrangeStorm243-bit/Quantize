@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 from datetime import date
+from typing import Protocol
 
 from quantize.engine.errors import (
     INVALID_ORDER,
@@ -24,8 +25,19 @@ from quantize.engine.errors import (
 )
 from quantize.engine.orders import Fill, OrderList
 from quantize.engine.state import PortfolioState
-from quantize.market.data import DataView
 from quantize.runtime.diagnostics import RuntimeDiagnostic, sort_runtime_diagnostics
+
+
+class OpenPriceSource(Protocol):
+    """The one read fills perform: the availability-gated open at exactly (asset, session).
+
+    Satisfied by ``DataView`` (the as-of view) and by the engine's cursor-backed adapter —
+    both answer through the SAME gating semantics (property-tested equivalence), so the
+    Broker(sim) seam never sees an ungated price.
+    """
+
+    def open_price(self, asset: str, session_date: date) -> float | None: ...
+
 
 # Oversell guard tolerance (float-noise allowance; a real oversell is a programming error
 # upstream because reconciliation guarantees sell <= held).
@@ -35,7 +47,7 @@ _OVERSELL_TOLERANCE = 1e-9
 def apply_orders(
     state: PortfolioState,
     orders: OrderList,
-    view_at_open: DataView,
+    view_at_open: OpenPriceSource,
     fill_session: date,
     cost_bps: float,
 ) -> tuple[PortfolioState, tuple[Fill, ...], tuple[RuntimeDiagnostic, ...]]:

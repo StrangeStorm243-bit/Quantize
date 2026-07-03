@@ -56,7 +56,7 @@ from quantize.evaluator.plan import topological_order
 from quantize.market.calendar import require_aware_utc
 from quantize.market.data import DataView, MarketDataSet
 from quantize.registry.registry import NodeRegistryView, ResolutionStatus
-from quantize.runtime.binding import ImplementationCatalog, NodeInvocation
+from quantize.runtime.binding import EvaluationMemo, ImplementationCatalog, NodeInvocation
 from quantize.runtime.diagnostics import RuntimeDiagnostic, sort_runtime_diagnostics
 from quantize.runtime.values import (
     AssetSetValue,
@@ -217,10 +217,12 @@ class _Executor:
         catalog: ImplementationCatalog,
         view: DataView,
         recorder: TraceRecorder,
+        memo: EvaluationMemo | None = None,
     ) -> None:
         self.catalog = catalog
         self.view = view
         self.recorder = recorder
+        self.memo = memo
         self.store: ValueStore = {}
 
     def execute_graph(
@@ -302,6 +304,7 @@ class _Executor:
             inputs=inputs,
             view=self.view,
             trace=self.recorder.sink_for(node.id, component_path),
+            memo=self.memo,
         )
         try:
             outputs = implementation.evaluate(invocation)
@@ -403,10 +406,18 @@ def evaluate_strategy(
     evaluation_instant: datetime,
     components: ComponentCatalog | None = None,
     collect_trace: bool = True,
+    memo: EvaluationMemo | None = None,
 ) -> EvaluationOutcome:
-    """Evaluate *document* at *evaluation_instant* (see module docstring for the contract)."""
+    """Evaluate *document* at *evaluation_instant* (see module docstring for the contract).
+
+    ``memo`` is the run-scoped speed-only reuse channel (``EvaluationMemo``): pass the SAME
+    memo across a run's ascending evaluation instants (the engine does); it never changes what
+    an evaluation produces, and it rejects a strictly earlier instant loudly.
+    """
     run_id = str(uuid.UUID(run_id))  # caller contract: a UUID; garbage is a programming error
     instant = require_aware_utc(evaluation_instant, "evaluation_instant")
+    if memo is not None:
+        memo.assert_monotonic(instant)
 
     diagnostics: list[RuntimeDiagnostic] = []
     resolution = ResolvedStrategy(ok=True, diagnostics=(), instances={})
@@ -481,7 +492,7 @@ def evaluate_strategy(
         return outcome(False, None, {}, ())
 
     recorder = TraceRecorder(run_id, instant, enabled=collect_trace)
-    executor = _Executor(catalog, view, recorder)
+    executor = _Executor(catalog, view, recorder, memo)
     params_by_node: dict[str, Mapping[str, JsonValue]] = {
         node.id: node.params for node in document.nodes
     }

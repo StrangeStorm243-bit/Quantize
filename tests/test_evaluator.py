@@ -313,3 +313,15 @@ def test_targets_value_is_the_terminal_input() -> None:
     outcome = _evaluate(synthetic_document([], []))
     assert isinstance(outcome.targets, PortfolioTargetsValue)
     assert outcome.output_value(["ptsrc"], "targets") == outcome.targets
+
+
+def test_output_type_guard_covers_the_whole_runtime_value_union() -> None:
+    """The evaluator's isinstance guard is a hand-maintained mirror of the RuntimeValue
+    union; a variant added to one but not the other would misclassify valid node output
+    as wrong-type. This tripwire fails the moment they drift."""
+    from typing import get_args
+
+    from quantize.evaluator.evaluate import _RUNTIME_VALUE_TYPES
+    from quantize.runtime.values import RuntimeValue
+
+    assert set(_RUNTIME_VALUE_TYPES) == set(get_args(RuntimeValue))

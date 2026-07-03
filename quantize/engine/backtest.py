@@ -1,7 +1,8 @@
 """The session engine — one loop body for BOTH modes (ARCHITECTURE §3; M8 extraction).
 
 Per session in the run window: (1) at the OPEN, apply any fills queued by the previous
-evaluation (through the availability-gated view taken at that open — the Broker(sim) seam);
+evaluation (availability-gated open reads at that instant — the Broker(sim) seam, served by the
+run's incremental cursor, property-tested equal to the as-of view);
 (2) at the CLOSE (valuation instant), mark the portfolio; (3) at the CLOSE (evaluation instant),
 if the schedule fires, the warm-up gate passes, and the scheduled fill session exists inside the
 window: evaluate the graph via M3, reconcile per ADR-0005, and queue the orders for the next
@@ -14,9 +15,10 @@ session at a time. The modes differ ONLY in who feeds sessions (the Clock seam) 
 happens within one. Never add a second implementation of any step behavior.
 
 Adapter seams, named: Clock = the pure ``run_window`` session sequence (the forward driver feeds
-the same shape one session at a time); MarketData = ``MarketDataSet.as_of``; Broker(sim) =
-``fills.apply_orders``; Storage = the returned in-memory ``BacktestResult`` (durable storage is
-M7).
+the same shape one session at a time); MarketData = ``MarketDataSet.as_of`` at evaluation
+instants plus the equivalent ``MarketDataCursor`` point reads for per-session valuation,
+planning, and fills; Broker(sim) = ``fills.apply_orders``; Storage = the returned in-memory
+``BacktestResult`` (durable storage is M7).
 
 Valuation carry rule (documented here, per CLAUDE.md invariant 10 — not silent): a held asset is
 marked at its most recent VISIBLE close ≤ the valuation instant; a non-current mark is recorded
@@ -32,6 +34,7 @@ raise. A failed ``step`` is TERMINAL: the run ends and no further session may be
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime
 
 from quantize.components.resolve import ComponentCatalog, resolve_strategy_components
@@ -60,8 +63,8 @@ from quantize.engine.state import PortfolioState
 from quantize.evaluator.evaluate import evaluate_strategy
 from quantize.evaluator.plan import resolve_warmup
 from quantize.market.calendar import ExchangeCalendar, MarketSession
-from quantize.market.data import DataView, MarketDataSet
-from quantize.runtime.binding import ImplementationCatalog
+from quantize.market.data import MarketDataCursor, MarketDataSet
+from quantize.runtime.binding import EvaluationMemo, ImplementationCatalog
 from quantize.runtime.diagnostics import RuntimeDiagnostic
 from quantize.schema.document import StrategyDocument
 from quantize.schema.primitives import JsonValue
@@ -83,14 +86,19 @@ def run_window(
 
 
 def _mark_to_market(
-    state: PortfolioState, view: DataView, session_date: date
+    state: PortfolioState, cursor: MarketDataCursor, instant: datetime, session_date: date
 ) -> tuple[float, tuple[StaleMark, ...], tuple[RuntimeDiagnostic, ...]]:
-    """Valuation at the close (see the module docstring's carry rule)."""
+    """Valuation at the close (see the module docstring's carry rule).
+
+    Reads the latest VISIBLE close through the run's cursor — exactly what
+    ``as_of(instant).close_history(asset)[-1]`` exposes (property-tested equivalence), without
+    materializing the full view per session.
+    """
     value = state.cash
     marks: list[StaleMark] = []
     for asset, quantity in state.positions:  # canonical fold order
-        history = view.close_history(asset)
-        if not history:
+        latest = cursor.latest_close(asset, instant)
+        if latest is None:
             return (
                 0.0,
                 (),
@@ -103,21 +111,34 @@ def _mark_to_market(
                     ),
                 ),
             )
-        mark_date, price = history[-1]
+        mark_date, price = latest
         value += quantity * price
         if mark_date != session_date:
             marks.append(StaleMark(session_date=session_date, asset=asset, mark_date=mark_date))
     return value, tuple(marks), ()
 
 
-def _closes_at(view: DataView, session_date: date, assets: tuple[str, ...]) -> dict[str, float]:
+def _closes_at(
+    cursor: MarketDataCursor, instant: datetime, session_date: date, assets: tuple[str, ...]
+) -> dict[str, float]:
     """Session-D closes for *assets* (ADR-0005 D3: the close AT session D exactly, or absent)."""
     prices: dict[str, float] = {}
     for asset in assets:
-        history = view.close_history(asset)
-        if history and history[-1][0] == session_date:
-            prices[asset] = history[-1][1]
+        price = cursor.session_close(asset, session_date, instant)
+        if price is not None:
+            prices[asset] = price
     return prices
+
+
+@dataclass(frozen=True)
+class _OpenPricesAt:
+    """Cursor-backed ``OpenPriceSource`` for one fill instant (the Broker(sim) read)."""
+
+    cursor: MarketDataCursor
+    instant: datetime
+
+    def open_price(self, asset: str, session_date: date) -> float | None:
+        return self.cursor.open_price(asset, session_date, self.instant)
 
 
 class SessionEngine:
@@ -163,6 +184,14 @@ class SessionEngine:
         self.trace: list[TraceEvent] = []
         self.state = initial_state
         self.pending: tuple[OrderList, date] | None = None
+        # The run's speed-only reuse channel: one memo per run, fed strictly ascending
+        # evaluation instants by the session loop. Bit-exactness with memo=None is proven by
+        # the C1 battery (tests/test_evaluation_memo.py).
+        self.memo: EvaluationMemo | None = EvaluationMemo()
+        # The run's incremental visibility cursor (pre-M9 C2): valuation marks, planning
+        # closes, and fill opens read through it instead of a per-session full as_of view;
+        # its answers are property-tested equal to as_of (tests/test_market_cursor.py).
+        self.data_cursor = MarketDataCursor(market_data)
 
     # --- assembly ---------------------------------------------------------------------------
 
@@ -245,12 +274,13 @@ class SessionEngine:
         (the run is over; feeding further sessions is a caller error)."""
         day = session.session_date
 
-        # 1. OPEN — apply fills queued for this session (Broker(sim) seam).
+        # 1. OPEN — apply fills queued for this session (Broker(sim) seam), reading opens
+        # through the availability-gated cursor at the open instant.
         if self.pending is not None and self.pending[1] == day:
             orders, _ = self.pending
-            view_open = self.market_data.as_of(session.open_at)
+            opens_at_fill = _OpenPricesAt(self.data_cursor, session.open_at)
             state_after, event_fills, fill_diags = apply_orders(
-                self.state, orders, view_open, day, self.cost_bps
+                self.state, orders, opens_at_fill, day, self.cost_bps
             )
             if fill_diags:
                 return fill_diags
@@ -286,8 +316,9 @@ class SessionEngine:
             self.pending = None
 
         # 2. CLOSE — valuation instant.
-        view_close = self.market_data.as_of(session.close_at)
-        value, marks, valuation_diags = _mark_to_market(self.state, view_close, day)
+        value, marks, valuation_diags = _mark_to_market(
+            self.state, self.data_cursor, session.close_at, day
+        )
         if valuation_diags:
             return valuation_diags
         self.valuations.append((day, value))
@@ -325,6 +356,7 @@ class SessionEngine:
             evaluation_instant=session.close_at,
             components=self.components,
             collect_trace=self.collect_trace,
+            memo=self.memo,
         )
         self.trace.extend(outcome.trace)
         if not outcome.ok or outcome.targets is None:
@@ -339,7 +371,11 @@ class SessionEngine:
 
         targeted = tuple(asset for asset, weight in outcome.targets.weights if weight > 0.0)
         union = tuple(sorted(set(self.state.held_assets) | set(targeted)))
-        reconciliation = reconcile(self.state, outcome.targets, _closes_at(view_close, day, union))
+        reconciliation = reconcile(
+            self.state,
+            outcome.targets,
+            _closes_at(self.data_cursor, session.close_at, day, union),
+        )
         self.evaluations.append(
             EvaluationRecord(
                 session_date=day,

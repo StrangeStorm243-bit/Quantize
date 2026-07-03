@@ -18,8 +18,11 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from quantize.engine.records import BacktestResult
+from quantize.persistence.provenance import RunInputProvenance
 
-RECORD_FORMAT = 1
+# Format 2 (pre-M9 E): adds ``input_provenance`` — the run's material input identity
+# (dataset + calendar content hashes, or an explicit unknown for migrated format-1 rows).
+RECORD_FORMAT = 2
 TRACE_FORMAT = 1
 
 RUN_MODE_BACKTEST = "backtest"
@@ -103,6 +106,7 @@ class PersistedRunRecord(_Frozen):
     strategy_id: str
     strategy_version: int
     ok: bool
+    input_provenance: RunInputProvenance
     exchange: str
     timezone: str
     first_session: date | None
@@ -125,13 +129,16 @@ def record_from_result(
     *,
     strategy_id: str,
     strategy_version: int,
+    input_provenance: RunInputProvenance,
     mode: str = RUN_MODE_BACKTEST,
 ) -> PersistedRunRecord:
     """Copy the run's facts into the durable shape. Pure read — never mutates *result*.
 
-    Strategy identity comes from the DOCUMENT (it is not a ``BacktestResult`` fact); *mode*
-    records HOW the facts were produced (backtest vs M8 forward replay) — same engine core,
-    so the record shape is mode-agnostic.
+    Strategy identity comes from the DOCUMENT (it is not a ``BacktestResult`` fact);
+    *input_provenance* is the run's INPUT identity (dataset/calendar fingerprints — REQUIRED,
+    so a new run can never silently persist without it); *mode* records HOW the facts were
+    produced (backtest vs M8 forward replay) — same engine core, so the record shape is
+    mode-agnostic.
     """
     return PersistedRunRecord(
         record_format=RECORD_FORMAT,
@@ -140,6 +147,7 @@ def record_from_result(
         strategy_id=strategy_id,
         strategy_version=strategy_version,
         ok=result.ok,
+        input_provenance=input_provenance,
         exchange=result.exchange,
         timezone=result.timezone,
         first_session=result.first_session,

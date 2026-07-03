@@ -202,6 +202,49 @@ def test_warmup_resolution_descends_into_components() -> None:
     )
     assert resolution.ok
     warmup = resolve_warmup(document, catalog, resolution)
-    # The Scaler's internal constant declares window=5 (see the fixture).
+    # The Scaler's internal constant declares window=5 (see the fixture; the synthetic
+    # test.const warm-up returns its window UNCHANGED — it is not a moving average).
     assert warmup.by_node[("sc", "inner_c")] == 5
     assert warmup.total == 5
+
+
+def test_warmup_of_a_real_moving_average_inside_a_component() -> None:
+    """Flat/componentized warm-up parity for the REAL node: a component wrapping
+    transform.moving_average(window=5) resolves to the same declared warm-up (4 prior
+    sessions) as a flat MA node would."""
+    from quantize.nodes import build_core_catalog
+    from quantize.schema.components import ExposedPort
+    from quantize.schema.nodes import RegisteredNode
+    from quantize.schema.types import TimeSeriesType
+    from tests.component_fixtures import definition
+
+    ts = TimeSeriesType(kind="TimeSeries", dtype="Number")
+    ma_component_id = "12121212-1212-1212-1212-121212121212"
+    ma_definition = definition(
+        ma_component_id,
+        "MAWrap",
+        [
+            RegisteredNode(
+                id="inner_ma",
+                type_id="transform.moving_average",
+                type_version="1.0.0",
+                params={"window": 5},
+            )
+        ],
+        [],
+        exposed_inputs=[ExposedPort(name="series", type=ts, maps_to=("inner_ma", "series"))],
+        exposed_outputs=[ExposedPort(name="smoothed", type=ts, maps_to=("inner_ma", "series"))],
+    )
+    document = synthetic_document(
+        [ComponentRefNode(id="mc", type_id="component", ref="r1", params={})],
+        [],
+        [ComponentRef(id="r1", component_id=ma_component_id, version="1.0.0")],
+    )
+    core = build_core_catalog()
+    resolution = resolve_strategy_components(
+        document, ComponentCatalog([ma_definition]), core.descriptor_registry
+    )
+    assert resolution.ok, resolution.diagnostics
+    warmup = resolve_warmup(document, core, resolution)
+    assert warmup.by_node[("mc", "inner_ma")] == 4  # window 5 -> 4 prior sessions
+    assert warmup.total == 4

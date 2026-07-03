@@ -38,10 +38,27 @@ def artifact_bytes(model: BaseModel, *, kind: str, key: object) -> bytes:
         ) from error
 
 
+def _canonical_zeroes(value: Any) -> Any:
+    """Recursively rewrite -0.0 to 0.0 (the same canonical-zero rule as ``_to_portable`` on
+    the model path); every other value passes through untouched."""
+    if isinstance(value, float) and not isinstance(value, bool) and value == 0.0:
+        return 0.0
+    if isinstance(value, dict):
+        return {key: _canonical_zeroes(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_zeroes(item) for item in value]
+    return value
+
+
 def canonical_json_bytes(payload: dict[str, Any]) -> bytes:
-    """Deterministic bytes for a plain JSON dict (sorted keys; non-model data only)."""
+    """Deterministic bytes for a plain JSON dict (sorted keys; canonical zeroes; non-model
+    data only)."""
     dumped = json.dumps(
-        payload, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        _canonical_zeroes(payload),
+        sort_keys=True,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
     )
     return dumped.encode("utf-8")
 

@@ -36,7 +36,8 @@ with **structured decision tracing**. The visual canvas is only an editor for th
 - **Lint:** `ruff check .` · **Format check:** `ruff format --check .` · **Type-check:** `mypy`.
 - **Full gate (canonical):** `./scripts/gate.ps1` — pytest, ruff check, format check, mypy, Node-24
   activation, `codegen check`, `npm run typecheck`, fail-fast, from any cwd. Run it before claiming
-  a milestone or slice done.
+  a milestone or slice done. POSIX sibling: `bash scripts/gate.sh` — identical stage set and order;
+  change both scripts together.
 - **Node:** baseline **24 LTS** (`.nvmrc`; `engine-strict`). The system Node may differ, and
   non-interactive shells do not load the user profile, so a bare `node`/`npm`/`tsc`/codegen call can
   resolve to the wrong Node. Before any Node-dependent command, run `./scripts/node24.ps1` in the

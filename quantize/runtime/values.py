@@ -178,6 +178,22 @@ class TimeSeriesValue:
     def of(cls, series: Mapping[str, Sequence[tuple[date, float]]]) -> TimeSeriesValue:
         return cls(series=tuple((asset, tuple(history)) for asset, history in series.items()))
 
+    @classmethod
+    def from_view_history(
+        cls, series: Mapping[str, Sequence[tuple[date, float]]]
+    ) -> TimeSeriesValue:
+        """Construction for histories read VERBATIM from an availability-gated ``DataView``
+        (pre-M9 C3): the dataset already enforced strictly-increasing dates and positive-finite
+        prices at construction, so re-checking every point here is pure duplicate work at
+        O(points) per evaluation. The domain is still canonicalized and validated (cheap);
+        ONLY the per-point checks are skipped. Callers must pass unmodified ``close_history``
+        tuples — computed values must use ``of`` (their arithmetic can overflow)."""
+        assets = _canonical_assets(series.keys(), "TimeSeries domain")
+        normalized = tuple((asset, tuple(series[asset])) for asset in assets)
+        value = object.__new__(cls)
+        object.__setattr__(value, "series", normalized)
+        return value
+
     def history(self, asset: str) -> tuple[tuple[date, float], ...]:
         for candidate, series in self.series:
             if candidate == asset:

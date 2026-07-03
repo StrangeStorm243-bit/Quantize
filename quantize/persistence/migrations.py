@@ -167,3 +167,37 @@ class ArtifactMigrationRegistry:
 
 
 ARTIFACT_MIGRATIONS = ArtifactMigrationRegistry()
+
+
+def _run_record_1_to_2(payload: dict[str, Any]) -> dict[str, Any]:
+    """Format 1 -> 2: add EXPLICIT unknown input provenance (pre-M9 E).
+
+    Format-1 rows predate input fingerprinting; the dataset/calendar hashes were never
+    recorded and cannot be honestly invented, so the migrated record SAYS so — replay against
+    them is attemptable, never verifiable.
+
+    NOT value-preserving for a hypothetical format-1 payload that already carries an
+    ``input_provenance`` key (it would be overwritten with unknown) — unreachable in this
+    lineage, and the registry's never-silently-lossy guard is KEY-level, so it would not flag
+    that overwrite. Recorded here so a future fork lineage does not assume otherwise.
+    """
+    return {
+        **payload,
+        "record_format": 2,
+        "input_provenance": {"status": "unknown", "dataset_hash": None, "calendar_hash": None},
+    }
+
+
+ARTIFACT_MIGRATIONS.register(
+    ArtifactMigration(
+        kind="run_record",
+        from_version=1,
+        migrate=_run_record_1_to_2,
+        example_input={
+            "record_format": 1,
+            "run_id": "00000000-0000-0000-0000-000000000000",
+            "mode": "backtest",
+            "ok": True,
+        },
+    )
+)

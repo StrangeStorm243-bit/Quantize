@@ -24,7 +24,12 @@ from quantize.persistence.errors import (
     UNSUPPORTED_ARTIFACT_VERSION,
     PersistenceError,
 )
-from quantize.persistence.migrations import ArtifactMigration, ArtifactMigrationRegistry
+from quantize.persistence.migrations import (
+    ARTIFACT_MIGRATIONS,
+    ArtifactMigration,
+    ArtifactMigrationRegistry,
+)
+from quantize.persistence.provenance import recorded_input_provenance, unknown_input_provenance
 from quantize.persistence.records import RECORD_FORMAT, PersistedRunRecord
 from quantize.persistence.runs import RunRepository, RunSummary
 from quantize.persistence.serialize import content_hash
@@ -42,6 +47,8 @@ from tests.market_fixture import build_market_fixture
 
 RUN_ID = "99999999-9999-9999-9999-999999999999"
 INITIAL_CASH = 1_000_000.0
+# All runs in this module execute over the committed fixture; its recorded input identity.
+_PROVENANCE = recorded_input_provenance(build_market_fixture())
 
 
 @pytest.fixture(scope="module")
@@ -92,7 +99,7 @@ def test_run_facts_survive_round_trip_exactly(
     document, result = request.getfixturevalue(strategy_fixture)
     repository = RunRepository(db)
     trace_snapshot = copy.deepcopy(result.trace)  # mutable payload dicts: snapshot BEFORE save
-    run_id = repository.save_run(document, result)
+    run_id = repository.save_run(document, result, input_provenance=_PROVENANCE)
     assert result.trace == trace_snapshot  # save never mutated inputs
     record = repository.load_run(run_id)
     assert record.record_format == RECORD_FORMAT
@@ -139,7 +146,7 @@ def test_trace_stream_reloads_byte_and_object_exact(
 ) -> None:
     document, result = strategy_a
     repository = RunRepository(db)
-    run_id = repository.save_run(document, result)
+    run_id = repository.save_run(document, result, input_provenance=_PROVENANCE)
     reloaded = repository.load_trace(run_id)
     assert reloaded == result.trace  # full value equality incl. instants + payloads
     # And against the M6 committed goldens (external byte oracle — proves losslessness even
@@ -156,7 +163,7 @@ def test_date_keyed_trace_retrieval(
 ) -> None:
     document, result = strategy_a
     repository = RunRepository(db)
-    run_id = repository.save_run(document, result)
+    run_id = repository.save_run(document, result, input_provenance=_PROVENANCE)
     events = repository.load_trace(run_id, session_date=date(2025, 8, 1))
     assert events  # the first fill session
     assert {event.timestamp.date() for event in events} == {date(2025, 8, 1)}
@@ -169,11 +176,13 @@ def test_run_and_document_save_are_idempotent_and_conflicting_diverges(
 ) -> None:
     document, result = strategy_a
     repository = RunRepository(db)
-    run_id = repository.save_run(document, result)
-    assert repository.save_run(document, result) == run_id  # idempotent, incl. document
+    run_id = repository.save_run(document, result, input_provenance=_PROVENANCE)
+    assert (
+        repository.save_run(document, result, input_provenance=_PROVENANCE) == run_id
+    )  # idempotent, incl. document
     assert db.query("SELECT COUNT(*) FROM runs")[0][0] == 1
     divergent = _run(document, build_market_fixture())  # same run_id, same facts -> idempotent
-    assert repository.save_run(document, divergent) == run_id
+    assert repository.save_run(document, divergent, input_provenance=_PROVENANCE) == run_id
 
 
 def test_divergent_run_content_under_same_run_id_is_a_conflict(
@@ -183,10 +192,10 @@ def test_divergent_run_content_under_same_run_id_is_a_conflict(
 
     document, result = strategy_a
     repository = RunRepository(db)
-    repository.save_run(document, result)
+    repository.save_run(document, result, input_provenance=_PROVENANCE)
     divergent = dataclasses.replace(result, total_return=result.total_return + 1.0)
     with pytest.raises(PersistenceError) as caught:
-        repository.save_run(document, divergent)
+        repository.save_run(document, divergent, input_provenance=_PROVENANCE)
     assert caught.value.code == ARTIFACT_CONFLICT
     assert repository.load_run(result.run_id).total_return == result.total_return
 
@@ -200,7 +209,7 @@ def test_duplicate_run_with_divergent_trace_is_a_conflict(
 
     document, result = strategy_a
     repository = RunRepository(db)
-    repository.save_run(document, result)
+    repository.save_run(document, result, input_provenance=_PROVENANCE)
     for divergent_trace in (
         (),
         result.trace[:-1],
@@ -208,7 +217,7 @@ def test_duplicate_run_with_divergent_trace_is_a_conflict(
     ):
         divergent = dataclasses.replace(result, trace=divergent_trace)
         with pytest.raises(PersistenceError) as caught:
-            repository.save_run(document, divergent)
+            repository.save_run(document, divergent, input_provenance=_PROVENANCE)
         assert caught.value.code == ARTIFACT_CONFLICT
     assert len(repository.load_trace(result.run_id)) == len(result.trace)  # original intact
 
@@ -220,7 +229,9 @@ def test_run_without_trace_loads_an_empty_stream(
 
     document, result = strategy_a
     repository = RunRepository(db)
-    run_id = repository.save_run(document, dataclasses.replace(result, trace=()))
+    run_id = repository.save_run(
+        document, dataclasses.replace(result, trace=()), input_provenance=_PROVENANCE
+    )
     assert repository.load_trace(run_id) == ()
 
 
@@ -229,7 +240,7 @@ def test_list_runs_summaries(
 ) -> None:
     document, result = strategy_a
     repository = RunRepository(db)
-    run_id = repository.save_run(document, result)
+    run_id = repository.save_run(document, result, input_provenance=_PROVENANCE)
     summaries = repository.list_runs()
     assert len(summaries) == 1
     summary = summaries[0]
@@ -289,12 +300,12 @@ def test_failed_save_persists_nothing(
     )
     repository = RunRepository(db)
     with pytest.raises(ValueError, match="mid-transaction fault"):
-        repository.save_run(document, poisoned)
+        repository.save_run(document, poisoned, input_provenance=_PROVENANCE)
     assert db.query("SELECT COUNT(*) FROM runs")[0][0] == 0
     assert db.query("SELECT COUNT(*) FROM trace_events")[0][0] == 0
     assert db.query("SELECT COUNT(*) FROM strategies")[0][0] == 0  # auto-save rolled back too
     # A clean retry on the same database succeeds (nothing half-written blocks it).
-    assert repository.save_run(document, result) == result.run_id
+    assert repository.save_run(document, result, input_provenance=_PROVENANCE) == result.run_id
 
 
 def test_non_portable_save_input_is_a_structured_error(
@@ -318,7 +329,7 @@ def test_non_portable_save_input_is_a_structured_error(
     poisoned = dataclasses.replace(result, trace=(nan_event, *result.trace[1:]))
     repository = RunRepository(db)
     with pytest.raises(PersistenceError) as caught:
-        repository.save_run(document, poisoned)
+        repository.save_run(document, poisoned, input_provenance=_PROVENANCE)
     assert caught.value.code == INVALID_ARTIFACT
     assert caught.value.context["kind"] == "trace_event"
     assert db.query("SELECT COUNT(*) FROM runs")[0][0] == 0  # nothing persisted
@@ -341,7 +352,7 @@ def _saved(
 ) -> tuple[RunRepository, str]:
     document, result = strategy_a
     repository = RunRepository(db)
-    return repository, repository.save_run(document, result)
+    return repository, repository.save_run(document, result, input_provenance=_PROVENANCE)
 
 
 def test_missing_run_is_structured(db: Database) -> None:
@@ -499,11 +510,13 @@ def test_format_zero_row_migrates_through_the_production_load_path(
     domain validation), differing from a real future migration only by its content."""
     repository, run_id = _saved(db, strategy_a)
     baseline = repository.load_run(run_id)
-    # Rewrite the stored row to an imaginary format-0 shape (mode absent, spelled 'kind').
+    # Rewrite the stored row to an imaginary format-0 shape: 'mode' spelled 'kind', and —
+    # like every pre-provenance era row — no input_provenance key at all.
     rows = db.query("SELECT record FROM runs WHERE run_id = ?", (run_id,))
     payload = json.loads(str(rows[0][0]))
     payload["kind"] = payload.pop("mode")
     payload["record_format"] = 0
+    del payload["input_provenance"]
     old_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     with db.transaction() as connection:
         connection.execute(
@@ -514,7 +527,7 @@ def test_format_zero_row_migrates_through_the_production_load_path(
     def upgrade(old: dict[str, object]) -> dict[str, object]:
         new = dict(old)
         new["mode"] = new.pop("kind")
-        new["record_format"] = RECORD_FORMAT
+        new["record_format"] = 1  # one honest step; the chain continues 1 -> 2 below
         return new
 
     registry = ArtifactMigrationRegistry()
@@ -527,8 +540,12 @@ def test_format_zero_row_migrates_through_the_production_load_path(
             example_input={"kind": "backtest", "record_format": 0},
         )
     )
+    for production_step in ARTIFACT_MIGRATIONS.steps():  # the real 1 -> 2 provenance step
+        registry.register(production_step)
     migrated = RunRepository(db, migrations=registry).load_run(run_id)
-    assert migrated == baseline  # deterministic, lossless, fully validated
+    # Deterministic, lossless, fully validated — the chained 1->2 step writes the EXPLICIT
+    # unknown provenance (a format-0/1 row never recorded input hashes).
+    assert migrated == baseline.model_copy(update={"input_provenance": unknown_input_provenance()})
 
 
 # --- determinism goldens (cross-platform anchors) ------------------------------------------------
@@ -556,7 +573,7 @@ def test_persisted_artifacts_are_deterministic_across_databases(
     stored: list[tuple[object, ...]] = []
     for name in ("one.db", "two.db"):
         with Database(tmp_path / name) as database:
-            RunRepository(database).save_run(document, result)
+            RunRepository(database).save_run(document, result, input_provenance=_PROVENANCE)
             stored.append(
                 database.query("SELECT content_hash, record FROM runs")[0]
                 + database.query("SELECT content_hash, document FROM strategies")[0]
@@ -570,7 +587,7 @@ def test_persistence_golden(market: MarketDataSet, tmp_path: Path, update_golden
     document, result = _windowed_run(market)
     with Database(tmp_path / "g.db") as database:
         repository = RunRepository(database)
-        run_id = repository.save_run(document, result)
+        run_id = repository.save_run(document, result, input_provenance=_PROVENANCE)
         run_hash, record_raw = database.query("SELECT content_hash, record FROM runs")[0]
         doc_hash, doc_raw = database.query("SELECT content_hash, document FROM strategies")[0]
         record = repository.load_run(run_id)
@@ -597,7 +614,7 @@ def test_contracts_expose_only_domain_objects_and_plain_values(
 
     document, result = strategy_a
     repository = RunRepository(db)
-    run_id = repository.save_run(document, result)
+    run_id = repository.save_run(document, result, input_provenance=_PROVENANCE)
     values: list[object] = [run_id, repository.load_run(run_id)]
     values.extend(repository.load_trace(run_id))
     values.extend(repository.list_runs())

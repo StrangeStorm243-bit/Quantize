@@ -807,3 +807,40 @@ Codex audit. Not committed. Next after acceptance: **M9** (API boundary).
 > **Reading path:** …
 > **Exercise (implement by hand):** … *Prediction:* … *Outcome:* …
 > **Status:** …
+
+
+## Pre-M9 remediation sprint (2026-07-03)
+
+**Concepts introduced:**
+- *Warm-up as an exact contract:* declared warm-up = visible sessions required STRICTLY BEFORE
+  the evaluation session (gate fires at `visible > total`). The spec itself carried an
+  off-by-one for `moving_average` (declared `window`, correct is `window - 1`) and `latest`
+  (`1` -> `0`); the correction moved Strategy B's first evaluation one week earlier
+  (2025-10-17, the first session where a 200-window MA exists). Lesson: a convention is only a
+  contract when BOTH ends (declaration and gate) are pinned to the same sentence.
+- *Exact-output optimization:* two cliffs fixed WITHOUT changing a single output byte — a
+  run-scoped positive point cache for MA (a computed point is immutable because visibility is
+  monotone in the cutoff; absent points are re-attempted for late-arriving data), and an
+  incremental visibility cursor answering the engine's three per-session point queries instead
+  of materializing the full as-of view. Proofs: memo-on/off bit-exact repr comparison, cursor
+  property-equality vs `as_of` under adversarial availability, and unchanged persisted-record
+  hashes. 1000 sessions x 100 assets full run: ~133 s -> 11.6 s.
+- *Honest provenance:* run records (format 2) now carry dataset/calendar content fingerprints;
+  legacy rows migrate to an EXPLICIT `unknown` — identity is recorded or declared absent, never
+  fabricated.
+- *Boundary discipline completed:* every SQLite failure is structured (`corrupt_database`,
+  `database_locked` at begin/statement/commit/query phases, `integrity_violation`); no module
+  outside `database.py` imports sqlite3 (tripwire-tested); `-0.0` canonicalizes to `0.0` at the
+  single serialization choke point.
+
+**Files studied:** `quantize/nodes/transform.py` (warm-up lambdas + memo), `quantize/market/
+data.py` (`MarketDataCursor`), `quantize/runtime/binding.py` (`EvaluationMemo`),
+`quantize/persistence/provenance.py`, `database.py`, `docs/plans/2026-07-03-pre-m9-remediation-
+plan.md`, `docs/plans/2026-07-03-m9-api-plan.md`.
+
+**Exercise (implement by hand):** add a `transform.median` node declaring its warm-up under the
+pinned convention. *Prediction:* window W needs W-1 — same as the MA, because a median over W
+sessions is computable exactly when W are visible.
+
+**Status:** remediation sprint complete on `fix/pre-m9-remediation`; both gates green
+(PowerShell + POSIX); awaiting founder review + Codex audit. Not committed.

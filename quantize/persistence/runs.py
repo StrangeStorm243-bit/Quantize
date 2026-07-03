@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
@@ -26,9 +25,11 @@ from quantize.persistence.errors import (
     ARTIFACT_NOT_FOUND,
     CORRUPT_ARTIFACT,
     INVALID_ARTIFACT,
+    IntegrityViolationError,
     PersistenceError,
 )
 from quantize.persistence.migrations import ARTIFACT_MIGRATIONS, ArtifactMigrationRegistry
+from quantize.persistence.provenance import PROVENANCE_RECORDED, RunInputProvenance
 from quantize.persistence.records import (
     RECORD_FORMAT,
     RUN_MODE_BACKTEST,
@@ -92,17 +93,32 @@ class RunRepository:
         document: StrategyDocument,
         result: BacktestResult,
         *,
+        input_provenance: RunInputProvenance,
         mode: str = RUN_MODE_BACKTEST,
     ) -> str:
         """Persist strategy (idempotent) + run facts + trace stream. One atomic unit.
 
         Never mutates *document*, *result*, or any trace event. Duplicate run_id with identical
         record bytes is an idempotent no-op; divergent bytes are a structured conflict.
+        *input_provenance* is REQUIRED (compute it with ``recorded_input_provenance`` at this
+        save boundary): a new run never persists without honest input identity. UNKNOWN
+        provenance is rejected here — it is reserved for the 1->2 LOAD migration of legacy
+        rows (Codex pre-M9 review); accepting it on a new save would make a fresh run
+        indistinguishable from a migrated pre-provenance one.
         """
+        if input_provenance.status != PROVENANCE_RECORDED:
+            raise PersistenceError(
+                INVALID_ARTIFACT,
+                f"run {result.run_id} cannot be saved with {input_provenance.status!r} input "
+                "provenance: unknown is reserved for migrated legacy (format-1) rows — a new "
+                "save must record real dataset/calendar identity",
+                {"run_id": result.run_id, "status": input_provenance.status},
+            )
         record = record_from_result(
             result,
             strategy_id=document.strategy.id,
             strategy_version=document.strategy.version,
+            input_provenance=input_provenance,
             mode=mode,
         )
         # Fail CLOSED on partial results (Codex M8): a mid-replay ForwardReplay.result() peek
@@ -185,7 +201,7 @@ class RunRepository:
                             event_bytes.decode("utf-8"),
                         ),
                     )
-        except sqlite3.IntegrityError as error:
+        except IntegrityViolationError as error:
             raise PersistenceError(
                 ARTIFACT_CONFLICT,
                 f"run {record.run_id} was concurrently saved with different content",

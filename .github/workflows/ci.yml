@@ -5,6 +5,13 @@ on:
     branches: ["**"]
   pull_request:
 
+# Cancel superseded runs on the same ref (successive pushes to the same branch stop re-running
+# the full matrix for stale commits; push and pull_request events keep separate groups).
+# NEVER cancels the authoritative main-branch run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   python:
     name: lint · type-check · test (py${{ matrix.python-version }})

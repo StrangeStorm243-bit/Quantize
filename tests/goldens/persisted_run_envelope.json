@@ -326,6 +326,11 @@
       ]
     ],
     "first_session": "2025-07-31",
+    "input_provenance": {
+      "calendar_hash": "48c6ec7b629cf0ea7dcceb1f940e7d2d86cde668e39c7c2ea185b52e0dc41080",
+      "dataset_hash": "5d261e56b372682f5e43a4cd0a6861c94a5f35544625d7292726b2b954e9e6b2",
+      "status": "recorded"
+    },
     "last_session": "2025-08-29",
     "max_drawdown": 0.0,
     "mode": "backtest",
@@ -337,7 +342,7 @@
       }
     ],
     "ok": true,
-    "record_format": 1,
+    "record_format": 2,
     "returns": [
       0.0006996501749125805,
       0.0012001065920894671,
@@ -458,7 +463,7 @@
       ]
     ]
   },
-  "record_format": 1,
-  "run_content_hash": "be4d8c10af67760f370ea49259f99474c60e0805ab9e788b6db04eb1973076c3",
+  "record_format": 2,
+  "run_content_hash": "7a606ce50d3a0384ca5b064b19fc8099da378c86dd84cd900ab29bc5f58ce3e2",
   "run_id": "99999999-9999-9999-9999-999999999999"
 }

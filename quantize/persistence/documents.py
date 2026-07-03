@@ -11,7 +11,6 @@ freshly validated model — never a partial object.
 from __future__ import annotations
 
 import json
-import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -24,6 +23,7 @@ from quantize.persistence.errors import (
     CORRUPT_ARTIFACT,
     INVALID_ARTIFACT,
     UNSUPPORTED_ARTIFACT_VERSION,
+    IntegrityViolationError,
     PersistenceError,
 )
 from quantize.persistence.serialize import (
@@ -144,7 +144,7 @@ class StrategyRepository:
         try:
             with self._db.transaction() as connection:
                 connection.execute(*pending)
-        except sqlite3.IntegrityError as error:
+        except IntegrityViolationError as error:
             raise PersistenceError(
                 ARTIFACT_CONFLICT,
                 f"strategy {key.strategy_id} v{key.version} was concurrently saved with "
@@ -281,7 +281,7 @@ class ComponentRepository:
                         _now(),
                     ),
                 )
-        except sqlite3.IntegrityError as error:
+        except IntegrityViolationError as error:
             # A racing writer through a second Database handle: surface the contract error,
             # never a backend-shaped exception.
             raise PersistenceError(

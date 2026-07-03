@@ -9,8 +9,12 @@ import pytest
 
 from quantize.persistence.database import Database
 from quantize.persistence.errors import (
+    CORRUPT_DATABASE,
+    DATABASE_LOCKED,
+    INTEGRITY_VIOLATION,
     UNSUPPORTED_ARTIFACT_VERSION,
     UNSUPPORTED_DATABASE_VERSION,
+    IntegrityViolationError,
     PersistenceError,
 )
 from quantize.persistence.migrations import (
@@ -50,6 +54,122 @@ def test_database_ahead_of_code_is_rejected(tmp_path: Path) -> None:
         Database(path)
     assert caught.value.code == UNSUPPORTED_DATABASE_VERSION
     assert caught.value.context["database"] == 99
+
+
+def test_corrupt_database_file_fails_structured(tmp_path: Path) -> None:
+    """A garbage or truncated database file surfaces as a structured PersistenceError
+    (stable code), never a bare sqlite3.DatabaseError (the errors-module contract)."""
+    for name, content in (
+        ("garbage.db", b"this is not a sqlite database, just bytes\n" * 4),
+        ("truncated.db", b"SQLite format 3\x00" + b"\x00" * 8),  # valid magic, malformed body
+    ):
+        path = tmp_path / name
+        path.write_bytes(content)
+        with pytest.raises(PersistenceError) as caught:
+            Database(path)
+        assert caught.value.code == CORRUPT_DATABASE
+        assert caught.value.context["path"] == str(path)
+
+
+_INSERT_STRATEGY = (
+    "INSERT INTO strategies (strategy_id, version, schema_version, name,"
+    " content_hash, document, saved_at) VALUES ('x', 1, 'v', 'n', 'h', '{}', 't')"
+)
+
+
+def test_failed_commit_does_not_poison_the_database(tmp_path: Path) -> None:
+    """A COMMIT rejected by SQLite (reader holding a shared lock) surfaces as structured
+    ``database_locked`` — never a raw sqlite3 error — and must leave the Database usable:
+    the transaction rolls back, no partial row is visible, and a later transaction succeeds."""
+    import sqlite3
+
+    path = tmp_path / "q.db"
+    with Database(path, busy_timeout_ms=20) as db:
+        reader = sqlite3.connect(str(path))
+        try:
+            reader.execute("BEGIN")
+            reader.execute("SELECT COUNT(*) FROM schema_migrations").fetchall()
+            with pytest.raises(PersistenceError) as caught:
+                with db.transaction() as connection:
+                    connection.execute(_INSERT_STRATEGY)
+            assert caught.value.code == DATABASE_LOCKED
+        finally:
+            reader.close()
+        # No partial artifact after the failure, and the SAME instance accepts a new
+        # transaction (the failed commit did not leave the driver mid-transaction).
+        assert db.query("SELECT COUNT(*) FROM strategies")[0][0] == 0
+        with db.transaction() as connection:
+            connection.execute(_INSERT_STRATEGY)
+        assert db.query("SELECT COUNT(*) FROM strategies")[0][0] == 1
+
+
+def test_writer_contention_on_begin_is_structured(tmp_path: Path) -> None:
+    """Writer-vs-writer: a second handle's BEGIN IMMEDIATE against a held RESERVED lock is
+    the acquisition path (outside the commit recovery) — it too must surface as structured
+    ``database_locked`` and must not poison either handle."""
+    path = tmp_path / "q.db"
+    with Database(path, busy_timeout_ms=20) as writer, Database(path, busy_timeout_ms=20) as db:
+        with writer.transaction() as connection:
+            connection.execute(_INSERT_STRATEGY)
+            with pytest.raises(PersistenceError) as caught:
+                with db.transaction():
+                    pass  # pragma: no cover — BEGIN itself must fail
+            assert caught.value.code == DATABASE_LOCKED
+        # Both handles remain usable after the contention window closes.
+        assert db.query("SELECT COUNT(*) FROM strategies")[0][0] == 1
+        with db.transaction() as connection:
+            connection.execute("DELETE FROM strategies")
+        assert writer.query("SELECT COUNT(*) FROM strategies")[0][0] == 0
+
+
+def test_lock_wait_honors_the_configured_busy_timeout(tmp_path: Path) -> None:
+    """The busy handler waits roughly the configured timeout before giving up — identity of
+    the error is asserted exactly; the duration only via a generous upper bound."""
+    import time
+
+    path = tmp_path / "q.db"
+    with Database(path, busy_timeout_ms=50) as writer, Database(path, busy_timeout_ms=50) as db:
+        with writer.transaction() as connection:
+            connection.execute(_INSERT_STRATEGY)
+            started = time.perf_counter()
+            with pytest.raises(PersistenceError) as caught:
+                with db.transaction():
+                    pass  # pragma: no cover
+            elapsed = time.perf_counter() - started
+            assert caught.value.code == DATABASE_LOCKED
+            assert elapsed < 5.0  # waited ~50ms, not the 5s default, not forever
+
+
+def test_integrity_violation_is_translated_not_leaked(tmp_path: Path) -> None:
+    """A constraint violation inside a transaction surfaces as the persistence-owned
+    ``IntegrityViolationError`` (post-rollback), so repositories never import sqlite3."""
+    path = tmp_path / "q.db"
+    with Database(path) as db:
+        with db.transaction() as connection:
+            connection.execute(_INSERT_STRATEGY)
+        with pytest.raises(IntegrityViolationError) as caught:
+            with db.transaction() as connection:
+                connection.execute(_INSERT_STRATEGY)  # duplicate primary key
+        assert caught.value.code == INTEGRITY_VIOLATION
+        assert isinstance(caught.value, PersistenceError)
+        # Rolled back cleanly; the handle stays usable.
+        assert db.query("SELECT COUNT(*) FROM strategies")[0][0] == 1
+
+
+def test_repositories_do_not_import_sqlite3() -> None:
+    """database.py is the ONLY quantize module that IMPORTS sqlite3 (its declared boundary);
+    prose mentions in docstrings/comments are fine — the coupling is the import."""
+    import re
+    from pathlib import Path as _Path
+
+    package = _Path("quantize")
+    imports_sqlite = re.compile(r"^\s*(import sqlite3|from sqlite3\b)", re.MULTILINE)
+    offenders = [
+        str(path)
+        for path in package.rglob("*.py")
+        if imports_sqlite.search(path.read_text(encoding="utf-8")) and path.name != "database.py"
+    ]
+    assert offenders == []
 
 
 def test_nested_transactions_are_rejected(tmp_path: Path) -> None:
@@ -150,7 +270,15 @@ def test_no_migration_is_silently_lossy() -> None:
             )
 
 
-def test_production_registry_is_empty_at_format_one() -> None:
-    # v0 ships format 1 for every kind; the seam is proven by the synthetic chain (above) and
-    # by the format-0 load-path test in test_persistence_runs.py.
-    assert ARTIFACT_MIGRATIONS.steps() == ()
+def test_production_registry_holds_exactly_the_run_record_upgrade() -> None:
+    # Pre-M9 E: run records moved to format 2 (input provenance); the ONLY production
+    # migration is that single 1->2 step. Trace events remain format 1.
+    steps = ARTIFACT_MIGRATIONS.steps()
+    assert [(step.kind, step.from_version) for step in steps] == [("run_record", 1)]
+    migrated = steps[0].migrate({"record_format": 1, "ok": True})
+    assert migrated["record_format"] == 2
+    assert migrated["input_provenance"] == {
+        "status": "unknown",
+        "dataset_hash": None,
+        "calendar_hash": None,
+    }

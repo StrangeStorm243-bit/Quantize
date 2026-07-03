@@ -115,10 +115,15 @@ def test_parameter_schemas(type_id: str, params: dict[str, JsonValue], rejected:
 
 
 def test_declared_warmups() -> None:
+    # Convention (STRATEGY_LANGUAGE §2): declared warm-up = sessions required STRICTLY BEFORE
+    # the evaluation session. trailing_return needs L prior closes for its anchor; an MA of
+    # window W has its first full window AT the W-th visible session (W-1 prior); latest needs
+    # only the current session.
     catalog = build_core_catalog()
     ret = catalog.resolve("transform.trailing_return", "1.0.0").implementation
     ma = catalog.resolve("transform.moving_average", "1.0.0").implementation
     latest = catalog.resolve("transform.latest", "1.0.0").implementation
     assert ret is not None and ret.warmup({"lookback_sessions": 126}) == 126
-    assert ma is not None and ma.warmup({"window": 200}) == 200
-    assert latest is not None and latest.warmup({}) == 1
+    assert ma is not None and ma.warmup({"window": 200}) == 199
+    assert ma.warmup({"window": 1}) == 0  # a 1-session MA is computable at the first session
+    assert latest is not None and latest.warmup({}) == 0

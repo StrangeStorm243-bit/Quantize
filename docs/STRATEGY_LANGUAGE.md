@@ -201,7 +201,11 @@ outputs[]            named, typed output ports
 param_schema         typed parameters with defaults & validation
 purity               "pure" | "stateful"      (all v0 nodes are pure)
 supports_incremental bool                     (true required for forward mode)
-warmup               declared warm-up length (sessions); may depend on params
+warmup               declared warm-up: the number of visible sessions the node requires
+                     STRICTLY BEFORE the evaluation session (may depend on params). The engine
+                     evaluates only when visible_sessions > the strategy-wide maximum, so a node
+                     first evaluates at exactly (warmup + 1) visible sessions — the first
+                     session at which its output is mathematically defined, never one later.
 validate(node)       structural/parameter validation hook
 evaluate(ctx, ...)   evaluation behavior at one evaluation instant
 trace_schema         the structured trace events this node emits, each conforming to the
@@ -261,10 +265,15 @@ construction, persistence, retrieval, visualization, and analysis remain in thei
 
 **Transformations**
 - `transform.trailing_return` (`TimeSeries[Number] → CrossSection[Number]`, params:
-  `lookback_sessions`; warm-up = `lookback_sessions`; assets without enough history are excluded)
+  `lookback_sessions`; warm-up = `lookback_sessions` prior sessions — the anchor close lives
+  exactly `lookback_sessions` before the current session; assets without enough history are
+  excluded)
 - `transform.moving_average` (`TimeSeries[Number] → TimeSeries[Number]`, params: `window`; warm-up =
-  `window`)
-- `transform.latest` (`TimeSeries[Number] → CrossSection[Number]`; explicit history→current collapse)
+  `window − 1` prior sessions — a window-`W` MA has its first full window AT the `W`-th visible
+  session. *Corrected 2026-07-03: previously declared `window`, which delayed the first valid
+  evaluation by one session.*)
+- `transform.latest` (`TimeSeries[Number] → CrossSection[Number]`; explicit history→current collapse;
+  warm-up = `0` — needs only the current visible session. *Corrected 2026-07-03: previously `1`.*)
 - `transform.rank` (`CrossSection[Number] → CrossSection[Number]`, params: `descending` (default
   true); **tie-break (ratified founder default — M0 remediation):** after score comparison, equal
   scores are ordered by **ascending canonical ticker**, deterministically; excluded assets are not

@@ -68,9 +68,12 @@ def topological_order(nodes: Sequence[NodeInstance], edges: Sequence[Edge]) -> t
 class WarmupResolution:
     """Declared warm-up per node (by hierarchical node path) and the strategy-wide maximum.
 
-    ``total`` is the number of history sessions the engine (M4) must see before this strategy's
-    first meaningful evaluation. Per-asset warm-up *behavior* (excluding an asset that lacks the
-    observations) is each node's documented missing-data rule, applied at evaluation time.
+    ``total`` is the number of visible sessions required STRICTLY BEFORE the evaluation session
+    (STRATEGY_LANGUAGE §3): the engine (M4) evaluates only when ``visible > total``, so the
+    first evaluation happens at exactly ``total + 1`` visible sessions — the first session at
+    which every node's output is mathematically defined. Per-asset warm-up *behavior* (excluding
+    an asset that lacks the observations) is each node's documented missing-data rule, applied
+    at evaluation time.
     """
 
     by_node: Mapping[tuple[str, ...], int]

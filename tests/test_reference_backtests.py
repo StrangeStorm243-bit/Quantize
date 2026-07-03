@@ -217,7 +217,9 @@ def test_strategy_b_first_evaluation_after_200_session_warmup(
     first = strategy_b_result.evaluations[0].session_date
     calendar = build_market_fixture().calendar
     index = calendar.session_dates.index(first)
-    assert index + 1 > 200  # warm-up gate: visible sessions strictly exceed 200
+    # First MATHEMATICALLY VALID session: the 200-window MA exists exactly when 200 sessions
+    # are visible (declared warm-up 199; gate fires at visible 200 > 199).
+    assert index + 1 == 200
     previous_friday_firings = [
         n.session_date for n in strategy_b_result.notes if n.code == "warmup_not_satisfied"
     ]
@@ -254,7 +256,7 @@ def test_strategy_b_first_rebalance_hand_computed(
     first = strategy_b_result.evaluations[0]
     calendar = market.calendar
     index = calendar.session_dates.index(first.session_date)
-    assert index + 1 > 200  # the 200-session warm-up gate
+    assert index + 1 == 200  # first session where the 200-window MA is computable
 
     assert dict(first.target_weights) == {"AGG": 0.25, "EFA": 0.25, "SPY": 0.25, "VNQ": 0.0}
     assert first.reconciliation.portfolio_value == INITIAL_CASH

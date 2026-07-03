@@ -70,7 +70,9 @@ def _evaluate(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
         )
     # Inputs observed, bounded: per-asset counts + endpoint dates — never the series itself.
     invocation.trace("data.observed", {"v": 1, "per_asset": observed})
-    return {"series": TimeSeriesValue.of(series)}
+    # Histories are verbatim DataView tuples (validated once at dataset construction), so the
+    # trusted constructor skips only the duplicate per-point re-validation (pre-M9 C3).
+    return {"series": TimeSeriesValue.from_view_history(series)}
 
 
 PRICE = NodeImplementation(
