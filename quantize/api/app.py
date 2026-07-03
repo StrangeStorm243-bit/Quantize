@@ -20,7 +20,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from quantize.api.dto.common import ApiError, MetaResponse
 from quantize.api.errors import PAYLOAD_TOO_LARGE, install_error_handlers
-from quantize.api.routes import components, datasets, strategies, validate
+from quantize.api.routes import components, datasets, runs, strategies, validate
 from quantize.api.settings import ApiSettings, get_settings
 from quantize.persistence.database import Database
 from quantize.persistence.records import RECORD_FORMAT, TRACE_FORMAT
@@ -130,4 +130,5 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(strategies.router)
     app.include_router(components.router)
     app.include_router(datasets.router)
+    app.include_router(runs.router)
     return app

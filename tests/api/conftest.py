@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import APIRouter, FastAPI
@@ -21,7 +22,11 @@ from starlette.requests import Request
 from quantize.api.app import create_app
 from quantize.api.errors import INVALID_JSON, ApiRequestError
 from quantize.api.settings import ApiSettings, get_settings
+from quantize.persistence.database import Database
+from quantize.persistence.datasets import DatasetRepository
 from quantize.persistence.errors import PersistenceError
+from tests.helpers import load_fixture
+from tests.market_fixture import build_market_fixture
 
 
 def _test_only_router() -> APIRouter:
@@ -85,3 +90,21 @@ def db(app: FastAPI, tmp_path: Path) -> Iterator[ApiSettings]:
     finally:
         module_default = app.state.settings
         app.dependency_overrides[get_settings] = lambda: module_default
+
+
+@pytest.fixture
+def seeded(client: TestClient, db: ApiSettings) -> SimpleNamespace:
+    """Seed Strategy A (via the API) and the reference market dataset (via the repository, same DB
+    file) so run tests have valid ``strategy_id``/``version``/``dataset_id`` to submit against."""
+    document = load_fixture("strategy_a")
+    saved = client.post(
+        "/v1/strategies",
+        content=json.dumps(document),
+        headers={"content-type": "application/json"},
+    )
+    assert saved.status_code == 201
+    with Database(db.db_path) as database:
+        info, _ = DatasetRepository(database).save(build_market_fixture())
+    return SimpleNamespace(
+        strategy_id=document["strategy"]["id"], version=1, dataset_id=info.dataset_id
+    )
