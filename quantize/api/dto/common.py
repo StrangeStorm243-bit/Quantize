@@ -11,9 +11,17 @@ from pydantic import BaseModel, ConfigDict
 
 
 class _Dto(BaseModel):
-    """Base for every API DTO: frozen, reject unknown fields."""
+    """Base for every API DTO: frozen, reject unknown fields, and STRICT + finite.
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    Strict parsing makes request-body validation match the governed JSON Schema: a numeric string,
+    a boolean-as-number, or a numeric epoch date/datetime — all accepted by pydantic's default
+    coercion but rejected by ``schema/quantize-api.schema.json`` — now fail with the route's 422.
+    (Strict still accepts JSON integers for ``number`` fields and ISO strings for date/datetime,
+    which the schema also accepts.) ``allow_inf_nan=False`` rejects non-finite numbers, which
+    ``type: number`` implies.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True, allow_inf_nan=False)
 
 
 class ApiError(_Dto):

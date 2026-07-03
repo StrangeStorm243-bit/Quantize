@@ -17,9 +17,10 @@ import pytest
 from quantize.market.calendar import ExchangeCalendar, MarketSession
 from quantize.market.data import MarketDataSet, PriceObservation
 from quantize.persistence.database import Database
-from quantize.persistence.datasets import DatasetRepository
+from quantize.persistence.datasets import DatasetRepository, _canonical_payload
 from quantize.persistence.errors import ARTIFACT_NOT_FOUND, CORRUPT_ARTIFACT, PersistenceError
 from quantize.persistence.provenance import calendar_fingerprint, dataset_fingerprint
+from quantize.persistence.serialize import canonical_json_bytes
 
 _DAY = date(2026, 1, 5)
 _OPEN = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)
@@ -186,4 +187,36 @@ def test_corrupt_row_is_corrupt_artifact(tmp_path: Path) -> None:
             )
         with pytest.raises(PersistenceError) as caught:
             repo.load(info.dataset_id)
+        assert caught.value.code == CORRUPT_ARTIFACT
+
+
+def test_valid_payload_tamper_under_same_id_is_corrupt(tmp_path: Path) -> None:
+    """A fully valid but DIFFERENT payload forced under the original content address must fail the
+    content-hash check — never load as different market data under the stable id."""
+    db, repo = _repo(tmp_path)
+    with db:
+        info, _ = repo.save(_dataset())
+        tampered = canonical_json_bytes(_canonical_payload(_dataset(close_price=99.0))).decode()
+        with db.transaction() as connection:
+            connection.execute(
+                "UPDATE datasets SET payload = ? WHERE dataset_id = ?", (tampered, info.dataset_id)
+            )
+        with pytest.raises(PersistenceError) as caught:
+            repo.load(info.dataset_id)
+        assert caught.value.code == CORRUPT_ARTIFACT
+
+
+def test_describe_detects_tampered_fingerprint_column(tmp_path: Path) -> None:
+    """A forged row whose payload still matches the id but whose derived fingerprint column was
+    separately tampered is corrupt (describe cross-checks the columns against the payload)."""
+    db, repo = _repo(tmp_path)
+    with db:
+        info, _ = repo.save(_dataset())
+        with db.transaction() as connection:
+            connection.execute(
+                "UPDATE datasets SET dataset_fingerprint = ? WHERE dataset_id = ?",
+                ("f" * 64, info.dataset_id),
+            )
+        with pytest.raises(PersistenceError) as caught:
+            repo.describe(info.dataset_id)
         assert caught.value.code == CORRUPT_ARTIFACT

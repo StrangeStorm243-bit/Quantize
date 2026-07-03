@@ -172,11 +172,23 @@ class DatasetRepository:
                 {"dataset_id": dataset_id},
             )
         dataset_fp, calendar_fp, payload_text = rows[0]
+        # _decode re-hashes the payload against the content address, so the reconstructed
+        # MarketDataSet is authentic; its recomputed fingerprints are authoritative. Cross-check
+        # the derived row columns against them — a forged row (payload matches id but columns were
+        # separately tampered) is corrupt, and the response reports the recomputed truth.
         market_data = _market_from_payload(self._decode(payload_text, dataset_id), dataset_id)
+        recomputed_dataset = dataset_fingerprint(market_data)
+        recomputed_calendar = calendar_fingerprint(market_data.calendar)
+        if str(dataset_fp) != recomputed_dataset or str(calendar_fp) != recomputed_calendar:
+            raise PersistenceError(
+                CORRUPT_ARTIFACT,
+                f"stored dataset {dataset_id} fingerprint columns do not match its payload",
+                {"dataset_id": dataset_id},
+            )
         return StoredDatasetInfo(
             dataset_id=dataset_id,
-            dataset_fingerprint=str(dataset_fp),
-            calendar_fingerprint=str(calendar_fp),
+            dataset_fingerprint=recomputed_dataset,
+            calendar_fingerprint=recomputed_calendar,
             sessions=len(market_data.calendar.sessions),
             assets=len(market_data.observations),
         )
@@ -195,6 +207,15 @@ class DatasetRepository:
         if not isinstance(raw, str):
             raise PersistenceError(
                 CORRUPT_ARTIFACT, "stored dataset payload is not text", {"dataset_id": dataset_id}
+            )
+        # Content-addressed identity: the id IS the SHA-256 of the stored payload bytes, so a
+        # valid-but-tampered payload (same id, changed prices) must fail here — never load as a
+        # different dataset under the old address (parallels StrategyRepository's hash check).
+        if content_hash(raw.encode("utf-8")) != dataset_id:
+            raise PersistenceError(
+                CORRUPT_ARTIFACT,
+                f"stored dataset {dataset_id} bytes do not match their content address",
+                {"dataset_id": dataset_id},
             )
         try:
             decoded = strict_json_loads(raw)

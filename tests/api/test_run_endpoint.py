@@ -89,6 +89,17 @@ def test_negative_initial_cash_is_422(client: TestClient, seeded: SimpleNamespac
     assert response.status_code == 422
 
 
+def test_initial_cash_as_string_is_422(client: TestClient, seeded: SimpleNamespace) -> None:
+    """Strict DTO: a numeric string is off-contract (schema: type number) → 422, not coerced."""
+    body = _backtest_body(seeded, initial_cash="1000.0")
+    assert _post(client, "/v1/runs/backtest", body).status_code == 422
+
+
+def test_initial_position_boolean_is_422(client: TestClient, seeded: SimpleNamespace) -> None:
+    body = _backtest_body(seeded, initial_positions={"SPY": True})
+    assert _post(client, "/v1/runs/backtest", body).status_code == 422
+
+
 def test_ok_false_run_still_persists_201(client: TestClient, seeded: SimpleNamespace) -> None:
     """A strategy that saves (structurally valid, unknown future type_id — the extensible seam)
     but fails run-time preflight produces ok:false. That is a run FACT, not an HTTP error: it

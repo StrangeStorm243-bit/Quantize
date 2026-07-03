@@ -123,3 +123,31 @@ def test_endpoint_observation_change_flips_dataset_id(client: TestClient, db: Ap
     assert changed["dataset_id"] != base["dataset_id"]
     assert changed["dataset_fingerprint"] != base["dataset_fingerprint"]
     assert changed["calendar_fingerprint"] == base["calendar_fingerprint"]
+
+
+# --- strict validation: reject inputs the governed schema rejects -----------------------------
+
+
+def test_numeric_string_price_is_422(client: TestClient, db: ApiSettings) -> None:
+    payload = _upload_payload()
+    payload["observations"]["AAA"][0]["open_price"] = "10.0"  # schema: type number
+    assert _post(client, payload).status_code == 422
+
+
+def test_boolean_price_is_422(client: TestClient, db: ApiSettings) -> None:
+    payload = _upload_payload()
+    payload["observations"]["AAA"][0]["close_price"] = True  # bool is not a JSON number
+    assert _post(client, payload).status_code == 422
+
+
+def test_epoch_numeric_date_is_422(client: TestClient, db: ApiSettings) -> None:
+    payload = _upload_payload()
+    payload["observations"]["AAA"][0]["session_date"] = 123456  # schema: date string
+    assert _post(client, payload).status_code == 422
+
+
+def test_non_finite_price_is_422(client: TestClient, db: ApiSettings) -> None:
+    """A non-finite JSON number (Infinity) is rejected (allow_inf_nan=False)."""
+    raw = json.dumps(_upload_payload()).replace('"open_price": 10.0', '"open_price": Infinity')
+    response = client.post("/v1/datasets", content=raw, headers=_JSON)
+    assert response.status_code == 422
