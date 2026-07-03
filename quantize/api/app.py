@@ -20,6 +20,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from quantize.api.dto.common import ApiError, MetaResponse
 from quantize.api.errors import PAYLOAD_TOO_LARGE, install_error_handlers
+from quantize.api.routes import components, strategies
 from quantize.api.settings import ApiSettings, get_settings
 from quantize.persistence.database import Database
 from quantize.persistence.records import RECORD_FORMAT, TRACE_FORMAT
@@ -125,4 +126,6 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.add_middleware(_BodySizeLimitMiddleware, max_body_bytes=resolved.max_body_bytes)
     install_error_handlers(app)
     app.include_router(v1)
+    app.include_router(strategies.router)
+    app.include_router(components.router)
     return app
