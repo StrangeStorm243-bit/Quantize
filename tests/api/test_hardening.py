@@ -74,6 +74,7 @@ def test_exposed_endpoints_match_the_contract() -> None:
         "/v1/strategies/validate",
         "/v1/strategies/{strategy_id}/versions",
         "/v1/strategies/{strategy_id}/versions/{version}",
+        "/v1/node-types",
         "/v1/components",
         "/v1/components/{component_id}/versions/{version}",
         "/v1/datasets",
