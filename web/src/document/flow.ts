@@ -6,11 +6,24 @@
 // M10 catalog and is added in M11.4; `toFlow` already accepts an optional `catalog` so that
 // enrichment lands WITHOUT a signature change.
 import type { Edge as FlowEdge, Node as FlowNode } from '@xyflow/react'
+import type {
+  CatalogInputPortDto,
+  CatalogOutputPortDto,
+  NodeCatalogResponse,
+} from '@quantize/quantize-api'
 import type { JsonValue, StrategyDocument } from '@quantize/quantize-ir'
 
-/** The data an IR node contributes to its React Flow node. Enriched from the catalog in M11.4. */
+/**
+ * The data an IR node contributes to its React Flow node. `typeId` is ALWAYS present. When `toFlow`
+ * is given the catalog, it also carries the human `displayName` and the typed `inputs`/`outputs` for
+ * that node type (verbatim generated DTOs — no re-declared shape); WITHOUT a catalog only `typeId` is
+ * present, exactly as in M11.3. The custom canvas node reads these to render its ports and handles.
+ */
 export type FlowNodeData = {
   typeId: string
+  displayName?: string
+  inputs?: CatalogInputPortDto[]
+  outputs?: CatalogOutputPortDto[]
 }
 
 /** A React Flow node whose `data` carries the mapped IR fields. */
@@ -49,13 +62,30 @@ function gridPosition(index: number): { x: number; y: number } {
  */
 export function toFlow(
   doc: StrategyDocument,
-  _catalog?: unknown,
+  catalog?: NodeCatalogResponse,
 ): { nodes: StrategyFlowNode[]; edges: FlowEdge[] } {
-  const nodes: StrategyFlowNode[] = doc.nodes.map((node, index) => ({
-    id: node.id,
-    position: readPosition(node.ui) ?? gridPosition(index),
-    data: { typeId: node.type_id },
-  }))
+  // Index node types by id ONCE (when a catalog is provided) so the enrichment is O(nodes).
+  const byType =
+    catalog === undefined
+      ? undefined
+      : new Map(catalog.node_types.map((nt) => [nt.type_id, nt]))
+
+  const nodes: StrategyFlowNode[] = doc.nodes.map((node, index) => {
+    const data: FlowNodeData = { typeId: node.type_id }
+    const nodeType = byType?.get(node.type_id)
+    if (nodeType !== undefined) {
+      // Only add the enriched keys when the type resolves — an unknown/future type keeps the bare
+      // `{typeId}` shape (backward-compatible with M11.3 and with the extensible-block seam).
+      data.displayName = nodeType.display_name
+      data.inputs = nodeType.inputs
+      data.outputs = nodeType.outputs
+    }
+    return {
+      id: node.id,
+      position: readPosition(node.ui) ?? gridPosition(index),
+      data,
+    }
+  })
 
   const edges: FlowEdge[] = doc.edges.map((edge, index) => {
     const [source, sourceHandle] = edge.from

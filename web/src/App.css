@@ -1,0 +1,222 @@
+/* Editor shell layout (M11.4). Plain CSS, no UI framework. A fixed header, a three-column body
+   (palette | canvas | inspector), and a bottom panel. The canvas region must have an explicit height
+   for React Flow to render, so the whole shell is a full-viewport grid. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: #1f2430;
+  background: #f5f6f8;
+}
+
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: #1f2430;
+  color: #fff;
+}
+
+.app-header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.app-header__name {
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.app-body {
+  display: grid;
+  grid-template-columns: 220px 1fr 260px;
+  min-height: 0; /* allow the center canvas to shrink and scroll rather than overflow */
+}
+
+.app-region {
+  min-height: 0;
+  overflow: auto;
+}
+
+.app-region--left {
+  border-right: 1px solid #d8dbe0;
+  background: #fbfbfc;
+}
+
+.app-region--center {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+
+.app-region--right {
+  border-left: 1px solid #d8dbe0;
+  background: #fbfbfc;
+}
+
+.app-region--bottom {
+  border-top: 1px solid #d8dbe0;
+  background: #fbfbfc;
+  max-height: 160px;
+}
+
+.placeholder {
+  padding: 1rem;
+  color: #8a909c;
+  font-size: 0.85rem;
+}
+
+/* --- Palette ---------------------------------------------------------------------------------- */
+
+.palette {
+  padding: 0.5rem;
+}
+
+.palette--status,
+.palette--error {
+  color: #8a909c;
+  font-size: 0.85rem;
+}
+
+.palette--error {
+  color: #b4232a;
+}
+
+.palette-group {
+  margin-bottom: 0.75rem;
+}
+
+.palette-group__title {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8a909c;
+}
+
+.palette-item {
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.25rem;
+  border: 1px solid #d8dbe0;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 0.85rem;
+  cursor: grab;
+  user-select: none;
+}
+
+.palette-item:hover {
+  border-color: #4a6cf7;
+  background: #f0f4ff;
+}
+
+/* --- Canvas ----------------------------------------------------------------------------------- */
+
+.canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.canvas--status,
+.canvas--error {
+  padding: 1rem;
+  color: #8a909c;
+  font-size: 0.85rem;
+}
+
+.canvas--error {
+  color: #b4232a;
+}
+
+.canvas__banner {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  background: #fdecec;
+  border: 1px solid #e6a2a4;
+  color: #8f1d22;
+  font-size: 0.82rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.canvas__banner-dismiss {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* --- Custom node ------------------------------------------------------------------------------ */
+
+.snode {
+  min-width: 150px;
+  border: 1px solid #b7bdc7;
+  border-radius: 7px;
+  background: #fff;
+  font-size: 0.8rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.snode__title {
+  padding: 0.35rem 0.5rem;
+  font-weight: 600;
+  border-bottom: 1px solid #e4e7ec;
+  background: #f0f4ff;
+  border-radius: 7px 7px 0 0;
+}
+
+.snode__body {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.snode__col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.snode__col--out {
+  text-align: right;
+}
+
+.snode__port {
+  position: relative;
+}
+
+.snode__portlabel {
+  color: #4a4f5a;
+}
+
+.snode__req {
+  color: #b4232a;
+  font-weight: 700;
+}
