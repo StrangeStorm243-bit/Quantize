@@ -15,6 +15,14 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 
+from quantize.api.dto.catalog import (
+    CatalogInputPortDto,
+    CatalogOutputPortDto,
+    CompatibilityPairDto,
+    NodeCatalogResponse,
+    NodeTypeDto,
+    PortTypeEntryDto,
+)
 from quantize.api.dto.common import ApiError, MetaResponse
 from quantize.api.dto.datasets import (
     CalendarDto,
@@ -57,6 +65,7 @@ from quantize.codegen.schema import (
 )
 from quantize.persistence.provenance import RunInputProvenance
 from quantize.persistence.records import PersistedRunRecord
+from quantize.schema.types import AssetSetType, ScalarType
 from quantize.tracing.events import TraceEvent
 
 
@@ -232,6 +241,58 @@ _SAMPLES: dict[str, Any] = {
     ),
     "RunRecordResponse": RunRecordResponse(record=_RECORD, replay_verifiable=True),
     "TraceResponse": TraceResponse(events=(_TRACE_EVENT,)),
+    "NodeCatalogResponse": NodeCatalogResponse(
+        api_version="v1",
+        schema_version="0.1.0",
+        catalog_digest="0" * 64,
+        port_types=(
+            PortTypeEntryDto(port_type=AssetSetType(kind="AssetSet"), label="AssetSet"),
+            PortTypeEntryDto(
+                port_type=ScalarType(kind="Scalar", dtype="Number"), label="Scalar[Number]"
+            ),
+        ),
+        compatibility=(
+            CompatibilityPairDto(
+                source=AssetSetType(kind="AssetSet"),
+                destination=AssetSetType(kind="AssetSet"),
+            ),
+        ),
+        node_types=(
+            NodeTypeDto(
+                type_id="transform.rank",
+                type_version="1.0.0",
+                display_name="Rank",
+                description="Rank a cross-section.",
+                inputs=(
+                    CatalogInputPortDto(
+                        name="values",
+                        port_type=ScalarType(kind="Scalar", dtype="Number"),
+                        required=True,
+                    ),
+                ),
+                outputs=(
+                    CatalogOutputPortDto(
+                        name="ranked",
+                        port_type=ScalarType(kind="Scalar", dtype="Number"),
+                    ),
+                ),
+                parameter_schema={
+                    "type": "object",
+                    "properties": {"descending": {"type": "boolean", "default": True}},
+                    "additionalProperties": False,
+                },
+            ),
+            NodeTypeDto(
+                type_id="transform.passthrough",
+                type_version="1.0.0",
+                display_name="Passthrough",
+                description="No parameters.",
+                inputs=(),
+                outputs=(),
+                parameter_schema=None,
+            ),
+        ),
+    ),
 }
 
 
@@ -255,7 +316,14 @@ def test_loc_accepts_mixed_string_and_int_array(api_schema: dict[str, Any]) -> N
 
 
 def test_dtos_forbid_unknown_fields(api_schema: dict[str, Any]) -> None:
-    for name in ("ApiError", "MetaResponse", "BacktestRunRequest", "DatasetUpload"):
+    for name in (
+        "ApiError",
+        "MetaResponse",
+        "BacktestRunRequest",
+        "DatasetUpload",
+        "NodeCatalogResponse",
+        "NodeTypeDto",
+    ):
         assert api_schema["$defs"][name]["additionalProperties"] is False
 
 
@@ -270,7 +338,14 @@ def test_forward_request_requires_last_session(api_schema: dict[str, Any]) -> No
 
 
 def test_ts_exports_core_interfaces(api_ts: str) -> None:
-    for interface in ("ApiError", "MetaResponse", "ValidateResponse", "RunRecordResponse"):
+    for interface in (
+        "ApiError",
+        "MetaResponse",
+        "ValidateResponse",
+        "RunRecordResponse",
+        "NodeCatalogResponse",
+        "NodeTypeDto",
+    ):
         assert f"export interface {interface}" in api_ts
 
 

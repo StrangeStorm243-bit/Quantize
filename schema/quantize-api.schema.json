@@ -18,6 +18,20 @@
       "title": "ApiError",
       "type": "object"
     },
+    "AssetSetType": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "AssetSet",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "AssetSetType",
+      "type": "object"
+    },
     "BacktestRunRequest": {
       "additionalProperties": false,
       "description": "A backtest submission. ``last_session`` is optional (defaults to the dataset's last).",
@@ -98,6 +112,168 @@
       "title": "CalendarDto",
       "type": "object"
     },
+    "CatalogInputPortDto": {
+      "additionalProperties": false,
+      "description": "One declared input port of a node type.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "port_type": {
+          "discriminator": {
+            "mapping": {
+              "AssetSet": "#/$defs/AssetSetType",
+              "CrossSection": "#/$defs/CrossSectionType",
+              "PortfolioTargets": "#/$defs/PortfolioTargetsType",
+              "Scalar": "#/$defs/ScalarType",
+              "TimeSeries": "#/$defs/TimeSeriesType"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScalarType"
+            },
+            {
+              "$ref": "#/$defs/AssetSetType"
+            },
+            {
+              "$ref": "#/$defs/CrossSectionType"
+            },
+            {
+              "$ref": "#/$defs/TimeSeriesType"
+            },
+            {
+              "$ref": "#/$defs/PortfolioTargetsType"
+            }
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "port_type",
+        "required"
+      ],
+      "title": "CatalogInputPortDto",
+      "type": "object"
+    },
+    "CatalogOutputPortDto": {
+      "additionalProperties": false,
+      "description": "One declared output port of a node type.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "port_type": {
+          "discriminator": {
+            "mapping": {
+              "AssetSet": "#/$defs/AssetSetType",
+              "CrossSection": "#/$defs/CrossSectionType",
+              "PortfolioTargets": "#/$defs/PortfolioTargetsType",
+              "Scalar": "#/$defs/ScalarType",
+              "TimeSeries": "#/$defs/TimeSeriesType"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScalarType"
+            },
+            {
+              "$ref": "#/$defs/AssetSetType"
+            },
+            {
+              "$ref": "#/$defs/CrossSectionType"
+            },
+            {
+              "$ref": "#/$defs/TimeSeriesType"
+            },
+            {
+              "$ref": "#/$defs/PortfolioTargetsType"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "port_type"
+      ],
+      "title": "CatalogOutputPortDto",
+      "type": "object"
+    },
+    "CompatibilityPairDto": {
+      "additionalProperties": false,
+      "description": "One allowed ``(source -> destination)`` edge over the port-type lattice.",
+      "properties": {
+        "destination": {
+          "discriminator": {
+            "mapping": {
+              "AssetSet": "#/$defs/AssetSetType",
+              "CrossSection": "#/$defs/CrossSectionType",
+              "PortfolioTargets": "#/$defs/PortfolioTargetsType",
+              "Scalar": "#/$defs/ScalarType",
+              "TimeSeries": "#/$defs/TimeSeriesType"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScalarType"
+            },
+            {
+              "$ref": "#/$defs/AssetSetType"
+            },
+            {
+              "$ref": "#/$defs/CrossSectionType"
+            },
+            {
+              "$ref": "#/$defs/TimeSeriesType"
+            },
+            {
+              "$ref": "#/$defs/PortfolioTargetsType"
+            }
+          ]
+        },
+        "source": {
+          "discriminator": {
+            "mapping": {
+              "AssetSet": "#/$defs/AssetSetType",
+              "CrossSection": "#/$defs/CrossSectionType",
+              "PortfolioTargets": "#/$defs/PortfolioTargetsType",
+              "Scalar": "#/$defs/ScalarType",
+              "TimeSeries": "#/$defs/TimeSeriesType"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScalarType"
+            },
+            {
+              "$ref": "#/$defs/AssetSetType"
+            },
+            {
+              "$ref": "#/$defs/CrossSectionType"
+            },
+            {
+              "$ref": "#/$defs/TimeSeriesType"
+            },
+            {
+              "$ref": "#/$defs/PortfolioTargetsType"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "destination"
+      ],
+      "title": "CompatibilityPairDto",
+      "type": "object"
+    },
     "ComponentList": {
       "additionalProperties": false,
       "properties": {
@@ -160,6 +336,28 @@
         "version"
       ],
       "title": "ComponentSaved",
+      "type": "object"
+    },
+    "CrossSectionType": {
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "enum": [
+            "Number",
+            "Boolean"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "CrossSection",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "dtype"
+      ],
+      "title": "CrossSectionType",
       "type": "object"
     },
     "DatasetStored": {
@@ -322,6 +520,103 @@
         "trace_format"
       ],
       "title": "MetaResponse",
+      "type": "object"
+    },
+    "NodeCatalogResponse": {
+      "additionalProperties": false,
+      "description": "The full node-catalog projection: versions, a content digest, the lattice, the compatible\nedges, and every registered node type.",
+      "properties": {
+        "api_version": {
+          "type": "string"
+        },
+        "catalog_digest": {
+          "type": "string"
+        },
+        "compatibility": {
+          "items": {
+            "$ref": "#/$defs/CompatibilityPairDto"
+          },
+          "type": "array"
+        },
+        "node_types": {
+          "items": {
+            "$ref": "#/$defs/NodeTypeDto"
+          },
+          "type": "array"
+        },
+        "port_types": {
+          "items": {
+            "$ref": "#/$defs/PortTypeEntryDto"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_version",
+        "schema_version",
+        "catalog_digest",
+        "port_types",
+        "compatibility",
+        "node_types"
+      ],
+      "title": "NodeCatalogResponse",
+      "type": "object"
+    },
+    "NodeTypeDto": {
+      "additionalProperties": false,
+      "description": "One registered node type: identity, typed ports, and its parameter JSON Schema (if any).",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/CatalogInputPortDto"
+          },
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/CatalogOutputPortDto"
+          },
+          "type": "array"
+        },
+        "parameter_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type_id": {
+          "type": "string"
+        },
+        "type_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type_id",
+        "type_version",
+        "display_name",
+        "description",
+        "inputs",
+        "outputs",
+        "parameter_schema"
+      ],
+      "title": "NodeTypeDto",
       "type": "object"
     },
     "ObservationDto": {
@@ -818,6 +1113,64 @@
       "title": "PersistedStaleMark",
       "type": "object"
     },
+    "PortTypeEntryDto": {
+      "additionalProperties": false,
+      "description": "One lattice member paired with its compact human ``label`` (e.g. ``\"Scalar[Number]\"``).",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "port_type": {
+          "discriminator": {
+            "mapping": {
+              "AssetSet": "#/$defs/AssetSetType",
+              "CrossSection": "#/$defs/CrossSectionType",
+              "PortfolioTargets": "#/$defs/PortfolioTargetsType",
+              "Scalar": "#/$defs/ScalarType",
+              "TimeSeries": "#/$defs/TimeSeriesType"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScalarType"
+            },
+            {
+              "$ref": "#/$defs/AssetSetType"
+            },
+            {
+              "$ref": "#/$defs/CrossSectionType"
+            },
+            {
+              "$ref": "#/$defs/TimeSeriesType"
+            },
+            {
+              "$ref": "#/$defs/PortfolioTargetsType"
+            }
+          ]
+        }
+      },
+      "required": [
+        "port_type",
+        "label"
+      ],
+      "title": "PortTypeEntryDto",
+      "type": "object"
+    },
+    "PortfolioTargetsType": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "PortfolioTargets",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "PortfolioTargetsType",
+      "type": "object"
+    },
     "RunCreated": {
       "additionalProperties": false,
       "description": "Acknowledgement of a submitted (and synchronously executed + persisted) run.",
@@ -1002,6 +1355,29 @@
       "title": "RuntimeDiagnosticDto",
       "type": "object"
     },
+    "ScalarType": {
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "enum": [
+            "Number",
+            "Integer",
+            "Boolean"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "Scalar",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "dtype"
+      ],
+      "title": "ScalarType",
+      "type": "object"
+    },
     "SemanticDiagnosticDto": {
       "additionalProperties": false,
       "description": "One semantic (M2) fault. Same shape as the structural DTO; kept a distinct type.",
@@ -1177,6 +1553,25 @@
       "title": "StructuralDiagnosticDto",
       "type": "object"
     },
+    "TimeSeriesType": {
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "const": "Number",
+          "type": "string"
+        },
+        "kind": {
+          "const": "TimeSeries",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "dtype"
+      ],
+      "title": "TimeSeriesType",
+      "type": "object"
+    },
     "TraceEvent": {
       "additionalProperties": false,
       "description": "One structured decision-trace event (envelope only; ``payload`` shape is per-node).",
@@ -1313,11 +1708,23 @@
     "ApiError": {
       "$ref": "#/$defs/ApiError"
     },
+    "AssetSetType": {
+      "$ref": "#/$defs/AssetSetType"
+    },
     "BacktestRunRequest": {
       "$ref": "#/$defs/BacktestRunRequest"
     },
     "CalendarDto": {
       "$ref": "#/$defs/CalendarDto"
+    },
+    "CatalogInputPortDto": {
+      "$ref": "#/$defs/CatalogInputPortDto"
+    },
+    "CatalogOutputPortDto": {
+      "$ref": "#/$defs/CatalogOutputPortDto"
+    },
+    "CompatibilityPairDto": {
+      "$ref": "#/$defs/CompatibilityPairDto"
     },
     "ComponentList": {
       "$ref": "#/$defs/ComponentList"
@@ -1327,6 +1734,9 @@
     },
     "ComponentSaved": {
       "$ref": "#/$defs/ComponentSaved"
+    },
+    "CrossSectionType": {
+      "$ref": "#/$defs/CrossSectionType"
     },
     "DatasetStored": {
       "$ref": "#/$defs/DatasetStored"
@@ -1342,6 +1752,12 @@
     },
     "MetaResponse": {
       "$ref": "#/$defs/MetaResponse"
+    },
+    "NodeCatalogResponse": {
+      "$ref": "#/$defs/NodeCatalogResponse"
+    },
+    "NodeTypeDto": {
+      "$ref": "#/$defs/NodeTypeDto"
     },
     "ObservationDto": {
       "$ref": "#/$defs/ObservationDto"
@@ -1370,6 +1786,12 @@
     "PersistedStaleMark": {
       "$ref": "#/$defs/PersistedStaleMark"
     },
+    "PortTypeEntryDto": {
+      "$ref": "#/$defs/PortTypeEntryDto"
+    },
+    "PortfolioTargetsType": {
+      "$ref": "#/$defs/PortfolioTargetsType"
+    },
     "RunCreated": {
       "$ref": "#/$defs/RunCreated"
     },
@@ -1388,6 +1810,9 @@
     "RuntimeDiagnosticDto": {
       "$ref": "#/$defs/RuntimeDiagnosticDto"
     },
+    "ScalarType": {
+      "$ref": "#/$defs/ScalarType"
+    },
     "SemanticDiagnosticDto": {
       "$ref": "#/$defs/SemanticDiagnosticDto"
     },
@@ -1405,6 +1830,9 @@
     },
     "StructuralDiagnosticDto": {
       "$ref": "#/$defs/StructuralDiagnosticDto"
+    },
+    "TimeSeriesType": {
+      "$ref": "#/$defs/TimeSeriesType"
     },
     "TraceEvent": {
       "$ref": "#/$defs/TraceEvent"
