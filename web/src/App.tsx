@@ -10,18 +10,39 @@ import { useState } from 'react'
 import type { ReactElement } from 'react'
 import { CatalogProvider } from './catalog'
 import { Canvas } from './components/Canvas'
+import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
 import { Inspector } from './components/Inspector'
 import { Palette } from './components/Palette'
+import { ResultsView } from './components/ResultsView'
+import { RunPanel } from './components/RunPanel'
 import { StrategyPanel } from './components/StrategyPanel'
 import { ValidatePanel } from './components/ValidatePanel'
 import type { HighlightTarget } from './components/ValidatePanel'
 import { newStrategyDocument, useStrategyDocument } from './document/store'
 import './App.css'
 
+// The bottom-panel tabs. The document is the single source of truth; datasets/runs/results are
+// SERVER state fetched via the client — the App only holds the current selections (dataset id, run
+// id) that the panels coordinate over.
+type PanelTab = 'strategies' | 'datasets' | 'runs' | 'results'
+
+// Restore the last-selected dataset id from localStorage (a UX convenience ONLY — the server list is
+// the source of truth; a stale id simply shows as selected until the user picks another).
+function initialDatasetId(): string | undefined {
+  try {
+    return window.localStorage.getItem(LAST_DATASET_KEY) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function App(): ReactElement {
   const [doc, actions] = useStrategyDocument(newStrategyDocument('Untitled'))
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [highlightedEdgeIndex, setHighlightedEdgeIndex] = useState<number | null>(null)
+  const [tab, setTab] = useState<PanelTab>('strategies')
+  const [datasetId, setDatasetId] = useState<string | undefined>(initialDatasetId)
+  const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
 
   // Resolve a structured validate target to a selection / edge highlight — the App owns both. A node
   // index is resolved against the current document to a node id; a runtime target already carries one.
@@ -68,7 +89,37 @@ export function App(): ReactElement {
           </aside>
         </main>
         <footer className="app-region app-region--bottom" aria-label="panel">
-          <StrategyPanel doc={doc} actions={actions} />
+          <nav className="tabbar" aria-label="panel tabs">
+            {(['strategies', 'datasets', 'runs', 'results'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={`tabbar__tab ${tab === t ? 'is-active' : ''}`}
+                aria-pressed={tab === t}
+                onClick={() => setTab(t)}
+              >
+                {t}
+              </button>
+            ))}
+          </nav>
+          <div className="tabpanel">
+            {tab === 'strategies' ? <StrategyPanel doc={doc} actions={actions} /> : null}
+            {tab === 'datasets' ? (
+              <DatasetPanel activeDatasetId={datasetId} onSelectDataset={setDatasetId} />
+            ) : null}
+            {tab === 'runs' ? (
+              <RunPanel
+                doc={doc}
+                datasetId={datasetId}
+                selectedRunId={selectedRunId}
+                onSelectRun={(runId) => {
+                  setSelectedRunId(runId)
+                  setTab('results')
+                }}
+              />
+            ) : null}
+            {tab === 'results' ? <ResultsView runId={selectedRunId} /> : null}
+          </div>
         </footer>
       </div>
     </CatalogProvider>
