@@ -13,6 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from quantize.api.dto.catalog import (
+    CATALOG_IDENTITY_FIELDS,
     CatalogInputPortDto,
     CatalogOutputPortDto,
     CompatibilityPairDto,
@@ -67,16 +68,18 @@ def get_node_types() -> NodeCatalogResponse:
         CompatibilityPairDto(source=source, destination=destination)
         for (source, destination) in compatible_pairs()
     )
-    body: JsonObject = {
-        "compatibility": [pair.model_dump(mode="json", by_alias=True) for pair in compatibility],
-        "node_types": [node.model_dump(mode="json", by_alias=True) for node in node_types],
-        "port_types": [entry.model_dump(mode="json", by_alias=True) for entry in port_types],
-    }
-    return NodeCatalogResponse(
+    # Build the envelope with a placeholder digest, then hash the body EXCLUDING the identity
+    # fields. Excluding (rather than hand-listing the payload keys) means any future payload field
+    # is digest-covered automatically, and matches the recipe a client uses to recompute it.
+    projection = NodeCatalogResponse(
         api_version=API_VERSION,
         schema_version=CURRENT_SCHEMA_VERSION,
-        catalog_digest=catalog_digest(body),
+        catalog_digest="",
         port_types=port_types,
         compatibility=compatibility,
         node_types=node_types,
     )
+    body: JsonObject = projection.model_dump(
+        mode="json", by_alias=True, exclude=set(CATALOG_IDENTITY_FIELDS)
+    )
+    return projection.model_copy(update={"catalog_digest": catalog_digest(body)})

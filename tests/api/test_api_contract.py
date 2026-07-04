@@ -9,6 +9,7 @@ intentional mixed ``loc`` array and asserts this packet left the IR bundle byte-
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -56,7 +57,6 @@ from quantize.api.dto.validate import (
     ValidateResponse,
 )
 from quantize.codegen.schema import (
-    API_SCHEMA_PATH,
     API_TS_PATH,
     SCHEMA_PATH,
     build_bundle,
@@ -70,19 +70,8 @@ from quantize.tracing.events import TraceEvent
 
 
 @pytest.fixture(scope="module")
-def api_schema() -> dict[str, Any]:
-    data: dict[str, Any] = json.loads(API_SCHEMA_PATH.read_text(encoding="utf-8"))
-    return data
-
-
-@pytest.fixture(scope="module")
 def api_ts() -> str:
     return API_TS_PATH.read_text(encoding="utf-8")
-
-
-def _def_validator(api_schema: dict[str, Any], name: str) -> Draft202012Validator:
-    """A validator for one DTO ``$def`` within the committed bundle (shares the bundle's $defs)."""
-    return Draft202012Validator({"$defs": api_schema["$defs"], "$ref": f"#/$defs/{name}"})
 
 
 def _as_json(instance: Any) -> Any:
@@ -297,16 +286,20 @@ _SAMPLES: dict[str, Any] = {
 
 
 @pytest.mark.parametrize("name", sorted(_SAMPLES))
-def test_representative_payload_validates(api_schema: dict[str, Any], name: str) -> None:
+def test_representative_payload_validates(
+    def_validator: Callable[[str], Draft202012Validator], name: str
+) -> None:
     payload = _as_json(_SAMPLES[name])
-    errors = sorted(_def_validator(api_schema, name).iter_errors(payload), key=str)
+    errors = sorted(def_validator(name).iter_errors(payload), key=str)
     assert not errors, "; ".join(e.message for e in errors[:5])
 
 
-def test_loc_accepts_mixed_string_and_int_array(api_schema: dict[str, Any]) -> None:
+def test_loc_accepts_mixed_string_and_int_array(
+    def_validator: Callable[[str], Draft202012Validator],
+) -> None:
     """The ``loc`` contract is intentionally a ``(string | number)[]`` — a purely-string loc and a
     mixed string/int loc both validate."""
-    validator = _def_validator(api_schema, "StructuralDiagnosticDto")
+    validator = def_validator("StructuralDiagnosticDto")
     for loc in (["nodes", "0", "field"], ["edges", 2, "from"], []):
         payload = {"code": "x", "message": "m", "loc": loc}
         assert not list(validator.iter_errors(payload)), loc

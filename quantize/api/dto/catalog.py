@@ -64,3 +64,10 @@ class NodeCatalogResponse(_Dto):
     port_types: tuple[PortTypeEntryDto, ...]
     compatibility: tuple[CompatibilityPairDto, ...]
     node_types: tuple[NodeTypeDto, ...]
+
+
+# The envelope's identity fields — excluded from the content digest so ``catalog_digest`` changes
+# only when the projected CONTENT changes, not when a version label moves. The route hashes every
+# OTHER field; naming the identity set here (not the payload set) means a future payload field is
+# digest-covered automatically, and a client recomputes the digest by excluding exactly these keys.
+CATALOG_IDENTITY_FIELDS = frozenset({"api_version", "schema_version", "catalog_digest"})

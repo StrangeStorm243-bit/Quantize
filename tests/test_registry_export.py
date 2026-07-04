@@ -139,14 +139,16 @@ def _collect_schema_keywords(node: object, acc: set[str]) -> None:
     """Collect JSON-Schema KEYWORDS only — never parameter names.
 
     The keys under a ``"properties"`` object are parameter NAMES (e.g. ``n``, ``max``), so we
-    recurse into their VALUES only; likewise into the ``"items"`` value and each ``"oneOf"``
-    member. A naive all-keys walk would false-positive on a property literally named ``max``.
+    recurse into their VALUES only; likewise into the ``"items"`` value, each ``"oneOf"`` member,
+    and a subschema-valued ``"additionalProperties"``. A naive all-keys walk would false-positive
+    on a property literally named ``max``.
 
-    This walk covers exactly the keyword-bearing locations v0 descriptor schemas use; it does
-    not descend into ``allOf``/``anyOf``/``not``/``patternProperties``/``$defs`` or a
-    subschema-valued ``additionalProperties``. A disallowed keyword nested only in one of those
-    would slip through (false negative), so widen this walk in lockstep if a future descriptor
-    schema uses them.
+    This walk covers the keyword-bearing locations v0 descriptor schemas use. It does not descend
+    into ``allOf``/``anyOf``/``not``/``patternProperties``/``$defs`` — but those self-protect: each
+    of those container keywords is itself outside the allowed set, so its presence fails the guard
+    directly. ``additionalProperties`` is the one allowed keyword that can carry a subschema, so we
+    DO recurse into it (its boolean form is a no-op here). Widen this walk in lockstep if a future
+    descriptor schema introduces another subschema-bearing keyword.
     """
     if not isinstance(node, dict):
         return
@@ -161,6 +163,9 @@ def _collect_schema_keywords(node: object, acc: set[str]) -> None:
     if isinstance(one_of, list):
         for member in one_of:
             _collect_schema_keywords(member, acc)
+    additional = node.get("additionalProperties")
+    if isinstance(additional, dict):
+        _collect_schema_keywords(additional, acc)
 
 
 def test_parameter_schema_keywords_within_supported_subset() -> None:
@@ -172,3 +177,18 @@ def test_parameter_schema_keywords_within_supported_subset() -> None:
     assert collected <= _ALLOWED_SCHEMA_KEYWORDS, (
         f"unsupported schema keywords: {sorted(collected - _ALLOWED_SCHEMA_KEYWORDS)}"
     )
+
+
+def test_keyword_guard_descends_into_subschema_additionalproperties() -> None:
+    # A subschema-valued additionalProperties must not hide keywords from the guard: if the walk
+    # skipped it, a future map-valued parameter could smuggle e.g. "format" onto the wire without
+    # the deliberate reviewed widening. The keyword "format" must be collected (and, being outside
+    # the allowed subset, would then fail the guard above).
+    collected: set[str] = set()
+    schema = {
+        "type": "object",
+        "additionalProperties": {"type": "string", "format": "date"},
+    }
+    _collect_schema_keywords(schema, collected)
+    assert "format" in collected
+    assert not (collected <= _ALLOWED_SCHEMA_KEYWORDS)

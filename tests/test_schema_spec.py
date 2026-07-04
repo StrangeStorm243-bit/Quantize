@@ -65,24 +65,19 @@ def test_document_returns_constructed_schema() -> None:
     assert JsonSchemaSpec(_SCHEMA).document == _SCHEMA
 
 
-def _nested_minimum(document: dict[str, Any]) -> Any:
-    """Read the nested ``properties.n.minimum`` with step-wise narrowing (JsonValue union)."""
+def _n_schema(document: dict[str, Any]) -> dict[str, Any]:
+    """Narrow to the nested ``properties.n`` subschema dict (JsonValue union → dict)."""
     properties = document["properties"]
     assert isinstance(properties, dict)
     n_schema = properties["n"]
     assert isinstance(n_schema, dict)
-    return n_schema["minimum"]
+    return n_schema
 
 
 def test_document_return_is_a_deep_copy() -> None:
     spec = JsonSchemaSpec(_SCHEMA)
-    returned = spec.document
-    properties = returned["properties"]
-    assert isinstance(properties, dict)
-    n_schema = properties["n"]
-    assert isinstance(n_schema, dict)
-    n_schema["minimum"] = 999  # mutate a NESTED value of the returned dict
+    _n_schema(spec.document)["minimum"] = 999  # mutate a NESTED value of a returned dict
     # the held copy is untouched, so validation still uses minimum 1 (n=1 stays valid)
     assert spec.errors({"n": 1}) == ()
     # each read is a fresh deep copy, so a later document read is untouched too
-    assert _nested_minimum(spec.document) == 1
+    assert _n_schema(spec.document)["minimum"] == 1

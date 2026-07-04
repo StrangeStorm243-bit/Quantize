@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any
+from collections.abc import Callable
 
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 
-from quantize.api.dto.catalog import CompatibilityPairDto
-from quantize.codegen.schema import API_SCHEMA_PATH
+from quantize.api.dto.catalog import CATALOG_IDENTITY_FIELDS, CompatibilityPairDto
 from quantize.compatibility import is_compatible
 from quantize.registry.export import PORT_TYPE_LATTICE, catalog_digest
 from quantize.schema.version import CURRENT_SCHEMA_VERSION
@@ -70,19 +68,20 @@ def test_compatibility_equals_is_compatible_enumeration(client: TestClient) -> N
 
 def test_digest_recomputes_and_is_stable(client: TestClient) -> None:
     first = client.get("/v1/node-types")
-    body = {k: first.json()[k] for k in ("compatibility", "node_types", "port_types")}
-    assert catalog_digest(body) == first.json()["catalog_digest"]
+    # Recompute the digest the way a client does: hash the served body EXCLUDING the identity
+    # fields. Keying on the exclusion (not a hardcoded payload-key list) covers future fields.
+    served = first.json()
+    body = {k: v for k, v in served.items() if k not in CATALOG_IDENTITY_FIELDS}
+    assert catalog_digest(body) == served["catalog_digest"]
     second = client.get("/v1/node-types")
     assert first.content == second.content
 
 
-def test_response_validates_against_committed_schema(client: TestClient) -> None:
-    api_schema: dict[str, Any] = json.loads(API_SCHEMA_PATH.read_text(encoding="utf-8"))
-    validator = Draft202012Validator(
-        {"$defs": api_schema["$defs"], "$ref": "#/$defs/NodeCatalogResponse"}
-    )
+def test_response_validates_against_committed_schema(
+    client: TestClient, def_validator: Callable[[str], Draft202012Validator]
+) -> None:
     payload = client.get("/v1/node-types").json()
-    errors = sorted(validator.iter_errors(payload), key=str)
+    errors = sorted(def_validator("NodeCatalogResponse").iter_errors(payload), key=str)
     assert not errors, "; ".join(e.message for e in errors[:5])
 
 
