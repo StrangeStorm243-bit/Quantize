@@ -360,6 +360,48 @@
       "title": "CrossSectionType",
       "type": "object"
     },
+    "DatasetList": {
+      "additionalProperties": false,
+      "properties": {
+        "datasets": {
+          "items": {
+            "$ref": "#/$defs/DatasetListRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "datasets"
+      ],
+      "title": "DatasetList",
+      "type": "object"
+    },
+    "DatasetListRow": {
+      "additionalProperties": false,
+      "description": "One dataset discovery row — mirrors ``persistence.datasets.DatasetSummary``.\n\nStored columns ONLY (identity + both fingerprints + ``saved_at``); deliberately no\n``sessions``/``assets`` counts — those need a per-dataset payload decode (use ``DatasetStored``\nfrom ``GET /v1/datasets/{id}`` when a dataset is selected).",
+      "properties": {
+        "calendar_fingerprint": {
+          "type": "string"
+        },
+        "dataset_fingerprint": {
+          "type": "string"
+        },
+        "dataset_id": {
+          "type": "string"
+        },
+        "saved_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "dataset_fingerprint",
+        "calendar_fingerprint",
+        "saved_at"
+      ],
+      "title": "DatasetListRow",
+      "type": "object"
+    },
     "DatasetStored": {
       "additionalProperties": false,
       "description": "Metadata for a stored dataset — the content-addressed id plus both provenance fingerprints\nand simple counts. NEVER carries the payload (fetch-metadata returns this, not the data).",
@@ -1737,6 +1779,12 @@
     },
     "CrossSectionType": {
       "$ref": "#/$defs/CrossSectionType"
+    },
+    "DatasetList": {
+      "$ref": "#/$defs/DatasetList"
+    },
+    "DatasetListRow": {
+      "$ref": "#/$defs/DatasetListRow"
     },
     "DatasetStored": {
       "$ref": "#/$defs/DatasetStored"

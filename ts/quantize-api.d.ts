@@ -30,6 +30,8 @@ export interface QuantizeApi {
   ComponentListRow?: ComponentListRow;
   ComponentSaved?: ComponentSaved;
   CrossSectionType?: CrossSectionType;
+  DatasetList?: DatasetList;
+  DatasetListRow?: DatasetListRow;
   DatasetStored?: DatasetStored;
   DatasetUpload?: DatasetUpload;
   ForwardRunRequest?: ForwardRunRequest;
@@ -161,6 +163,22 @@ export interface ComponentListRow {
 export interface ComponentSaved {
   component_id: string;
   version: string;
+}
+export interface DatasetList {
+  datasets: DatasetListRow[];
+}
+/**
+ * One dataset discovery row — mirrors ``persistence.datasets.DatasetSummary``.
+ *
+ * Stored columns ONLY (identity + both fingerprints + ``saved_at``); deliberately no
+ * ``sessions``/``assets`` counts — those need a per-dataset payload decode (use ``DatasetStored``
+ * from ``GET /v1/datasets/{id}`` when a dataset is selected).
+ */
+export interface DatasetListRow {
+  calendar_fingerprint: string;
+  dataset_fingerprint: string;
+  dataset_id: string;
+  saved_at: string;
 }
 /**
  * Metadata for a stored dataset — the content-addressed id plus both provenance fingerprints

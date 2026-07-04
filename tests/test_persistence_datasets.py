@@ -17,7 +17,7 @@ import pytest
 from quantize.market.calendar import ExchangeCalendar, MarketSession
 from quantize.market.data import MarketDataSet, PriceObservation
 from quantize.persistence.database import Database
-from quantize.persistence.datasets import DatasetRepository, _canonical_payload
+from quantize.persistence.datasets import DatasetRepository, DatasetSummary, _canonical_payload
 from quantize.persistence.errors import ARTIFACT_NOT_FOUND, CORRUPT_ARTIFACT, PersistenceError
 from quantize.persistence.provenance import calendar_fingerprint, dataset_fingerprint
 from quantize.persistence.serialize import canonical_json_bytes
@@ -129,6 +129,64 @@ def test_describe_returns_metadata_without_payload(tmp_path: Path) -> None:
         info, _ = repo.save(_dataset())
         described = repo.describe(info.dataset_id)
         assert described == info
+
+
+# --- list (discovery across sessions) ---------------------------------------------------------
+
+
+def test_list_datasets_empty_is_empty_tuple(tmp_path: Path) -> None:
+    db, repo = _repo(tmp_path)
+    with db:
+        assert repo.list_datasets() == ()
+
+
+def test_list_datasets_returns_stored_summaries(tmp_path: Path) -> None:
+    """Two distinct datasets both appear as summaries carrying the stored identity columns —
+    a pure column read, no payload decode (fields match what save() reports)."""
+    db, repo = _repo(tmp_path)
+    with db:
+        base, _ = repo.save(_dataset())
+        # A calendar-only perturbation → a different dataset_id (distinct row).
+        other, _ = repo.save(_dataset(timezone="UTC+00:00"))
+        summaries = repo.list_datasets()
+        assert all(isinstance(s, DatasetSummary) for s in summaries)
+        by_id = {s.dataset_id: s for s in summaries}
+        assert set(by_id) == {base.dataset_id, other.dataset_id}
+        for info in (base, other):
+            row = by_id[info.dataset_id]
+            assert row.dataset_fingerprint == info.dataset_fingerprint
+            assert row.calendar_fingerprint == info.calendar_fingerprint
+            assert isinstance(row.saved_at, str) and row.saved_at
+
+
+def test_list_datasets_orders_by_saved_at_descending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The newest ``saved_at`` comes first, regardless of insert order. Control the timestamps so
+    the SECOND-saved dataset is OLDER — the output must still lead with the newer (first-saved) one,
+    proving the DESC primary sort (not insertion order)."""
+    stamps = iter(["2026-01-02T00:00:00+00:00", "2026-01-01T00:00:00+00:00"])
+    monkeypatch.setattr("quantize.persistence.datasets._now", lambda: next(stamps))
+    db, repo = _repo(tmp_path)
+    with db:
+        newer, _ = repo.save(_dataset())  # saved_at = Jan 2
+        older, _ = repo.save(_dataset(timezone="UTC+00:00"))  # saved_at = Jan 1
+        ids = [s.dataset_id for s in repo.list_datasets()]
+        assert ids == [newer.dataset_id, older.dataset_id]
+
+
+def test_list_datasets_tiebreaks_on_dataset_id_ascending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On a ``saved_at`` TIE, order is ``dataset_id`` ascending. Force an identical timestamp for
+    both saves so the tiebreaker alone determines order, asserted against a known order."""
+    monkeypatch.setattr("quantize.persistence.datasets._now", lambda: "2026-01-01T00:00:00+00:00")
+    db, repo = _repo(tmp_path)
+    with db:
+        a, _ = repo.save(_dataset())
+        b, _ = repo.save(_dataset(timezone="UTC+00:00"))
+        ids = [s.dataset_id for s in repo.list_datasets()]
+        assert ids == sorted([a.dataset_id, b.dataset_id])
 
 
 # --- identity sensitivity battery -------------------------------------------------------------

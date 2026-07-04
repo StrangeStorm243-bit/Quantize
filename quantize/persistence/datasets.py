@@ -41,6 +41,21 @@ class StoredDatasetInfo:
     assets: int
 
 
+@dataclass(frozen=True)
+class DatasetSummary:
+    """One dataset discovery row — the stored identity columns plus ``saved_at``, NO payload decode.
+
+    Deliberately omits the ``sessions``/``assets`` counts that ``StoredDatasetInfo`` carries: those
+    require reconstructing each ``MarketDataSet`` from its payload, which a discovery list must not
+    do. Counts are available per dataset via ``describe`` when one is selected.
+    """
+
+    dataset_id: str
+    dataset_fingerprint: str
+    calendar_fingerprint: str
+    saved_at: str
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()  # row metadata only — never part of dataset identity
 
@@ -192,6 +207,17 @@ class DatasetRepository:
             sessions=len(market_data.calendar.sessions),
             assets=len(market_data.observations),
         )
+
+    def list_datasets(self) -> tuple[DatasetSummary, ...]:
+        """Every stored dataset as a discovery summary — a pure column read (NO payload decode).
+
+        Ordered ``saved_at DESC, dataset_id`` so newest-first and deterministic on ties.
+        """
+        rows = self._db.query(
+            "SELECT dataset_id, dataset_fingerprint, calendar_fingerprint, saved_at FROM datasets "
+            "ORDER BY saved_at DESC, dataset_id"
+        )
+        return tuple(DatasetSummary(str(r[0]), str(r[1]), str(r[2]), str(r[3])) for r in rows)
 
     def _payload(self, dataset_id: str) -> dict[str, Any]:
         rows = self._db.query("SELECT payload FROM datasets WHERE dataset_id = ?", (dataset_id,))
