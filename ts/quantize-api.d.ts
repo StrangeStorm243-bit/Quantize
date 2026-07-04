@@ -20,16 +20,23 @@ export type JsonValue =
  */
 export interface QuantizeApi {
   ApiError?: ApiError;
+  AssetSetType?: AssetSetType;
   BacktestRunRequest?: BacktestRunRequest;
   CalendarDto?: CalendarDto;
+  CatalogInputPortDto?: CatalogInputPortDto;
+  CatalogOutputPortDto?: CatalogOutputPortDto;
+  CompatibilityPairDto?: CompatibilityPairDto;
   ComponentList?: ComponentList;
   ComponentListRow?: ComponentListRow;
   ComponentSaved?: ComponentSaved;
+  CrossSectionType?: CrossSectionType;
   DatasetStored?: DatasetStored;
   DatasetUpload?: DatasetUpload;
   ForwardRunRequest?: ForwardRunRequest;
   JsonValue?: JsonValue;
   MetaResponse?: MetaResponse;
+  NodeCatalogResponse?: NodeCatalogResponse;
+  NodeTypeDto?: NodeTypeDto;
   ObservationDto?: ObservationDto;
   PersistedDiagnostic?: PersistedDiagnostic;
   PersistedEvaluation?: PersistedEvaluation;
@@ -39,18 +46,22 @@ export interface QuantizeApi {
   PersistedPlanRow?: PersistedPlanRow;
   PersistedRunRecord?: PersistedRunRecord;
   PersistedStaleMark?: PersistedStaleMark;
+  PortTypeEntryDto?: PortTypeEntryDto;
+  PortfolioTargetsType?: PortfolioTargetsType;
   RunCreated?: RunCreated;
   RunInputProvenance?: RunInputProvenance;
   RunList?: RunList;
   RunListRow?: RunListRow;
   RunRecordResponse?: RunRecordResponse;
   RuntimeDiagnosticDto?: RuntimeDiagnosticDto;
+  ScalarType?: ScalarType;
   SemanticDiagnosticDto?: SemanticDiagnosticDto;
   SessionDto?: SessionDto;
   StrategyList?: StrategyList;
   StrategyListRow?: StrategyListRow;
   StrategySaved?: StrategySaved;
   StructuralDiagnosticDto?: StructuralDiagnosticDto;
+  TimeSeriesType?: TimeSeriesType;
   TraceEvent?: TraceEvent;
   TraceResponse?: TraceResponse;
   ValidateResponse?: ValidateResponse;
@@ -63,6 +74,9 @@ export interface QuantizeApi {
 export interface ApiError {
   code: string;
   message: string;
+}
+export interface AssetSetType {
+  kind: "AssetSet";
 }
 /**
  * A backtest submission. ``last_session`` is optional (defaults to the dataset's last).
@@ -90,6 +104,43 @@ export interface SessionDto {
   close_at: string;
   open_at: string;
   session_date: string;
+}
+/**
+ * One declared input port of a node type.
+ */
+export interface CatalogInputPortDto {
+  name: string;
+  port_type: ScalarType | AssetSetType | CrossSectionType | TimeSeriesType | PortfolioTargetsType;
+  required: boolean;
+}
+export interface ScalarType {
+  dtype: "Number" | "Integer" | "Boolean";
+  kind: "Scalar";
+}
+export interface CrossSectionType {
+  dtype: "Number" | "Boolean";
+  kind: "CrossSection";
+}
+export interface TimeSeriesType {
+  dtype: "Number";
+  kind: "TimeSeries";
+}
+export interface PortfolioTargetsType {
+  kind: "PortfolioTargets";
+}
+/**
+ * One declared output port of a node type.
+ */
+export interface CatalogOutputPortDto {
+  name: string;
+  port_type: ScalarType | AssetSetType | CrossSectionType | TimeSeriesType | PortfolioTargetsType;
+}
+/**
+ * One allowed ``(source -> destination)`` edge over the port-type lattice.
+ */
+export interface CompatibilityPairDto {
+  destination: ScalarType | AssetSetType | CrossSectionType | TimeSeriesType | PortfolioTargetsType;
+  source: ScalarType | AssetSetType | CrossSectionType | TimeSeriesType | PortfolioTargetsType;
 }
 export interface ComponentList {
   components: ComponentListRow[];
@@ -163,6 +214,39 @@ export interface MetaResponse {
   record_format: number;
   schema_version: string;
   trace_format: number;
+}
+/**
+ * The full node-catalog projection: versions, a content digest, the lattice, the compatible
+ * edges, and every registered node type.
+ */
+export interface NodeCatalogResponse {
+  api_version: string;
+  catalog_digest: string;
+  compatibility: CompatibilityPairDto[];
+  node_types: NodeTypeDto[];
+  port_types: PortTypeEntryDto[];
+  schema_version: string;
+}
+/**
+ * One registered node type: identity, typed ports, and its parameter JSON Schema (if any).
+ */
+export interface NodeTypeDto {
+  description: string;
+  display_name: string;
+  inputs: CatalogInputPortDto[];
+  outputs: CatalogOutputPortDto[];
+  parameter_schema: {
+    [k: string]: JsonValue;
+  } | null;
+  type_id: string;
+  type_version: string;
+}
+/**
+ * One lattice member paired with its compact human ``label`` (e.g. ``"Scalar[Number]"``).
+ */
+export interface PortTypeEntryDto {
+  label: string;
+  port_type: ScalarType | AssetSetType | CrossSectionType | TimeSeriesType | PortfolioTargetsType;
 }
 export interface PersistedDiagnostic {
   code: string;

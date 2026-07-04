@@ -10,18 +10,21 @@ routes land (M9.4+). Those same assertions re-run against real routes later.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator
 from starlette.requests import Request
 
 from quantize.api.app import create_app
 from quantize.api.errors import INVALID_JSON, ApiRequestError
 from quantize.api.settings import ApiSettings, get_settings
+from quantize.codegen.schema import API_SCHEMA_PATH
 from quantize.persistence.database import Database
 from quantize.persistence.datasets import DatasetRepository
 from quantize.persistence.errors import PersistenceError
@@ -90,6 +93,25 @@ def db(app: FastAPI, tmp_path: Path) -> Iterator[ApiSettings]:
     finally:
         module_default = app.state.settings
         app.dependency_overrides[get_settings] = lambda: module_default
+
+
+@pytest.fixture(scope="module")
+def api_schema() -> dict[str, Any]:
+    """The committed API JSON-Schema bundle, parsed once per module."""
+    data: dict[str, Any] = json.loads(API_SCHEMA_PATH.read_text(encoding="utf-8"))
+    return data
+
+
+@pytest.fixture(scope="module")
+def def_validator(
+    api_schema: dict[str, Any],
+) -> Callable[[str], Draft202012Validator]:
+    """Factory: a Draft 2020-12 validator for one DTO ``$def`` (shares the bundle's $defs)."""
+
+    def _make(name: str) -> Draft202012Validator:
+        return Draft202012Validator({"$defs": api_schema["$defs"], "$ref": f"#/$defs/{name}"})
+
+    return _make
 
 
 @pytest.fixture

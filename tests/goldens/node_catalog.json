@@ -1,0 +1,596 @@
+{
+  "api_version": "v1",
+  "catalog_digest": "5950ace1ca3e74ea32eea9d85efd962b2272510bcdc1de6d8cc32889ffb0577d",
+  "compatibility": [
+    {
+      "destination": {
+        "kind": "AssetSet"
+      },
+      "source": {
+        "kind": "AssetSet"
+      }
+    },
+    {
+      "destination": {
+        "dtype": "Boolean",
+        "kind": "CrossSection"
+      },
+      "source": {
+        "dtype": "Boolean",
+        "kind": "CrossSection"
+      }
+    },
+    {
+      "destination": {
+        "dtype": "Number",
+        "kind": "CrossSection"
+      },
+      "source": {
+        "dtype": "Number",
+        "kind": "CrossSection"
+      }
+    },
+    {
+      "destination": {
+        "kind": "PortfolioTargets"
+      },
+      "source": {
+        "kind": "PortfolioTargets"
+      }
+    },
+    {
+      "destination": {
+        "dtype": "Boolean",
+        "kind": "Scalar"
+      },
+      "source": {
+        "dtype": "Boolean",
+        "kind": "Scalar"
+      }
+    },
+    {
+      "destination": {
+        "dtype": "Integer",
+        "kind": "Scalar"
+      },
+      "source": {
+        "dtype": "Integer",
+        "kind": "Scalar"
+      }
+    },
+    {
+      "destination": {
+        "dtype": "Number",
+        "kind": "Scalar"
+      },
+      "source": {
+        "dtype": "Integer",
+        "kind": "Scalar"
+      }
+    },
+    {
+      "destination": {
+        "dtype": "Number",
+        "kind": "Scalar"
+      },
+      "source": {
+        "dtype": "Number",
+        "kind": "Scalar"
+      }
+    },
+    {
+      "destination": {
+        "dtype": "Number",
+        "kind": "TimeSeries"
+      },
+      "source": {
+        "dtype": "Number",
+        "kind": "TimeSeries"
+      }
+    }
+  ],
+  "node_types": [
+    {
+      "description": "Per-asset close-price history visible at the evaluation instant (availability-gated; assets without data keep an empty history).",
+      "display_name": "Price History",
+      "inputs": [
+        {
+          "name": "assets",
+          "port_type": {
+            "kind": "AssetSet"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "series",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "TimeSeries"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "type_id": "data.price",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "Per-asset left > right over the full bound domain; a missing operand yields false (never omission), with a missing-data trace event.",
+      "display_name": "Greater Than",
+      "inputs": [
+        {
+          "name": "left",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "CrossSection"
+          },
+          "required": true
+        },
+        {
+          "name": "right",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "CrossSection"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "values",
+          "port_type": {
+            "dtype": "Boolean",
+            "kind": "CrossSection"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "type_id": "logic.greater_than",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "The graph terminal: receives the final PortfolioTargets. The engine — not the graph — reconciles targets into orders.",
+      "display_name": "Target Portfolio",
+      "inputs": [
+        {
+          "name": "targets",
+          "port_type": {
+            "kind": "PortfolioTargets"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "type_id": "output.target_portfolio",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "Zeroes weights where the mask is false or missing (traced); survivors keep their sleeves — no renormalization, zeroed weight becomes cash.",
+      "display_name": "Apply Mask",
+      "inputs": [
+        {
+          "name": "targets",
+          "port_type": {
+            "kind": "PortfolioTargets"
+          },
+          "required": true
+        },
+        {
+          "name": "mask",
+          "port_type": {
+            "dtype": "Boolean",
+            "kind": "CrossSection"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "targets",
+          "port_type": {
+            "kind": "PortfolioTargets"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "type_id": "portfolio.apply_mask",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "1/|selected| per selected asset (renormalized across the selection); an empty selection is all cash.",
+      "display_name": "Equal Weight",
+      "inputs": [
+        {
+          "name": "assets",
+          "port_type": {
+            "kind": "AssetSet"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "targets",
+          "port_type": {
+            "kind": "PortfolioTargets"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "type_id": "portfolio.equal_weight",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "A fixed sleeve per universe asset (a number, or 'equal' for 1/|universe|); no renormalization — unallocated weight is cash.",
+      "display_name": "Fixed Weight",
+      "inputs": [
+        {
+          "name": "assets",
+          "port_type": {
+            "kind": "AssetSet"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "targets",
+          "port_type": {
+            "kind": "PortfolioTargets"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "weight_per_asset": {
+            "oneOf": [
+              {
+                "const": "equal"
+              },
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 1,
+                "type": "number"
+              }
+            ]
+          }
+        },
+        "required": [
+          "weight_per_asset"
+        ],
+        "type": "object"
+      },
+      "type_id": "portfolio.fixed_weight",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "The n best-ranked universe assets (smallest score wins; ties by canonical ticker); unscored assets are excluded, and fewer than n may qualify.",
+      "display_name": "Select Top N",
+      "inputs": [
+        {
+          "name": "scores",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "CrossSection"
+          },
+          "required": true
+        },
+        {
+          "name": "universe",
+          "port_type": {
+            "kind": "AssetSet"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "assets",
+          "port_type": {
+            "kind": "AssetSet"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "n": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "n"
+        ],
+        "type": "object"
+      },
+      "type_id": "portfolio.select_top_n",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "Caps each weight at max and redistributes the excess via the deterministic proportional waterfall; an unresolvable remainder stays in cash.",
+      "display_name": "Max Weight Cap",
+      "inputs": [
+        {
+          "name": "targets",
+          "port_type": {
+            "kind": "PortfolioTargets"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "targets",
+          "port_type": {
+            "kind": "PortfolioTargets"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "max": {
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "max"
+        ],
+        "type": "object"
+      },
+      "type_id": "risk.max_weight",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "The value at the latest visible session, per asset; assets without an observation at that session are excluded.",
+      "display_name": "Latest Value",
+      "inputs": [
+        {
+          "name": "series",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "TimeSeries"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "values",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "CrossSection"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "type_id": "transform.latest",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "Simple moving average over the trailing window sessions; sessions missing any window observation get no point (never forward-filled).",
+      "display_name": "Moving Average",
+      "inputs": [
+        {
+          "name": "series",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "TimeSeries"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "series",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "TimeSeries"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "window": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window"
+        ],
+        "type": "object"
+      },
+      "type_id": "transform.moving_average",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "Ordinal ranks over the present values (1 = best; descending by default); ties broken by ascending canonical ticker.",
+      "display_name": "Rank",
+      "inputs": [
+        {
+          "name": "values",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "CrossSection"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "values",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "CrossSection"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "descending": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "type_id": "transform.rank",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "Return over the trailing lookback_sessions calendar sessions: close(D)/close(D-L) - 1. Assets missing either close are excluded.",
+      "display_name": "Trailing Return",
+      "inputs": [
+        {
+          "name": "series",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "TimeSeries"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "values",
+          "port_type": {
+            "dtype": "Number",
+            "kind": "CrossSection"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "lookback_sessions": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lookback_sessions"
+        ],
+        "type": "object"
+      },
+      "type_id": "transform.trailing_return",
+      "type_version": "1.0.0"
+    },
+    {
+      "description": "A fixed list of asset tickers, emitted in canonical (ascending) order.",
+      "display_name": "Fixed Universe",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "assets",
+          "port_type": {
+            "kind": "AssetSet"
+          }
+        }
+      ],
+      "parameter_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "tickers": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "tickers"
+        ],
+        "type": "object"
+      },
+      "type_id": "universe.fixed_list",
+      "type_version": "1.0.0"
+    }
+  ],
+  "port_types": [
+    {
+      "label": "AssetSet",
+      "port_type": {
+        "kind": "AssetSet"
+      }
+    },
+    {
+      "label": "CrossSection[Boolean]",
+      "port_type": {
+        "dtype": "Boolean",
+        "kind": "CrossSection"
+      }
+    },
+    {
+      "label": "CrossSection[Number]",
+      "port_type": {
+        "dtype": "Number",
+        "kind": "CrossSection"
+      }
+    },
+    {
+      "label": "PortfolioTargets",
+      "port_type": {
+        "kind": "PortfolioTargets"
+      }
+    },
+    {
+      "label": "Scalar[Boolean]",
+      "port_type": {
+        "dtype": "Boolean",
+        "kind": "Scalar"
+      }
+    },
+    {
+      "label": "Scalar[Integer]",
+      "port_type": {
+        "dtype": "Integer",
+        "kind": "Scalar"
+      }
+    },
+    {
+      "label": "Scalar[Number]",
+      "port_type": {
+        "dtype": "Number",
+        "kind": "Scalar"
+      }
+    },
+    {
+      "label": "TimeSeries[Number]",
+      "port_type": {
+        "dtype": "Number",
+        "kind": "TimeSeries"
+      }
+    }
+  ],
+  "schema_version": "0.1.0"
+}

@@ -1,9 +1,10 @@
 """Immutable, Draft 2020-12-validated JSON Schema for validating JSON instances.
 
 Runtime infrastructure (descriptor ``parameter_schema`` / ``trace_schema``); not persisted IR.
-Construction fully checks the schema and deep-copies it; the schema lives only inside a private
-validator, so the caller's mapping cannot mutate it afterward (practical immutability — not hardened
-against a deliberate reach-in, which is acceptable for runtime infra).
+Construction fully checks the schema and deep-copies it into a private slot (the same copy the
+validator is built from), so the caller's mapping cannot mutate it afterward and the ``document``
+accessor can hand back a fresh deep copy without reaching into the untyped validator (practical
+immutability — not hardened against a deliberate reach-in, which is acceptable for runtime infra).
 
 Construction guarantees ``errors()`` never raises, by rejecting up front:
 
@@ -59,14 +60,22 @@ class JsonSchemaIssue:
 class JsonSchemaSpec:
     """A validated, immutable Draft 2020-12 schema. See the module docstring."""
 
-    __slots__ = ("_validator",)
+    __slots__ = ("_schema", "_validator")
 
     def __init__(self, schema: Mapping[str, Any]) -> None:
         owned = deepcopy(dict(schema))
         _PORTABLE_JSON.validate_python(owned)  # reject non-portable JSON content (ValidationError)
         _reject_references(owned)  # reject references so errors() cannot throw (ValueError)
         Draft202012Validator.check_schema(owned)  # SchemaError on a malformed schema
+        # Keep the validated copy in a typed slot: jsonschema is untyped, so reading it back off
+        # the validator would be `Any` and fail strict mypy — own it here instead.
+        self._schema: JsonObject = owned
         self._validator = Draft202012Validator(owned)
+
+    @property
+    def document(self) -> JsonObject:
+        """A fresh deep copy of the validated schema (the caller cannot mutate the held copy)."""
+        return deepcopy(self._schema)
 
     def errors(self, instance: object) -> tuple[JsonSchemaIssue, ...]:
         """Return the validation issues for *instance*, sorted deterministically. Never raises."""

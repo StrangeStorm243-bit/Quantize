@@ -44,3 +44,9 @@ PortType = Annotated[
     ScalarType | AssetSetType | CrossSectionType | TimeSeriesType | PortfolioTargetsType,
     Field(discriminator="kind"),
 ]
+
+
+def render_port_type(port_type: PortType) -> str:
+    """Compact human rendering of a port type — total over current PortType variants."""
+    dtype = getattr(port_type, "dtype", None)
+    return f"{port_type.kind}[{dtype}]" if dtype is not None else port_type.kind

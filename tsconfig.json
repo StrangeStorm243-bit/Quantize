@@ -12,5 +12,10 @@
     "skipLibCheck": false,
     "forceConsistentCasingInFileNames": true
   },
-  "files": ["ts/quantize-ir.d.ts", "ts/fixtures/usage.ts"]
+  "files": [
+    "ts/quantize-ir.d.ts",
+    "ts/fixtures/usage.ts",
+    "ts/quantize-api.d.ts",
+    "ts/fixtures/api-usage.ts"
+  ]
 }

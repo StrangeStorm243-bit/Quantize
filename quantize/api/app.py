@@ -20,13 +20,12 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from quantize.api.dto.common import ApiError, MetaResponse
 from quantize.api.errors import PAYLOAD_TOO_LARGE, install_error_handlers
-from quantize.api.routes import components, datasets, runs, strategies, validate
+from quantize.api.routes import catalog, components, datasets, runs, strategies, validate
 from quantize.api.settings import ApiSettings, get_settings
+from quantize.api.version import API_VERSION
 from quantize.persistence.database import Database
 from quantize.persistence.records import RECORD_FORMAT, TRACE_FORMAT
 from quantize.schema.version import CURRENT_SCHEMA_VERSION
-
-API_VERSION = "v1"
 
 v1 = APIRouter(prefix="/v1")
 
@@ -128,6 +127,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     app.include_router(v1)
     app.include_router(validate.router)  # POST /v1/strategies/validate (before the save router)
     app.include_router(strategies.router)
+    app.include_router(catalog.router)
     app.include_router(components.router)
     app.include_router(datasets.router)
     app.include_router(runs.router)

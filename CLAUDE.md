@@ -46,14 +46,17 @@ with **structured decision tracing**. The visual canvas is only an editor for th
   `npm ci` under Node 24; never run the Node toolchain under Node 25+.
 - **Run backend / API (M9):** `uvicorn quantize.api.app:create_app --factory --host 127.0.0.1
   --port 8000` (localhost binding is the documented default — no auth exists by design; the DB
-  path is `QUANTIZE_DB_PATH`, default `quantize.db`).  ·  **Run frontend (editor):** _TBD (M11)_
-- **Generate JSON Schema + TS types (codegen):** `python -m quantize.codegen generate` (emits
-  `schema/quantize.schema.json` + `ts/quantize-ir.d.ts`; needs Node 24 on PATH for the TS step).
-  Verify without writing: `python -m quantize.codegen check`. TypeScript compile gate: `npm run
-  typecheck` (`tsc --noEmit`). Output is deterministic and byte-stable (LF; see `.gitattributes`),
-  committed, and CI’s `codegen` job fails if the committed artifacts are stale. The committed JSON
-  Schema is the exported structural contract; the `.d.ts` is a **derived** artifact — never hand-edit
-  it, regenerate instead.
+  path is `QUANTIZE_DB_PATH`, default `quantize.db`). `GET /v1/node-types` (M10) serves the
+  read-only node-type descriptor + parameter-form + compatibility metadata (M11 editor
+  prerequisites).  ·  **Run frontend (editor):** _TBD (M11)_
+- **Generate JSON Schema + TS types (codegen):** `python -m quantize.codegen generate` emits **two
+  bundles** — the IR bundle (`schema/quantize.schema.json` + `ts/quantize-ir.d.ts`) and the API-DTO
+  bundle (`schema/quantize-api.schema.json` + `ts/quantize-api.d.ts`, added M9); needs Node 24 on
+  PATH for the TS step. Verify without writing: `python -m quantize.codegen check`. TypeScript
+  compile gate: `npm run typecheck` (`tsc --noEmit`, covers both `.d.ts` files). Output is
+  deterministic and byte-stable (LF; see `.gitattributes`), committed, and CI’s `codegen` job fails
+  if any committed artifact is stale. The committed JSON Schemas are the exported structural
+  contracts; both `.d.ts` files are **derived** artifacts — never hand-edit them, regenerate instead.
 
 ## Architectural invariants (do not violate without an ADR)
 
