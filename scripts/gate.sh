@@ -62,6 +62,8 @@ run_stage "mypy" "$python" -m mypy
 run_stage "node24 activation" activate_node24
 run_stage "codegen check" "$python" -m quantize.codegen check
 run_stage "tsc typecheck" npm run typecheck
+run_stage "web typecheck" npm --prefix web run typecheck
+run_stage "web test" npm --prefix web run test
 
 printf '\n=== gate: ALL STAGES PASSED ===\n'
 exit 0

@@ -73,3 +73,24 @@ jobs:
       # Proves the generated declarations compile and are usable (compile fixture).
       - name: TypeScript compile (tsc --noEmit)
         run: npm run typecheck
+
+  web:
+    name: web typecheck · test · build (Node 24)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+      - name: Install web deps (locked)
+        run: npm ci
+      - name: Type-check (tsc --noEmit)
+        run: npm run typecheck
+      - name: Test (vitest run)
+        run: npm run test
+      - name: Build (vite)
+        run: npm run build
