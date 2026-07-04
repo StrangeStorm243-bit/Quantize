@@ -191,3 +191,7 @@ class ImplementationCatalog:
 
     def implementations(self) -> tuple[NodeImplementation, ...]:
         return tuple(self._by_key[key] for key in sorted(self._by_key))
+
+    def descriptors(self) -> tuple[NodeDescriptor, ...]:
+        """The registered descriptors, sorted by ``(type_id, type_version)`` (via the registry)."""
+        return self._descriptors.descriptors()

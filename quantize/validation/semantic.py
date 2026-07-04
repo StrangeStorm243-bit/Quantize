@@ -15,7 +15,7 @@ from quantize.registry.descriptor import NodeDescriptor
 from quantize.registry.registry import NodeRegistryView, ResolutionStatus
 from quantize.schema.document import StrategyDocument
 from quantize.schema.nodes import RegisteredNode
-from quantize.schema.types import PortType
+from quantize.schema.types import render_port_type
 from quantize.validation.diagnostics import sort_diagnostics
 from quantize.validation.errors import (
     INCOMPATIBLE_PORT_TYPES,
@@ -28,12 +28,6 @@ from quantize.validation.errors import (
     SemanticDiagnostic,
     SemanticValidation,
 )
-
-
-def _render_type(port_type: PortType) -> str:
-    """Compact human rendering of a port type — total over current PortType variants."""
-    dtype = getattr(port_type, "dtype", None)
-    return f"{port_type.kind}[{dtype}]" if dtype is not None else port_type.kind
 
 
 def validate_strategy_semantics(
@@ -118,8 +112,8 @@ def validate_strategy_semantics(
             diagnostics.append(
                 SemanticDiagnostic(
                     INCOMPATIBLE_PORT_TYPES,
-                    f"port type {_render_type(source)} from {src_id!r}.{src_port!r} is not "
-                    f"compatible with {_render_type(destination)} at {dst_id!r}.{dst_port!r}",
+                    f"port type {render_port_type(source)} from {src_id!r}.{src_port!r} is not "
+                    f"compatible with {render_port_type(destination)} at {dst_id!r}.{dst_port!r}",
                     ("edges", index),
                     dst_port,
                 )
