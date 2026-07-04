@@ -2,5 +2,7 @@
 # Pin them to LF so git never rewrites line endings across Windows/Linux checkouts.
 schema/quantize.schema.json text eol=lf
 ts/quantize-ir.d.ts text eol=lf
+schema/quantize-api.schema.json text eol=lf
+ts/quantize-api.d.ts text eol=lf
 ts/fixtures/*.ts text eol=lf
 tests/goldens/*.json text eol=lf

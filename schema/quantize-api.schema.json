@@ -1,0 +1,1424 @@
+{
+  "$defs": {
+    "ApiError": {
+      "additionalProperties": false,
+      "description": "The uniform error envelope. ``code`` is a stable machine identifier; ``message`` is human\ntext. Deliberately has no ``context``/``detail`` field — infrastructure internals never leak.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ApiError",
+      "type": "object"
+    },
+    "BacktestRunRequest": {
+      "additionalProperties": false,
+      "description": "A backtest submission. ``last_session`` is optional (defaults to the dataset's last).",
+      "properties": {
+        "dataset_id": {
+          "type": "string"
+        },
+        "first_session": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "initial_cash": {
+          "type": "number"
+        },
+        "initial_positions": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        "last_session": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "strategy_id": {
+          "type": "string"
+        },
+        "strategy_version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "strategy_version",
+        "dataset_id",
+        "initial_cash"
+      ],
+      "title": "BacktestRunRequest",
+      "type": "object"
+    },
+    "CalendarDto": {
+      "additionalProperties": false,
+      "properties": {
+        "exchange": {
+          "type": "string"
+        },
+        "sessions": {
+          "items": {
+            "$ref": "#/$defs/SessionDto"
+          },
+          "type": "array"
+        },
+        "timezone": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "exchange",
+        "timezone",
+        "sessions"
+      ],
+      "title": "CalendarDto",
+      "type": "object"
+    },
+    "ComponentList": {
+      "additionalProperties": false,
+      "properties": {
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ComponentListRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "components"
+      ],
+      "title": "ComponentList",
+      "type": "object"
+    },
+    "ComponentListRow": {
+      "additionalProperties": false,
+      "description": "One component summary row — mirrors ``persistence.documents.ComponentSummary``.",
+      "properties": {
+        "component_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "saved_at": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "component_id",
+        "version",
+        "name",
+        "schema_version",
+        "saved_at"
+      ],
+      "title": "ComponentListRow",
+      "type": "object"
+    },
+    "ComponentSaved": {
+      "additionalProperties": false,
+      "description": "Acknowledgement of a persisted component definition (version is a SemVer string).",
+      "properties": {
+        "component_id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "component_id",
+        "version"
+      ],
+      "title": "ComponentSaved",
+      "type": "object"
+    },
+    "DatasetStored": {
+      "additionalProperties": false,
+      "description": "Metadata for a stored dataset — the content-addressed id plus both provenance fingerprints\nand simple counts. NEVER carries the payload (fetch-metadata returns this, not the data).",
+      "properties": {
+        "assets": {
+          "type": "integer"
+        },
+        "calendar_fingerprint": {
+          "type": "string"
+        },
+        "dataset_fingerprint": {
+          "type": "string"
+        },
+        "dataset_id": {
+          "type": "string"
+        },
+        "sessions": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "dataset_fingerprint",
+        "calendar_fingerprint",
+        "sessions",
+        "assets"
+      ],
+      "title": "DatasetStored",
+      "type": "object"
+    },
+    "DatasetUpload": {
+      "additionalProperties": false,
+      "description": "A full uploaded dataset: the calendar plus per-asset observation series (asset -> rows).",
+      "properties": {
+        "calendar": {
+          "$ref": "#/$defs/CalendarDto"
+        },
+        "observations": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/ObservationDto"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "calendar",
+        "observations"
+      ],
+      "title": "DatasetUpload",
+      "type": "object"
+    },
+    "ForwardRunRequest": {
+      "additionalProperties": false,
+      "description": "A forward-replay submission — identical to backtest but ``last_session`` is REQUIRED.",
+      "properties": {
+        "dataset_id": {
+          "type": "string"
+        },
+        "first_session": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "initial_cash": {
+          "type": "number"
+        },
+        "initial_positions": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        "last_session": {
+          "format": "date",
+          "type": "string"
+        },
+        "strategy_id": {
+          "type": "string"
+        },
+        "strategy_version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "strategy_version",
+        "dataset_id",
+        "initial_cash",
+        "last_session"
+      ],
+      "title": "ForwardRunRequest",
+      "type": "object"
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "MetaResponse": {
+      "additionalProperties": false,
+      "description": "Service identity: the API version plus the format versions a client must understand.",
+      "properties": {
+        "api_version": {
+          "type": "string"
+        },
+        "record_format": {
+          "type": "integer"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "trace_format": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "api_version",
+        "schema_version",
+        "record_format",
+        "trace_format"
+      ],
+      "title": "MetaResponse",
+      "type": "object"
+    },
+    "ObservationDto": {
+      "additionalProperties": false,
+      "description": "One session's open/close prices for one asset, with explicit availability instants.",
+      "properties": {
+        "close_available_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "close_price": {
+          "type": "number"
+        },
+        "open_available_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "open_price": {
+          "type": "number"
+        },
+        "session_date": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_date",
+        "open_price",
+        "close_price",
+        "open_available_at",
+        "close_available_at"
+      ],
+      "title": "ObservationDto",
+      "type": "object"
+    },
+    "PersistedDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "node_path": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "node_path",
+        "subject"
+      ],
+      "title": "PersistedDiagnostic",
+      "type": "object"
+    },
+    "PersistedEvaluation": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluation_instant": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "fill_session": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "orders": {
+          "items": {
+            "$ref": "#/$defs/PersistedOrder"
+          },
+          "type": "array"
+        },
+        "plans": {
+          "items": {
+            "$ref": "#/$defs/PersistedPlanRow"
+          },
+          "type": "array"
+        },
+        "portfolio_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "projected_cash": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scheduled_fill_instant": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "session_date": {
+          "format": "date",
+          "type": "string"
+        },
+        "target_cash": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target_weights": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_date",
+        "evaluation_instant",
+        "target_weights",
+        "ok",
+        "portfolio_value",
+        "target_cash",
+        "projected_cash",
+        "plans",
+        "orders",
+        "fill_session",
+        "scheduled_fill_instant"
+      ],
+      "title": "PersistedEvaluation",
+      "type": "object"
+    },
+    "PersistedFill": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_fill_instant": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "asset": {
+          "type": "string"
+        },
+        "cash_delta": {
+          "type": "number"
+        },
+        "cost": {
+          "type": "number"
+        },
+        "price": {
+          "type": "number"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "scaled": {
+          "type": "boolean"
+        },
+        "session_date": {
+          "format": "date",
+          "type": "string"
+        },
+        "side": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_date",
+        "actual_fill_instant",
+        "side",
+        "asset",
+        "quantity",
+        "price",
+        "cost",
+        "cash_delta",
+        "scaled"
+      ],
+      "title": "PersistedFill",
+      "type": "object"
+    },
+    "PersistedNote": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "session_date": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_date",
+        "code",
+        "message"
+      ],
+      "title": "PersistedNote",
+      "type": "object"
+    },
+    "PersistedOrder": {
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "side": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "side",
+        "asset",
+        "quantity"
+      ],
+      "title": "PersistedOrder",
+      "type": "object"
+    },
+    "PersistedPlanRow": {
+      "additionalProperties": false,
+      "description": "One reconciliation explanation row (ADR-0005 AssetPlan), verbatim.",
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "asset": {
+          "type": "string"
+        },
+        "current_quantity": {
+          "type": "number"
+        },
+        "delta_quantity": {
+          "type": "number"
+        },
+        "price": {
+          "type": "number"
+        },
+        "target_notional": {
+          "type": "number"
+        },
+        "target_quantity": {
+          "type": "number"
+        },
+        "target_weight": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "asset",
+        "price",
+        "current_quantity",
+        "target_weight",
+        "target_notional",
+        "target_quantity",
+        "delta_quantity",
+        "action"
+      ],
+      "title": "PersistedPlanRow",
+      "type": "object"
+    },
+    "PersistedRunRecord": {
+      "additionalProperties": false,
+      "description": "The complete durable fact set of one run (trace stored separately, same transaction).",
+      "properties": {
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/PersistedDiagnostic"
+          },
+          "type": "array"
+        },
+        "evaluations": {
+          "items": {
+            "$ref": "#/$defs/PersistedEvaluation"
+          },
+          "type": "array"
+        },
+        "exchange": {
+          "type": "string"
+        },
+        "fills": {
+          "items": {
+            "$ref": "#/$defs/PersistedFill"
+          },
+          "type": "array"
+        },
+        "final_cash": {
+          "type": "number"
+        },
+        "final_positions": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "first_session": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "input_provenance": {
+          "$ref": "#/$defs/RunInputProvenance"
+        },
+        "last_session": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_drawdown": {
+          "type": "number"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "$ref": "#/$defs/PersistedNote"
+          },
+          "type": "array"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "record_format": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "returns": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "stale_marks": {
+          "items": {
+            "$ref": "#/$defs/PersistedStaleMark"
+          },
+          "type": "array"
+        },
+        "strategy_id": {
+          "type": "string"
+        },
+        "strategy_version": {
+          "type": "integer"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "total_return": {
+          "type": "number"
+        },
+        "valuations": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "record_format",
+        "run_id",
+        "mode",
+        "strategy_id",
+        "strategy_version",
+        "ok",
+        "input_provenance",
+        "exchange",
+        "timezone",
+        "first_session",
+        "last_session",
+        "valuations",
+        "returns",
+        "total_return",
+        "max_drawdown",
+        "final_cash",
+        "final_positions",
+        "evaluations",
+        "fills",
+        "stale_marks",
+        "notes",
+        "diagnostics"
+      ],
+      "title": "PersistedRunRecord",
+      "type": "object"
+    },
+    "PersistedStaleMark": {
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "type": "string"
+        },
+        "mark_date": {
+          "format": "date",
+          "type": "string"
+        },
+        "session_date": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_date",
+        "asset",
+        "mark_date"
+      ],
+      "title": "PersistedStaleMark",
+      "type": "object"
+    },
+    "RunCreated": {
+      "additionalProperties": false,
+      "description": "Acknowledgement of a submitted (and synchronously executed + persisted) run.",
+      "properties": {
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "RunCreated",
+      "type": "object"
+    },
+    "RunInputProvenance": {
+      "additionalProperties": false,
+      "description": "The run's input identity: recorded content hashes, or an explicit honest unknown.",
+      "properties": {
+        "calendar_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "dataset_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "enum": [
+            "recorded",
+            "unknown"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "RunInputProvenance",
+      "type": "object"
+    },
+    "RunList": {
+      "additionalProperties": false,
+      "properties": {
+        "runs": {
+          "items": {
+            "$ref": "#/$defs/RunListRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "title": "RunList",
+      "type": "object"
+    },
+    "RunListRow": {
+      "additionalProperties": false,
+      "description": "One run summary row — mirrors ``persistence.runs.RunSummary``.",
+      "properties": {
+        "first_session": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_session": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mode": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "saved_at": {
+          "type": "string"
+        },
+        "strategy_id": {
+          "type": "string"
+        },
+        "strategy_version": {
+          "type": "integer"
+        },
+        "total_return": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "run_id",
+        "strategy_id",
+        "strategy_version",
+        "mode",
+        "ok",
+        "first_session",
+        "last_session",
+        "total_return",
+        "saved_at"
+      ],
+      "title": "RunListRow",
+      "type": "object"
+    },
+    "RunRecordResponse": {
+      "additionalProperties": false,
+      "description": "The stored run record plus whether its inputs were fingerprinted (recorded provenance).\n\n``replay_verifiable`` lives BESIDE the record, never inside it: the ``record`` value is the\nstored artifact verbatim; ``replay_verifiable`` is a derived, non-persisted flag.",
+      "properties": {
+        "record": {
+          "$ref": "#/$defs/PersistedRunRecord"
+        },
+        "replay_verifiable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "record",
+        "replay_verifiable"
+      ],
+      "title": "RunRecordResponse",
+      "type": "object"
+    },
+    "RuntimeDiagnosticDto": {
+      "additionalProperties": false,
+      "description": "One resolution/wiring/terminal fault: located by execution ``node_path``, not ``loc``.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "node_path": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "node_path"
+      ],
+      "title": "RuntimeDiagnosticDto",
+      "type": "object"
+    },
+    "SemanticDiagnosticDto": {
+      "additionalProperties": false,
+      "description": "One semantic (M2) fault. Same shape as the structural DTO; kept a distinct type.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "loc": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "message": {
+          "type": "string"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "loc"
+      ],
+      "title": "SemanticDiagnosticDto",
+      "type": "object"
+    },
+    "SessionDto": {
+      "additionalProperties": false,
+      "description": "One trading session: the exchange-local date plus UTC open/close instants.",
+      "properties": {
+        "close_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "open_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "session_date": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_date",
+        "open_at",
+        "close_at"
+      ],
+      "title": "SessionDto",
+      "type": "object"
+    },
+    "StrategyList": {
+      "additionalProperties": false,
+      "properties": {
+        "strategies": {
+          "items": {
+            "$ref": "#/$defs/StrategyListRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "strategies"
+      ],
+      "title": "StrategyList",
+      "type": "object"
+    },
+    "StrategyListRow": {
+      "additionalProperties": false,
+      "description": "One strategy summary row — mirrors ``persistence.documents.StrategySummary``.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "saved_at": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "strategy_id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "version",
+        "name",
+        "schema_version",
+        "saved_at"
+      ],
+      "title": "StrategyListRow",
+      "type": "object"
+    },
+    "StrategySaved": {
+      "additionalProperties": false,
+      "description": "Acknowledgement of a persisted strategy version.",
+      "properties": {
+        "strategy_id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "version"
+      ],
+      "title": "StrategySaved",
+      "type": "object"
+    },
+    "StructuralDiagnosticDto": {
+      "additionalProperties": false,
+      "description": "One structural (M1.2) fault: located by document ``loc`` (e.g. ``(\"edges\", 2, \"from\")``).",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "loc": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "message": {
+          "type": "string"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "loc"
+      ],
+      "title": "StructuralDiagnosticDto",
+      "type": "object"
+    },
+    "TraceEvent": {
+      "additionalProperties": false,
+      "description": "One structured decision-trace event (envelope only; ``payload`` shape is per-node).",
+      "properties": {
+        "component_path": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_]+$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "event_type": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "node_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_]+$",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        "run_id": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "timestamp",
+        "node_id",
+        "event_type",
+        "payload"
+      ],
+      "title": "TraceEvent",
+      "type": "object"
+    },
+    "TraceResponse": {
+      "additionalProperties": false,
+      "description": "The run's decision-trace events in stored sequence order (optionally session-filtered).",
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "#/$defs/TraceEvent"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "events"
+      ],
+      "title": "TraceResponse",
+      "type": "object"
+    },
+    "ValidateResponse": {
+      "additionalProperties": false,
+      "description": "The run-faithful validation verdict. ``ok`` is true only when every layer is clean; on ok\nit additionally reports ``warmup_sessions`` (the resolved warm-up the run would require).",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "runtime": {
+          "items": {
+            "$ref": "#/$defs/RuntimeDiagnosticDto"
+          },
+          "type": "array"
+        },
+        "semantic": {
+          "items": {
+            "$ref": "#/$defs/SemanticDiagnosticDto"
+          },
+          "type": "array"
+        },
+        "structural": {
+          "items": {
+            "$ref": "#/$defs/StructuralDiagnosticDto"
+          },
+          "type": "array"
+        },
+        "warmup_sessions": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "ok",
+        "structural",
+        "semantic",
+        "runtime"
+      ],
+      "title": "ValidateResponse",
+      "type": "object"
+    },
+    "VersionList": {
+      "additionalProperties": false,
+      "description": "The ascending version numbers stored for one strategy id.",
+      "properties": {
+        "versions": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "versions"
+      ],
+      "title": "VersionList",
+      "type": "object"
+    }
+  },
+  "$id": "https://quantize.dev/schema/0.1.0/quantize-api.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Bundled Quantize HTTP API request/response envelope contract (M9 boundary).",
+  "properties": {
+    "ApiError": {
+      "$ref": "#/$defs/ApiError"
+    },
+    "BacktestRunRequest": {
+      "$ref": "#/$defs/BacktestRunRequest"
+    },
+    "CalendarDto": {
+      "$ref": "#/$defs/CalendarDto"
+    },
+    "ComponentList": {
+      "$ref": "#/$defs/ComponentList"
+    },
+    "ComponentListRow": {
+      "$ref": "#/$defs/ComponentListRow"
+    },
+    "ComponentSaved": {
+      "$ref": "#/$defs/ComponentSaved"
+    },
+    "DatasetStored": {
+      "$ref": "#/$defs/DatasetStored"
+    },
+    "DatasetUpload": {
+      "$ref": "#/$defs/DatasetUpload"
+    },
+    "ForwardRunRequest": {
+      "$ref": "#/$defs/ForwardRunRequest"
+    },
+    "JsonValue": {
+      "$ref": "#/$defs/JsonValue"
+    },
+    "MetaResponse": {
+      "$ref": "#/$defs/MetaResponse"
+    },
+    "ObservationDto": {
+      "$ref": "#/$defs/ObservationDto"
+    },
+    "PersistedDiagnostic": {
+      "$ref": "#/$defs/PersistedDiagnostic"
+    },
+    "PersistedEvaluation": {
+      "$ref": "#/$defs/PersistedEvaluation"
+    },
+    "PersistedFill": {
+      "$ref": "#/$defs/PersistedFill"
+    },
+    "PersistedNote": {
+      "$ref": "#/$defs/PersistedNote"
+    },
+    "PersistedOrder": {
+      "$ref": "#/$defs/PersistedOrder"
+    },
+    "PersistedPlanRow": {
+      "$ref": "#/$defs/PersistedPlanRow"
+    },
+    "PersistedRunRecord": {
+      "$ref": "#/$defs/PersistedRunRecord"
+    },
+    "PersistedStaleMark": {
+      "$ref": "#/$defs/PersistedStaleMark"
+    },
+    "RunCreated": {
+      "$ref": "#/$defs/RunCreated"
+    },
+    "RunInputProvenance": {
+      "$ref": "#/$defs/RunInputProvenance"
+    },
+    "RunList": {
+      "$ref": "#/$defs/RunList"
+    },
+    "RunListRow": {
+      "$ref": "#/$defs/RunListRow"
+    },
+    "RunRecordResponse": {
+      "$ref": "#/$defs/RunRecordResponse"
+    },
+    "RuntimeDiagnosticDto": {
+      "$ref": "#/$defs/RuntimeDiagnosticDto"
+    },
+    "SemanticDiagnosticDto": {
+      "$ref": "#/$defs/SemanticDiagnosticDto"
+    },
+    "SessionDto": {
+      "$ref": "#/$defs/SessionDto"
+    },
+    "StrategyList": {
+      "$ref": "#/$defs/StrategyList"
+    },
+    "StrategyListRow": {
+      "$ref": "#/$defs/StrategyListRow"
+    },
+    "StrategySaved": {
+      "$ref": "#/$defs/StrategySaved"
+    },
+    "StructuralDiagnosticDto": {
+      "$ref": "#/$defs/StructuralDiagnosticDto"
+    },
+    "TraceEvent": {
+      "$ref": "#/$defs/TraceEvent"
+    },
+    "TraceResponse": {
+      "$ref": "#/$defs/TraceResponse"
+    },
+    "ValidateResponse": {
+      "$ref": "#/$defs/ValidateResponse"
+    },
+    "VersionList": {
+      "$ref": "#/$defs/VersionList"
+    }
+  },
+  "title": "QuantizeApi",
+  "type": "object"
+}

@@ -17,6 +17,11 @@ dependencies = [
     # Runtime semantic validation (M2.4): validates node params against a descriptor's
     # parameter_schema, and validates declared schemas. Draft 2020-12 support requires >=4.18.
     "jsonschema>=4.20",
+    # M9 API boundary: thin, versioned FastAPI JSON layer over the engine/persistence core.
+    # FastAPI 0.115+ is validated against pydantic 2.x; uvicorn is the ASGI server for the
+    # documented localhost run command. No numerics live here — this is a translation layer.
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +29,8 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "mypy>=1.11",
+    # M9: FastAPI's TestClient (starlette) requires httpx as its in-process transport.
+    "httpx>=0.27",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -24,7 +24,14 @@ from quantize.persistence.migrations import (
     ArtifactMigrationRegistry,
 )
 
-_EXPECTED_TABLES = {"components", "runs", "schema_migrations", "strategies", "trace_events"}
+_EXPECTED_TABLES = {
+    "components",
+    "datasets",  # M9.6 migration v2
+    "runs",
+    "schema_migrations",
+    "strategies",
+    "trace_events",
+}
 
 
 def test_fresh_database_reaches_current_version(tmp_path: Path) -> None:

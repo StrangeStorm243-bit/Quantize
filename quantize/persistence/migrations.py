@@ -94,6 +94,21 @@ DATABASE_MIGRATIONS: tuple[DatabaseMigration, ...] = (
             """,
         ),
     ),
+    DatabaseMigration(
+        version=2,
+        purpose="dataset store: content-addressed uploaded market data (M9)",
+        statements=(
+            """
+            CREATE TABLE datasets (
+                dataset_id TEXT NOT NULL PRIMARY KEY,
+                dataset_fingerprint TEXT NOT NULL,
+                calendar_fingerprint TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                saved_at TEXT NOT NULL
+            )
+            """,
+        ),
+    ),
 )
 
 CURRENT_DATABASE_VERSION = DATABASE_MIGRATIONS[-1].version

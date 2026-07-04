@@ -844,3 +844,56 @@ sessions is computable exactly when W are visible.
 
 **Status:** remediation sprint complete on `fix/pre-m9-remediation`; both gates green
 (PowerShell + POSIX); awaiting founder review + Codex audit. Not committed.
+
+
+## M9 — API boundary + strategy/component versioning (2026-07-03)
+
+**Concepts introduced:**
+
+- *Thin-boundary translation.* The API is a translation layer — HTTP → governed DTO (or raw IR
+  document) → an EXISTING domain service → a governed result → HTTP — with **zero** business logic
+  in `quantize/api/`. Every computation is an existing engine/persistence entrypoint (`run_backtest`,
+  `ForwardReplay`, `RunRepository.save_run`, `run_document_preflight`); the boundary owns nothing
+  numerical (tested: no pandas/numpy in `quantize/api/`). *Where:* `quantize/api/service.py`,
+  `quantize/api/routes/`.
+- *The no-second-implementation proof, made HTTP.* The validate endpoint runs the SAME
+  `run_document_preflight` the evaluator runs; a 3-way parity test asserts endpoint codes ==
+  preflight codes == real-run rejection codes over the invalid corpus. To make this possible, M9.1
+  extracted the evaluator's five document checks into a shared `preflight.py` returning NATIVE
+  per-layer diagnostics (structural/semantic carry `loc`; runtime carries `node_path`) — a pure
+  refactor proven byte-identical to the old inline path.
+- *Per-request resource ownership.* Handlers are synchronous `def` (threadpool) and open their own
+  `Database` in their own body (`with Database(...) as db:`) — guaranteeing sqlite3's same-thread
+  contract with a deterministic close and no shared mutable state. The raw request body reaches a
+  sync handler via an ASYNC dependency (`_raw_body`) so bodies validate straight from bytes on
+  pydantic-core's Rust path — a depth-bomb is a clean 400, never a Python `RecursionError` (500).
+- *Contract-first DTOs with codegen governance.* A SECOND governed bundle
+  (`schema/quantize-api.schema.json` + `ts/quantize-api.d.ts`) rides the existing codegen, staleness
+  gated in CI, with contract tests mirroring the IR ones. json2ts needs a reachable root, so the
+  API bundle uses a synthetic object root (no natural union) referencing every DTO. DTO modules
+  import no fastapi, keeping the codegen job lock-only.
+- *Staged validation semantics + honest facts.* HTTP status encodes WHERE a request failed: parse
+  (400), unsupported `schema_version` (422, a pre-parse string gate robust to future-version
+  documents), immutable-conflict (409), not-found (404). But a run that produces `ok:false` is a
+  run FACT, not an HTTP error — it persists and returns 201; the client reads `ok` from
+  fetch-results. Fetch-results returns the stored record VERBATIM (embedded `to_ir_json` bytes)
+  with `replay_verifiable` beside it, never inside it.
+
+**Files studied:** `quantize/api/app.py` (factory, body-size middleware, lifespan) → `quantize/api/
+routes/*` → `quantize/evaluator/preflight.py` → `quantize/api/dto/*` → `quantize/codegen/schema.py`
+(second bundle). Also `quantize/api/errors.py` (the per-(endpoint-class, code) taxonomy + context
+scrubbing) and `quantize/persistence/datasets.py` (content-addressed store, migration v2).
+
+**Reading path:** start at `create_app` in `app.py` (what is wired, in what order); follow one POST
+route (`routes/strategies.py`) through `parsing.load_ir_document` to `StrategyRepository`; then read
+`routes/validate.py` beside `preflight.run_document_preflight` to see the one implementation with
+two call sites.
+
+**Exercise (implement by hand):** add `GET /v1/strategies/{id}/versions/{version}/semantic-equality
+?other=<version>` — load both stored versions, compare via the existing semantic-equality (the
+`ui.*`-excluding comparison), and return `{equal: bool}`. *Prediction:* two versions differing only
+in a node's `ui` field are semantically equal (bytes differ → 409 on save, but semantic-equality is
+true) — the same fact that makes the ui-only-edit test a 409. *Outcome:* …
+
+**Status:** M9 implemented on `feat/m9-api-boundary` across packets M9.0–M9.8; both gates green
+(PowerShell + POSIX), 825 tests. M9.9 (replay-verify endpoint) deferred per founder decision #3.

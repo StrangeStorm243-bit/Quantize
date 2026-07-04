@@ -10,8 +10,11 @@ from __future__ import annotations
 import json
 
 from quantize.codegen.schema import (
+    API_SCHEMA_PATH,
+    API_TS_PATH,
     SCHEMA_PATH,
     TS_PATH,
+    build_api_bundle,
     build_bundle,
     build_ts_input,
     canonical_json,
@@ -20,6 +23,29 @@ from quantize.codegen.schema import (
 
 def test_build_bundle_is_deterministic() -> None:
     assert canonical_json(build_bundle()) == canonical_json(build_bundle())
+
+
+def test_build_api_bundle_is_deterministic() -> None:
+    assert canonical_json(build_api_bundle()) == canonical_json(build_api_bundle())
+
+
+def test_committed_api_schema_matches_models() -> None:
+    """The committed API JSON Schema must equal a fresh build (the API schema-staleness gate)."""
+    expected = canonical_json(build_api_bundle())
+    actual = API_SCHEMA_PATH.read_text(encoding="utf-8").replace("\r\n", "\n")
+    assert actual == expected, (
+        "schema/quantize-api.schema.json is stale; run `python -m quantize.codegen generate`."
+    )
+
+
+def test_api_bundle_has_synthetic_object_root_not_oneof() -> None:
+    """The API bundle uses a synthetic object root (json2ts needs a reachable root); the IR
+    bundle's top-level ``oneOf`` union must NOT appear on it."""
+    bundle = build_api_bundle()
+    assert bundle["type"] == "object"
+    assert "oneOf" not in bundle
+    # every $def is reachable from the root so json2ts emits an interface for each
+    assert set(bundle["properties"]) == set(bundle["$defs"])
 
 
 def test_committed_schema_matches_models() -> None:
@@ -34,7 +60,7 @@ def test_committed_schema_matches_models() -> None:
 def test_committed_artifacts_are_lf_only_on_disk() -> None:
     """Guard the byte-stable-LF claim on the raw bytes — the content gate normalizes EOL, so a
     CRLF-corrupted commit (e.g. .gitattributes bypassed) would otherwise slip through."""
-    for path in (SCHEMA_PATH, TS_PATH):
+    for path in (SCHEMA_PATH, TS_PATH, API_SCHEMA_PATH, API_TS_PATH):
         assert b"\r" not in path.read_bytes(), f"{path.name} has CR; artifacts must be LF-only."
 
 

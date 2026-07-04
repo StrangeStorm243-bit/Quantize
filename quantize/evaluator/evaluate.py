@@ -31,31 +31,21 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from quantize.compatibility import is_compatible
-from quantize.components.resolve import (
-    AMBIGUOUS_INPUT,
-    ComponentCatalog,
-    ResolvedComponentInstance,
-    ResolvedStrategy,
-    build_port_tables,
-    duplicate_input_edges,
-    resolve_strategy_components,
-)
+from quantize.components.resolve import ComponentCatalog, ResolvedComponentInstance
 from quantize.evaluator.errors import (
     IMPLEMENTATION_UNAVAILABLE,
     INVALID_TERMINAL_NODE,
     MISSING_RUNTIME_INPUT,
-    MISSING_TERMINAL_NODE,
-    MULTIPLE_TERMINAL_NODES,
     NO_VISIBLE_SESSION,
     NODE_EXECUTION_FAILED,
     WRONG_OUTPUT_PORTS,
     WRONG_OUTPUT_TYPE,
 )
 from quantize.evaluator.plan import topological_order
+from quantize.evaluator.preflight import run_document_preflight, terminal_nodes
 from quantize.market.calendar import require_aware_utc
 from quantize.market.data import DataView, MarketDataSet
-from quantize.registry.registry import NodeRegistryView, ResolutionStatus
+from quantize.registry.registry import ResolutionStatus
 from quantize.runtime.binding import EvaluationMemo, ImplementationCatalog, NodeInvocation
 from quantize.runtime.diagnostics import RuntimeDiagnostic, sort_runtime_diagnostics
 from quantize.runtime.values import (
@@ -71,18 +61,6 @@ from quantize.schema.nodes import ComponentRefNode, Edge, NodeInstance, Register
 from quantize.schema.primitives import JsonValue
 from quantize.tracing.events import TraceEvent
 from quantize.tracing.recorder import TraceRecorder
-from quantize.validation.errors import (
-    INCOMPATIBLE_PORT_TYPES,
-    REQUIRED_INPUT_UNCONNECTED,
-    UNKNOWN_INPUT_PORT,
-    UNKNOWN_OUTPUT_PORT,
-)
-from quantize.validation.semantic import validate_strategy_semantics
-from quantize.validation.structural import validate_strategy_document
-
-# The one graph terminal (STRATEGY_LANGUAGE.md §3). A constant, not a dispatch switch: execution
-# still resolves every node through the catalog.
-TERMINAL_TYPE_ID = "output.target_portfolio"
 
 _RUNTIME_VALUE_TYPES = (
     ScalarValue,
@@ -116,97 +94,6 @@ class EvaluationOutcome:
 def _edge_sources(edges: Sequence[Edge]) -> dict[tuple[str, str], tuple[str, str]]:
     """(target node, input port) -> (source node, output port). Pre-flight rejects fan-in."""
     return {(edge.to[0], edge.to[1]): (edge.from_[0], edge.from_[1]) for edge in edges}
-
-
-def _toplevel_component_wiring(
-    document: StrategyDocument,
-    registry: NodeRegistryView,
-    resolution: ResolvedStrategy,
-) -> list[RuntimeDiagnostic]:
-    """The top-level checks M2 explicitly defers: edges touching component instances (exposed
-    port existence + compatibility), exposed-input connectivity, and ambiguous fan-in."""
-    diagnostics: list[RuntimeDiagnostic] = []
-
-    for node_id, port in duplicate_input_edges(document.edges):
-        diagnostics.append(
-            RuntimeDiagnostic(
-                AMBIGUOUS_INPUT,
-                f"input {port!r} of node {node_id!r} has more than one incoming edge",
-                node_path=(node_id,),
-                subject=port,
-            )
-        )
-
-    definitions_for = {
-        node_id: instance.definition for node_id, instance in resolution.instances.items()
-    }
-    tables = build_port_tables(document.nodes, registry, definitions_for)
-    component_ids = set(definitions_for)
-
-    for edge in document.edges:
-        src_id, src_port = edge.from_
-        dst_id, dst_port = edge.to
-        if src_id not in component_ids and dst_id not in component_ids:
-            continue  # both endpoints registered: fully covered by M2 semantic validation
-        src_outputs = tables.outputs.get(src_id)
-        dst_inputs = tables.inputs.get(dst_id)
-        if src_id in component_ids and src_outputs is not None and src_port not in src_outputs:
-            diagnostics.append(
-                RuntimeDiagnostic(
-                    UNKNOWN_OUTPUT_PORT,
-                    f"component node {src_id!r} exposes no output {src_port!r}",
-                    node_path=(src_id,),
-                    subject=src_port,
-                )
-            )
-        if dst_id in component_ids and dst_inputs is not None and dst_port not in dst_inputs:
-            diagnostics.append(
-                RuntimeDiagnostic(
-                    UNKNOWN_INPUT_PORT,
-                    f"component node {dst_id!r} exposes no input {dst_port!r}",
-                    node_path=(dst_id,),
-                    subject=dst_port,
-                )
-            )
-        if (
-            src_outputs is not None
-            and src_port in src_outputs
-            and dst_inputs is not None
-            and dst_port in dst_inputs
-            and not is_compatible(src_outputs[src_port], dst_inputs[dst_port])
-        ):
-            diagnostics.append(
-                RuntimeDiagnostic(
-                    INCOMPATIBLE_PORT_TYPES,
-                    f"edge {src_id!r}.{src_port!r} -> {dst_id!r}.{dst_port!r} connects "
-                    "incompatible port types",
-                    node_path=(dst_id,),
-                    subject=dst_port,
-                )
-            )
-
-    connected = {(edge.to[0], edge.to[1]) for edge in document.edges}
-    for node_id in sorted(component_ids):
-        for exposed in definitions_for[node_id].exposed_inputs:
-            if (node_id, exposed.name) not in connected:
-                diagnostics.append(
-                    RuntimeDiagnostic(
-                        REQUIRED_INPUT_UNCONNECTED,
-                        f"exposed input {exposed.name!r} of component node {node_id!r} "
-                        "is not connected",
-                        node_path=(node_id,),
-                        subject=exposed.name,
-                    )
-                )
-    return diagnostics
-
-
-def _terminal_nodes(document: StrategyDocument) -> list[RegisteredNode]:
-    return [
-        node
-        for node in document.nodes
-        if isinstance(node, RegisteredNode) and node.type_id == TERMINAL_TYPE_ID
-    ]
 
 
 class _Executor:
@@ -420,48 +307,24 @@ def evaluate_strategy(
         memo.assert_monotonic(instant)
 
     diagnostics: list[RuntimeDiagnostic] = []
-    resolution = ResolvedStrategy(ok=True, diagnostics=(), instances={})
 
-    structural = validate_strategy_document(document)
-    for error in structural.errors:
+    # Document pre-flight is the single shared implementation (also the M9 validate endpoint).
+    # It returns native per-layer shapes; here we down-convert to the uniform runtime stream
+    # (the structural:/semantic: prefixes are the evaluator's presentation), then add the
+    # DATA-dependent NO_VISIBLE_SESSION check below. ``resolution`` is reused for execution.
+    preflight = run_document_preflight(
+        document, registry=catalog.descriptor_registry, components=components
+    )
+    resolution = preflight.resolution
+    for error in preflight.structural:
         diagnostics.append(
             RuntimeDiagnostic(error.code, f"structural: {error.message}", subject=error.subject)
         )
-
-    if structural.ok:
-        registry = catalog.descriptor_registry
-        semantic = validate_strategy_semantics(document, registry)
-        for finding in semantic.diagnostics:
-            diagnostics.append(
-                RuntimeDiagnostic(
-                    finding.code, f"semantic: {finding.message}", subject=finding.subject
-                )
-            )
-        resolution = resolve_strategy_components(
-            document, components or ComponentCatalog(), registry
+    for finding in preflight.semantic:
+        diagnostics.append(
+            RuntimeDiagnostic(finding.code, f"semantic: {finding.message}", subject=finding.subject)
         )
-        diagnostics.extend(resolution.diagnostics)
-
-        if semantic.ok and resolution.ok:
-            diagnostics.extend(_toplevel_component_wiring(document, registry, resolution))
-            terminals = _terminal_nodes(document)
-            if not terminals:
-                diagnostics.append(
-                    RuntimeDiagnostic(
-                        MISSING_TERMINAL_NODE,
-                        f"the graph must terminate in one {TERMINAL_TYPE_ID!r} node",
-                        subject=TERMINAL_TYPE_ID,
-                    )
-                )
-            elif len(terminals) > 1:
-                diagnostics.append(
-                    RuntimeDiagnostic(
-                        MULTIPLE_TERMINAL_NODES,
-                        f"the graph declares {len(terminals)} {TERMINAL_TYPE_ID!r} nodes; "
-                        "exactly one is required",
-                        subject=TERMINAL_TYPE_ID,
-                    )
-                )
+    diagnostics.extend(preflight.runtime)
 
     view = market_data.as_of(instant)
     if view.latest_session_date is None:
@@ -504,7 +367,7 @@ def evaluate_strategy(
         return outcome(False, None, executor.store, recorder.events)
 
     # Terminal extraction: the value delivered to the single terminal's single input.
-    terminal = _terminal_nodes(document)[0]
+    terminal = terminal_nodes(document)[0]
     terminal_resolution = catalog.resolve(terminal.type_id, terminal.type_version)
     assert terminal_resolution.implementation is not None  # pre-flight resolved it
     terminal_inputs = terminal_resolution.implementation.descriptor.inputs

@@ -15,12 +15,32 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel
 from pydantic.json_schema import models_json_schema
 
+from quantize.api.dto.common import ApiError, MetaResponse
+from quantize.api.dto.datasets import DatasetStored, DatasetUpload
+from quantize.api.dto.documents import (
+    ComponentList,
+    ComponentSaved,
+    StrategyList,
+    StrategySaved,
+    VersionList,
+)
+from quantize.api.dto.runs import (
+    BacktestRunRequest,
+    ForwardRunRequest,
+    RunCreated,
+    RunList,
+    RunRecordResponse,
+    TraceResponse,
+)
+from quantize.api.dto.validate import ValidateResponse
 from quantize.schema import ComponentDefinition, StrategyDocument
 from quantize.schema.version import CURRENT_SCHEMA_VERSION
 
@@ -41,6 +61,38 @@ SCHEMA_DESCRIPTION = (
 _ROOT_MODELS: list[tuple[type[BaseModel], Literal["validation", "serialization"]]] = [
     (StrategyDocument, "serialization"),
     (ComponentDefinition, "serialization"),
+]
+
+# --- The API DTO bundle (second, independent artifact) ----------------------------------------
+API_SCHEMA_PATH = REPO_ROOT / "schema" / "quantize-api.schema.json"
+API_TS_PATH = REPO_ROOT / "ts" / "quantize-api.d.ts"
+API_SCHEMA_ID = f"https://quantize.dev/schema/{CURRENT_SCHEMA_VERSION}/quantize-api.schema.json"
+API_SCHEMA_TITLE = "QuantizeApi"
+API_SCHEMA_DESCRIPTION = (
+    "Bundled Quantize HTTP API request/response envelope contract (M9 boundary)."
+)
+
+# The API envelope roots, in serialization mode (they describe the shapes that cross the wire).
+# Referenced-but-unlisted models (diagnostic/list-row/nested DTOs, and the reused
+# PersistedRunRecord / TraceEvent / RunInputProvenance trees) are pulled into ``$defs`` by
+# reference. Do NOT add these to the IR ``_ROOT_MODELS`` — that would corrupt the IR union.
+_API_ROOT_MODELS: list[tuple[type[BaseModel], Literal["validation", "serialization"]]] = [
+    (ApiError, "serialization"),
+    (MetaResponse, "serialization"),
+    (ValidateResponse, "serialization"),
+    (StrategySaved, "serialization"),
+    (StrategyList, "serialization"),
+    (VersionList, "serialization"),
+    (ComponentSaved, "serialization"),
+    (ComponentList, "serialization"),
+    (DatasetUpload, "serialization"),
+    (DatasetStored, "serialization"),
+    (BacktestRunRequest, "serialization"),
+    (ForwardRunRequest, "serialization"),
+    (RunCreated, "serialization"),
+    (RunList, "serialization"),
+    (RunRecordResponse, "serialization"),
+    (TraceResponse, "serialization"),
 ]
 
 
@@ -85,6 +137,47 @@ def build_bundle() -> dict[str, Any]:
         ],
         "$defs": defs,
     }
+
+
+def build_api_bundle() -> dict[str, Any]:
+    """Return the canonical bundled JSON Schema dict for the API DTO roots.
+
+    Unlike the IR bundle there is no natural persisted-document union, so instead of a top-level
+    ``oneOf`` this emits a synthetic object root with one optional property per ``$defs`` member
+    (json-schema-to-typescript emits an interface only for schemas reachable from the root; a
+    defs-only bundle yields a single index-signature interface — proven empirically). The
+    ``QuantizeApi`` umbrella interface it produces is a codegen vehicle, never an API payload.
+    """
+    _key_map, top = models_json_schema(_API_ROOT_MODELS, ref_template="#/$defs/{model}")
+    defs = _clean_defs(top["$defs"])
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": API_SCHEMA_ID,
+        "title": API_SCHEMA_TITLE,
+        "description": API_SCHEMA_DESCRIPTION,
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {name: {"$ref": f"#/$defs/{name}"} for name in sorted(defs)},
+        "$defs": defs,
+    }
+
+
+@dataclass(frozen=True)
+class BundleSpec:
+    """One codegen artifact pair: how to build its bundle and where its schema/TS files live."""
+
+    name: str
+    build: Callable[[], dict[str, Any]]
+    schema_path: Path
+    ts_path: Path
+
+
+# The full set of governed artifact pairs. The IR bundle MUST stay first and byte-unchanged;
+# the API bundle is additive. ``pipeline`` iterates this to generate/check every artifact.
+BUNDLES: tuple[BundleSpec, ...] = (
+    BundleSpec("IR", build_bundle, SCHEMA_PATH, TS_PATH),
+    BundleSpec("API", build_api_bundle, API_SCHEMA_PATH, API_TS_PATH),
+)
 
 
 def build_ts_input(bundle: dict[str, Any]) -> dict[str, Any]:
