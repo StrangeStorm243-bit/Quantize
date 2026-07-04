@@ -158,9 +158,24 @@ export function decideConnection(
 export interface CanvasProps {
   doc: StrategyDocument
   actions: StrategyDocumentActions
+  /**
+   * Notify the App that a node was clicked (M11.5). Selection is App-level state — NOT React Flow's
+   * transient selection, which the doc re-seed would drop. Optional so M11.4 tests keep passing.
+   */
+  onNodeClick?: (nodeId: string) => void
+  /** The App-selected node id: marks that RF node `selected` so the canvas shows the selection. */
+  selectedNodeId?: string | null
+  /** A validate-highlighted edge INDEX (into `doc.edges`); marks the matching RF edge `selected`. */
+  highlightedEdgeIndex?: number | null
 }
 
-export function Canvas({ doc, actions }: CanvasProps): ReactElement {
+export function Canvas({
+  doc,
+  actions,
+  onNodeClick,
+  selectedNodeId,
+  highlightedEdgeIndex,
+}: CanvasProps): ReactElement {
   const { catalog, loading, error } = useCatalog()
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance<StrategyFlowNode, FlowEdge> | null>(
     null,
@@ -172,10 +187,12 @@ export function Canvas({ doc, actions }: CanvasProps): ReactElement {
   const project = useCallback((): { nodes: StrategyFlowNode[]; edges: FlowEdge[] } => {
     const flow = toFlow(doc, catalog)
     return {
-      nodes: flow.nodes.map((n) => ({ ...n, type: STRATEGY_NODE_TYPE })),
-      edges: flow.edges,
+      // Mark the App-selected node so the canvas reflects the current selection/highlight.
+      nodes: flow.nodes.map((n) => ({ ...n, type: STRATEGY_NODE_TYPE, selected: n.id === selectedNodeId })),
+      // `toFlow` maps `doc.edges` in order, so flow index === doc-edge index — the highlight target.
+      edges: flow.edges.map((e, i) => (i === highlightedEdgeIndex ? { ...e, selected: true } : e)),
     }
-  }, [doc, catalog])
+  }, [doc, catalog, selectedNodeId, highlightedEdgeIndex])
 
   // React Flow owns LOCAL node/edge state so it can move nodes and draw edges interactively; the
   // document remains the source of truth. We re-seed that local state from the document whenever the
@@ -243,6 +260,13 @@ export function Canvas({ doc, actions }: CanvasProps): ReactElement {
       actions.setNodeUi(node.id, { position: { x: node.position.x, y: node.position.y } })
     },
     [actions],
+  )
+
+  const onNodeClickHandler = useCallback(
+    (_event: unknown, node: StrategyFlowNode) => {
+      onNodeClick?.(node.id)
+    },
+    [onNodeClick],
   )
 
   const onDragOver = useCallback((event: DragEvent) => {
@@ -314,6 +338,7 @@ export function Canvas({ doc, actions }: CanvasProps): ReactElement {
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         onNodeDragStop={onNodeDragStop}
+        onNodeClick={onNodeClickHandler}
         fitView
       >
         <Background />

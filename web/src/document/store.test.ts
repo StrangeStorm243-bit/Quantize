@@ -3,6 +3,7 @@ import type { RegisteredNode, StrategyDocument } from '@quantize/quantize-ir'
 import { PLACEHOLDER_USER_ID, SCHEMA_VERSION } from '../config'
 import {
   addNode,
+  bumpStrategyVersion,
   connect,
   disconnect,
   newStrategyDocument,
@@ -177,6 +178,36 @@ describe('verbatim preservation (the core law)', () => {
     for (const doc of survivors) {
       expect((doc as unknown as Record<string, unknown>).__future_field__).toEqual({ keep: 'me' })
     }
+  })
+})
+
+describe('bumpStrategyVersion', () => {
+  it('increments strategy.version by one and preserves every other field verbatim', () => {
+    const doc = makeFixture()
+    const before = snap(doc)
+    const result = bumpStrategyVersion(doc)
+
+    // Input untouched, a new object returned.
+    expect(snap(doc)).toEqual(before)
+    expect(result).not.toBe(doc)
+
+    // Only strategy.version moved 3 → 4; the rest of the document is byte-identical.
+    expect(result.strategy.version).toBe(4)
+    const expected = makeFixture()
+    expected.strategy.version = 4
+    expect(snap(result)).toEqual(snap(expected))
+  })
+
+  it('is pure — a genuinely-unknown future field survives the bump', () => {
+    const base = { ...makeFixture(), __future_field__: { keep: 'me' } } as unknown as StrategyDocument
+    const result = bumpStrategyVersion(base)
+    expect((result as unknown as Record<string, unknown>).__future_field__).toEqual({ keep: 'me' })
+    expect(result.strategy.version).toBe(4)
+  })
+
+  it('takes version 1 → 2 on a fresh document', () => {
+    const doc = newStrategyDocument('s')
+    expect(bumpStrategyVersion(doc).strategy.version).toBe(2)
   })
 })
 

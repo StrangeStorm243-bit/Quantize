@@ -147,6 +147,19 @@ export function setParams(
 }
 
 /**
+ * Increment the strategy VERSION by one, preserving every other field verbatim (D7). Save always
+ * bumps the version to persist edits: a different document at an existing `(strategy_id, version)`
+ * is a 409 by design, so the 409-recovery flow calls this and retries. Pure — `structuredClone`
+ * deep-copies the input (no shared references, unknown/future keys carried) and only `strategy.version`
+ * changes; the input is never mutated.
+ */
+export function bumpStrategyVersion(doc: StrategyDocument): StrategyDocument {
+  const next = structuredClone(doc)
+  next.strategy.version += 1
+  return next
+}
+
+/**
  * Merge into a node's `ui` (used for position updates). A shallow merge preserves other ui keys
  * (e.g. `collapsed`) so a position write never wipes them — `ui.*` is preserved round-trip.
  */

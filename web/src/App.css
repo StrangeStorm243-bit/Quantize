@@ -74,7 +74,7 @@ body {
 .app-region--bottom {
   border-top: 1px solid #d8dbe0;
   background: #fbfbfc;
-  max-height: 160px;
+  max-height: 220px;
 }
 
 .placeholder {
@@ -219,4 +219,331 @@ body {
 .snode__req {
   color: #b4232a;
   font-weight: 700;
+}
+
+/* --- Inspector + ParamForm -------------------------------------------------------------------- */
+
+.inspector {
+  padding: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.inspector--empty {
+  padding: 1rem;
+  color: #8a909c;
+  font-size: 0.85rem;
+}
+
+.inspector__head {
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e4e7ec;
+}
+
+.inspector__type {
+  font-weight: 600;
+}
+
+.inspector__typeid {
+  font-size: 0.72rem;
+  color: #8a909c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.inspector__desc {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  color: #5a6070;
+}
+
+.inspector__unknown {
+  color: #b4232a;
+  font-size: 0.8rem;
+}
+
+.pform {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.pform__empty {
+  color: #8a909c;
+  font-size: 0.82rem;
+}
+
+.pform__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.pform__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+}
+
+.pform__field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pform__label-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.pform__label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #4a4f5a;
+}
+
+.pform__input,
+.pform__textarea {
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #d8dbe0;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-family: inherit;
+}
+
+.pform__textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+
+.pform__hint {
+  font-size: 0.72rem;
+  color: #8a909c;
+}
+
+.pform__hint--error {
+  color: #b4232a;
+}
+
+.pform__required {
+  font-size: 0.68rem;
+  color: #b4232a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 1.1rem;
+}
+
+.pform__chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.pform__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid #b7c7f7;
+  border-radius: 12px;
+  background: #f0f4ff;
+  font-size: 0.78rem;
+}
+
+.pform__chip-remove {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #4a4f5a;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.pform__chip-add {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.pform__btn {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #d8dbe0;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.pform__btn:hover {
+  border-color: #4a6cf7;
+}
+
+.pform__btn--primary {
+  background: #4a6cf7;
+  border-color: #4a6cf7;
+  color: #fff;
+}
+
+/* --- Validate panel --------------------------------------------------------------------------- */
+
+.vpanel {
+  padding: 0.75rem;
+  border-top: 1px solid #e4e7ec;
+  font-size: 0.82rem;
+}
+
+.vpanel__bar {
+  margin-bottom: 0.5rem;
+}
+
+.vpanel__request-error {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #e6a2a4;
+  border-radius: 5px;
+  background: #fdecec;
+  color: #8f1d22;
+}
+
+.vpanel__ok {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #a7d7b0;
+  border-radius: 5px;
+  background: #edf7ef;
+  color: #1f6b34;
+}
+
+.vpanel__layer {
+  margin-top: 0.5rem;
+}
+
+.vpanel__layer-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8a909c;
+}
+
+.vpanel__diag-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.vpanel__diag-btn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #e4e7ec;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.vpanel__diag-btn:hover:not(:disabled) {
+  border-color: #4a6cf7;
+  background: #f0f4ff;
+}
+
+.vpanel__diag-btn:disabled {
+  cursor: default;
+}
+
+.vpanel__diag-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: #8f1d22;
+}
+
+.vpanel__diag-subject {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #4a6cf7;
+}
+
+/* --- Strategy panel --------------------------------------------------------------------------- */
+
+.spanel {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.spanel__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.spanel__actions .pform__input {
+  width: auto;
+  flex: 0 1 180px;
+}
+
+.spanel__status {
+  color: #1f6b34;
+  margin-bottom: 0.4rem;
+}
+
+.spanel__error {
+  color: #b4232a;
+  margin-bottom: 0.4rem;
+}
+
+.spanel__dialog {
+  padding: 0.5rem 0.6rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid #e6c07a;
+  border-radius: 5px;
+  background: #fdf6e7;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.spanel__dialog p {
+  margin: 0;
+  flex: 1 1 100%;
+}
+
+.spanel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.spanel__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #e4e7ec;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.spanel__row-name {
+  font-weight: 600;
+}
+
+.spanel__row-meta {
+  flex: 1;
+  color: #8a909c;
+  font-size: 0.74rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
