@@ -46,7 +46,9 @@ with **structured decision tracing**. The visual canvas is only an editor for th
   `npm ci` under Node 24; never run the Node toolchain under Node 25+.
 - **Run backend / API (M9):** `uvicorn quantize.api.app:create_app --factory --host 127.0.0.1
   --port 8000` (localhost binding is the documented default — no auth exists by design; the DB
-  path is `QUANTIZE_DB_PATH`, default `quantize.db`).  ·  **Run frontend (editor):** _TBD (M11)_
+  path is `QUANTIZE_DB_PATH`, default `quantize.db`). `GET /v1/node-types` (M10) serves the
+  read-only node-type descriptor + parameter-form + compatibility metadata (M11 editor
+  prerequisites).  ·  **Run frontend (editor):** _TBD (M11)_
 - **Generate JSON Schema + TS types (codegen):** `python -m quantize.codegen generate` (emits
   `schema/quantize.schema.json` + `ts/quantize-ir.d.ts`; needs Node 24 on PATH for the TS step).
   Verify without writing: `python -m quantize.codegen check`. TypeScript compile gate: `npm run

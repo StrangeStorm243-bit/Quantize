@@ -897,3 +897,64 @@ true) — the same fact that makes the ui-only-edit test a 409. *Outcome:* …
 
 **Status:** M9 implemented on `feat/m9-api-boundary` across packets M9.0–M9.8; both gates green
 (PowerShell + POSIX), 825 tests. M9.9 (replay-verify endpoint) deferred per founder decision #3.
+
+---
+
+## M10 — Registry-descriptor + parameter-form metadata API (2026-07-04)
+
+**Concepts introduced:**
+
+- *Derived contracts vs. sources of truth.* The node catalog is **generated from the registry per
+  request** and **never persisted** — the route builds a fresh `build_core_catalog()` and projects
+  descriptors on every GET. Because the catalog cannot be stored, it cannot drift from the registry
+  that produced it: this is the concrete mitigation for "descriptor/registry divergence." Contrast
+  with the persisted IR document (a genuine stored source of truth needing migrations): a projection
+  has no such lifecycle. *Where:* `quantize/api/routes/catalog.py`, `quantize/registry/export.py`.
+- *Content hashing as identity.* `catalog_digest` is a SHA-256 over the canonical JSON of the
+  projection **body** (the `compatibility`/`node_types`/`port_types` object, sorted keys, tight
+  separators) — deliberately **excluding** the `api_version`/`schema_version` labels and the digest
+  itself. It gives the M11 editor a cache key that changes **exactly when the metadata changes** and
+  not otherwise, so a client can skip re-rendering when the hash is unchanged. *Where:*
+  `quantize/registry/export.py` (`catalog_digest`).
+- *Closed type lattices.* The 8-member `PORT_TYPE_LATTICE` and the derived 9-pair compatibility
+  allow-list are **enumerable** only because the `PortType` union is *closed* (a fixed set of
+  `kind`/`dtype` Literals). A closure test derives the full variant set from the union's type
+  annotations and asserts equality with the pinned tuple — so a future `Matrix`/new-dtype
+  registration **fails loud** there instead of silently under-reporting the lattice. The
+  compatibility list is enumerated by calling the single shared `is_compatible` over the lattice's
+  cartesian product — derived data, never a re-encoded rule. *Where:* `quantize/schema/types.py`
+  (the union + `render_port_type`), `quantize/registry/export.py`, `quantize/compatibility.py`.
+- *Verbatim JSON Schema as the form contract.* Each node's `parameter_schema` is served **as-is** —
+  the exact Draft 2020-12 fragment the node declares (`JsonSchemaSpec.document`, a deep copy), not a
+  flattened field list. So rich parameter shapes survive intact: `portfolio.fixed_weight`'s `oneOf`
+  and `universe.fixed_list`'s array would be destroyed by a flat form-field DTO, and are exactly why
+  the payload promises "a self-contained JSON Schema document," not a keyword list. Defaults live
+  only in the schema's `default` keyword — no parallel defaults field. *Where:*
+  `quantize/registry/schema_spec.py` (`document`), `quantize/api/dto/catalog.py` (`NodeTypeDto`).
+
+**Files studied:** `quantize/registry/descriptor.py` (the `NodeDescriptor` model, built for this in
+M2) → `quantize/registry/export.py` (lattice, `compatible_pairs`, `catalog_digest`) →
+`quantize/api/dto/catalog.py` (the six governed DTOs) → `quantize/api/routes/catalog.py` (the pure
+projection handler). Also `quantize/registry/schema_spec.py` (the new `document` accessor exposing
+the held schema) and `quantize/schema/types.py` (the closed `PortType` union + `render_port_type`).
+
+**Reading path:** start at `export.py` to see the pure derivation primitives (what the lattice is,
+how compatibility is enumerated from `is_compatible`, how the digest is computed); then read
+`schema_spec.py`'s `document` property (the one enabling change in `registry/` — why a deep copy);
+then `dto/catalog.py` (the wire shapes, all frozen/extra-forbid); finally `routes/catalog.py` to see
+those three composed per request with no DB and no numerics. Confirm the seam: the endpoint calls
+domain functions, it does not re-implement them.
+
+**Exercise (implement by hand):** in a **scratch branch**, add a hypothetical widening
+`Scalar[Boolean] -> CrossSection[Boolean]` to `is_compatible` in `quantize/compatibility.py`, then
+run `pytest`. *Prediction:* exactly THREE tests fail — the compatible-pairs count/shape test in
+`tests/test_registry_export.py` (9 → 10 pairs), the endpoint compatibility-enumeration/count test in
+`tests/api/test_catalog_endpoint.py`, and the committed golden `tests/goldens/node_catalog.json`
+(the extra pair changes the pinned body). Note the parity test
+(`test_compatibility_equals_is_compatible_enumeration`) does NOT fail — it re-derives from the same
+mutated `is_compatible`, so it stays green: that is the point of derived-not-duplicated data. Then
+revert the branch. *Outcome:* … (left for the founder to run and record).
+
+**Status:** M10 implemented on `feat/m10-descriptor-api` across packets M10.1–M10.4; both gates
+green (PowerShell + POSIX), 866 tests. This is a **projection** endpoint — no persistence, no
+migration, no engine change; the catalog is derived from the registry per request.

@@ -408,6 +408,43 @@ no-op if re-run in M10.3/M10.4). Baseline: 847 tests collected at plan time — 
 
 ## Closeout (appended by the implementer)
 
-_TBD at execution: gate outputs, final test count, LEARNING_LOG link, deviations (should be
-none), and the M11-facing notes (what the editor consumes and the two founder flip-points'
-final state)._
+M10 landed across four packets on `feat/m10-descriptor-api` off `origin/main`: M10.1 `de66ef4`
+(registry export primitives + enabling seams), M10.2 `a342dc9` (catalog DTOs + frozen codegen
+bundle), M10.3 `709e50d` (`GET /v1/node-types` endpoint + golden), M10.4 (API TS compile gate +
+docs + closeout, this packet).
+
+**Final gate outputs (both, run at M10.4 close from repo root):**
+
+- `./scripts/gate.ps1` — ALL STAGES PASSED: `866 passed` (pytest) · `ruff check` all passed ·
+  `ruff format --check` 180 files formatted · `mypy` no issues in 180 files · node24 active
+  (v24.18.0) · `codegen check` up to date · `tsc --noEmit` clean.
+- `bash scripts/gate.sh` — identical: `866 passed` · ruff/format/mypy clean · node24 v24.18.0 ·
+  codegen up to date · tsc clean · ALL STAGES PASSED.
+
+**Final test count:** 866 (baseline at plan time was 847; M10 added the registry-export, catalog
+DTO/contract, and endpoint/golden tests).
+
+**Codegen:** `codegen check` clean at close — M10.2 regenerated the API bundle
+(`schema/quantize-api.schema.json` + `ts/quantize-api.d.ts`); M10.3/M10.4 were no-ops for codegen,
+and the IR bundle (`schema/quantize.schema.json`, `ts/quantize-ir.d.ts`) is byte-unchanged.
+
+**Compile gate (the pre-existing gap this milestone closed):** `ts/quantize-api.d.ts` +
+`ts/fixtures/api-usage.ts` were added to `tsconfig.json` `files`; `npm run typecheck` compiles the
+API declarations strictly (the trial compile at plan time was clean; no pre-existing errors in the
+generated `.d.ts`, so no milestone stop was triggered). The fixture also exercises `ValidateResponse`
+(generated in M9, never compiled until now).
+
+**Deviations:** none. All ratified decisions held; no stop condition triggered; no engine/node/
+persisted-format/migration change; no hand-edited generated artifact.
+
+**Founder flip-points — final state:**
+1. Endpoint path shipped as `/v1/node-types` (the plan default; `/v1/registry/nodes` not adopted).
+2. `catalog_digest` shipped/included in `NodeCatalogResponse` (sha256 over the canonical projection
+   body excluding the identity fields; the golden additionally provides the reviewed-diff guarantee).
+
+**M11-facing notes (what the editor consumes):** a single GET returns the whole catalog — the closed
+8-member port-type lattice with server-rendered labels, the 9-pair directional compatibility
+allow-list (derived from `is_compatible`, so editor edge-validation matches the server), and one
+entry per registered `(type_id, type_version)` with typed ports, `display_name`/`description`, and
+the verbatim parameter JSON Schema (defaults in the schema's `default` keyword). `catalog_digest` is
+the editor's cache key. No CORS is configured — that arrives scoped with the editor in M11.
