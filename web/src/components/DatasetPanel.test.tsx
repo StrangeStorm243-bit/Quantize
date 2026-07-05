@@ -85,6 +85,28 @@ describe('DatasetPanel', () => {
     expect(mockUpload).not.toHaveBeenCalled()
   })
 
+  it('resets the file input after handling so re-selecting the SAME file retries (F5)', async () => {
+    mockUpload.mockResolvedValue(STORED)
+    render(<DatasetPanel activeDatasetId={undefined} onSelectDataset={vi.fn()} />)
+    const input = screen.getByLabelText(/upload dataset/i) as HTMLInputElement
+    // Capture assignments to `.value` (a file input can only be programmatically set to '').
+    const assigned: string[] = []
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      get: () => assigned[assigned.length - 1] ?? '',
+      set: (v: string) => {
+        assigned.push(v)
+      },
+    })
+
+    fireEvent.change(input, { target: { files: [jsonFile('{"calendar":{},"observations":{}}')] } })
+
+    // The handler clears the input synchronously so an identical re-pick re-fires `change` (a browser
+    // suppresses the event when the value is unchanged → otherwise a silent dead retry).
+    expect(assigned).toContain('')
+    await waitFor(() => expect(mockUpload).toHaveBeenCalled())
+  })
+
   it('surfaces a 422 invalid_dataset ApiClientError as a clear message', async () => {
     mockUpload.mockRejectedValue(new ApiClientError('invalid_dataset', 'dataset is invalid', 422))
     render(<DatasetPanel activeDatasetId={undefined} onSelectDataset={vi.fn()} />)

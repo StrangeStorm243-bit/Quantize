@@ -105,6 +105,22 @@ describe('RunPanel', () => {
     )
   })
 
+  it('rejects an empty initial-cash field instead of submitting a silent $0 run (F3)', async () => {
+    const doc = makeDoc()
+    render(
+      <RunPanel doc={doc} datasetId={DATASET} selectedRunId={undefined} onSelectRun={vi.fn()} />,
+    )
+    await waitFor(() => expect(mockListRuns).toHaveBeenCalled()) // flush the mount fetch
+
+    // Clear the cash field, then submit. `Number('') === 0` would pass the finiteness guard, so the
+    // blank must be caught first — no request is sent.
+    fireEvent.change(screen.getByLabelText(/initial cash/i), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /run backtest/i }))
+
+    expect(await screen.findByText(/initial cash is required/i)).toBeInTheDocument()
+    expect(mockBacktest).not.toHaveBeenCalled()
+  })
+
   it('disables submit when no dataset is selected', async () => {
     render(
       <RunPanel doc={makeDoc()} datasetId={undefined} selectedRunId={undefined} onSelectRun={vi.fn()} />,

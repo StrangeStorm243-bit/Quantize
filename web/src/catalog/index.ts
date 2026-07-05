@@ -18,7 +18,7 @@ import type {
   TimeSeriesType,
 } from '@quantize/quantize-api'
 import type { JsonValue } from '@quantize/quantize-ir'
-import { getNodeCatalog } from '../api/client'
+import { errorMessage, getNodeCatalog } from '../api/client'
 
 /**
  * The port-type lattice union. This is a type ALIAS composed from the generated variants — the exact
@@ -158,8 +158,7 @@ export function CatalogProvider(props: { children: ReactNode }): ReactElement {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          const message = err instanceof Error ? err.message : String(err)
-          setState({ catalog: undefined, loading: false, error: message })
+          setState({ catalog: undefined, loading: false, error: errorMessage(err) })
         }
       })
     return () => {

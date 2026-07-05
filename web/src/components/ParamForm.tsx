@@ -38,6 +38,20 @@ function asNumber(v: JsonValue | undefined): number | undefined {
   return typeof v === 'number' ? v : undefined
 }
 
+/**
+ * Parse a raw number-input string to a FINITE number, or `undefined` for empty / garbage / non-finite.
+ * Rejecting non-finite (`NaN`, `Infinity`) is essential, not cosmetic: `JSON.stringify(Infinity)` is
+ * the string `'null'`, so an un-guarded Infinity would silently corrupt to null on the wire. Shared by
+ * NumberControl and the oneOf number branch so both guard identically.
+ */
+export function parseFiniteNumber(raw: string): number | undefined {
+  if (raw === '') {
+    return undefined
+  }
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : undefined
+}
+
 // Build the next params: set the key, or DELETE it when the value is undefined (a cleared optional).
 function nextParams(params: NodeParams, name: string, value: JsonValue | undefined): NodeParams {
   const next: NodeParams = { ...params }
@@ -77,15 +91,7 @@ function NumberControl({ name, prop, current, emit }: ControlProps): ReactElemen
           step={isInteger ? 1 : 'any'}
           min={minAttr}
           max={maximum}
-          onChange={(e) => {
-            const raw = e.target.value
-            if (raw === '') {
-              emit(undefined)
-              return
-            }
-            const n = Number(raw)
-            emit(Number.isNaN(n) ? undefined : n)
-          }}
+          onChange={(e) => emit(parseFiniteNumber(e.target.value))}
         />
       </label>
       {exclusiveMinimum !== undefined ? (
@@ -206,14 +212,21 @@ function OneOfControl({ name, prop, current, emit }: ControlProps): ReactElement
   const hasNumberBranch = branches.some((b) => b.type === 'number' || b.type === 'integer')
 
   const currentConstIndex = constBranches.findIndex((b) => b.const === current)
+  // When there is NO current value (a required oneOf with no schema `default`, e.g.
+  // portfolio.fixed_weight.weight_per_asset), start UNSELECTED — mode `''` renders a disabled
+  // placeholder so NOTHING appears chosen. Emitting a branch only happens when the user picks one:
+  // showing a const branch as selected without emitting it makes the document lack a value the UI
+  // implies it has, so a save then fails required-param validation confusingly. We never emit on mount.
   const initialMode =
     currentConstIndex >= 0
       ? `const:${currentConstIndex}`
       : typeof current === 'number' && hasNumberBranch
         ? 'number'
-        : constBranches.length > 0
-          ? 'const:0'
-          : 'number'
+        : current === undefined
+          ? ''
+          : constBranches.length > 0
+            ? 'const:0'
+            : 'number'
   const [mode, setMode] = useState(initialMode)
 
   const options: { value: string; label: string }[] = constBranches.map((b, i) => ({
@@ -226,6 +239,10 @@ function OneOfControl({ name, prop, current, emit }: ControlProps): ReactElement
 
   const onModeChange = (value: string): void => {
     setMode(value)
+    if (value === '') {
+      // The disabled placeholder is not selectable via the UI; guard anyway and emit nothing.
+      return
+    }
     if (value.startsWith('const:')) {
       const idx = Number(value.slice('const:'.length))
       emit(constBranches[idx]?.const)
@@ -244,6 +261,11 @@ function OneOfControl({ name, prop, current, emit }: ControlProps): ReactElement
         value={mode}
         onChange={(e) => onModeChange(e.target.value)}
       >
+        {mode === '' ? (
+          <option value="" disabled>
+            — select —
+          </option>
+        ) : null}
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
@@ -256,15 +278,7 @@ function OneOfControl({ name, prop, current, emit }: ControlProps): ReactElement
           className="pform__input"
           aria-label={`${name} value`}
           value={typeof current === 'number' ? current : ''}
-          onChange={(e) => {
-            const raw = e.target.value
-            if (raw === '') {
-              emit(undefined)
-              return
-            }
-            const n = Number(raw)
-            emit(Number.isNaN(n) ? undefined : n)
-          }}
+          onChange={(e) => emit(parseFiniteNumber(e.target.value))}
         />
       ) : null}
     </div>

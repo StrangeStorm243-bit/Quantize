@@ -7,7 +7,7 @@ import type { JsonValue } from '@quantize/quantize-ir'
 import catalogJson from '../../../tests/goldens/node_catalog.json'
 import { nodeTypeById } from '../catalog'
 import type { NodeParams } from '../document/store'
-import { ParamForm } from './ParamForm'
+import { ParamForm, parseFiniteNumber } from './ParamForm'
 import type { ParameterSchema } from './ParamForm'
 
 const catalog = catalogJson as unknown as NodeCatalogResponse
@@ -19,6 +19,28 @@ function schemaOf(typeId: string): ParameterSchema {
   }
   return nt.parameter_schema
 }
+
+// F4: the shared numeric parse both NumberControl and the oneOf number branch use. Tested directly
+// because a jsdom number input SANITIZES an Infinity-overflowing string to '' before the handler sees
+// it, so the guard is unreachable through the DOM — but it is exactly the wire-corruption guard.
+describe('parseFiniteNumber (F4)', () => {
+  it('parses a finite number', () => {
+    expect(parseFiniteNumber('20')).toBe(20)
+    expect(parseFiniteNumber('0.5')).toBe(0.5)
+    expect(parseFiniteNumber('-3')).toBe(-3)
+  })
+
+  it('returns undefined for empty / garbage', () => {
+    expect(parseFiniteNumber('')).toBeUndefined()
+    expect(parseFiniteNumber('abc')).toBeUndefined()
+  })
+
+  it('rejects a non-finite number (Infinity → undefined, never null-on-the-wire)', () => {
+    expect(Number('1e999')).toBe(Infinity) // guard: this literal truly overflows
+    expect(parseFiniteNumber('1e999')).toBeUndefined()
+    expect(parseFiniteNumber('9'.repeat(400))).toBeUndefined()
+  })
+})
 
 describe('ParamForm', () => {
   it('renders transform.rank as a checkbox seeded from params (descending: true)', () => {
@@ -98,6 +120,28 @@ describe('ParamForm', () => {
     onParamsChange.mockClear()
     fireEvent.change(select, { target: { value: 'const:0' } })
     expect(onParamsChange).toHaveBeenCalledWith({ weight_per_asset: 'equal' })
+  })
+
+  it('renders a fixed_weight oneOf with NO current value as unselected, emitting nothing until picked (F2)', () => {
+    const onParamsChange = vi.fn()
+    // `weight_per_asset` is required but has no schema `default`, so a fresh node omits it. The control
+    // must NOT show a branch as chosen (the document has no value); it shows a placeholder.
+    render(<ParamForm schema={schemaOf('portfolio.fixed_weight')} params={{}} onParamsChange={onParamsChange} />)
+    const select = screen.getByLabelText('weight_per_asset') as HTMLSelectElement
+    // Nothing chosen: value is the empty placeholder, and no number sub-input is shown, and no emit.
+    expect(select.value).toBe('')
+    expect(screen.queryByLabelText('weight_per_asset value')).not.toBeInTheDocument()
+    expect(onParamsChange).not.toHaveBeenCalled()
+
+    // Picking "equal" emits the const literal.
+    fireEvent.change(select, { target: { value: 'const:0' } })
+    expect(onParamsChange).toHaveBeenCalledWith({ weight_per_asset: 'equal' })
+
+    // Picking the number branch then typing emits the number.
+    onParamsChange.mockClear()
+    fireEvent.change(select, { target: { value: 'number' } })
+    fireEvent.change(screen.getByLabelText('weight_per_asset value'), { target: { value: '0.25' } })
+    expect(onParamsChange).toHaveBeenCalledWith({ weight_per_asset: 0.25 })
   })
 
   it('falls back to a raw-JSON textarea for an unrenderable construct', () => {

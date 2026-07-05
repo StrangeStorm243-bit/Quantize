@@ -396,8 +396,12 @@ localStorage memo; one-slice change.
 ## Closeout (2026-07-04)
 
 **Status: M11 COMPLETE on `feat/m11-editor`.** The full Build → Test → Run → Inspect → Modify journey
-(§3) is wired end-to-end. Both gates green (PowerShell + POSIX): **875 Python tests + 102 web (vitest)
-tests**, `npm run build` succeeds. (Includes a post-review follow-up: a boot-time schema-version
+(§3) is wired end-to-end. Both gates green (PowerShell + POSIX): **875 Python tests + 119 web (vitest)
+tests**, `npm run build` succeeds. (Includes two post-review follow-ups: `M11.8` a boot-time
+schema-version drift check, and `M11.9` fixing all 10 findings of a final independent multi-agent
+review — stale edge-highlight index, oneOf display/emit mismatch, empty-cash guard, non-finite
+number guard, dataset file-input reset, multi-select disable, lifted run-record fetch, a shared
+errorMessage helper, a useFetch hook, and a dead double-projection removal.) The schema-version
 drift check — `meta.ts`'s `useSchemaVersionCheck` warns, never crashes, if `/v1/meta` reports a
 different `schema_version` than the pinned one — fulfilling the `config.ts` pin-vs-service contract.)
 

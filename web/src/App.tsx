@@ -6,8 +6,10 @@
 // The App holds the two pieces of view state the panels coordinate over: `selectedNodeId` (set on a
 // canvas node click OR by a validate highlight) and `highlightedEdgeIndex` (set by a validate edge
 // highlight). Both are DERIVED view state, never a second source of truth — the document is canonical.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
+import type { RunRecordResponse } from '@quantize/quantize-api'
+import { errorMessage, getRun } from './api/client'
 import { CatalogProvider } from './catalog'
 import { Canvas } from './components/Canvas'
 import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
@@ -49,6 +51,54 @@ export function App(): ReactElement {
   const [tab, setTab] = useState<PanelTab>('strategies')
   const [datasetId, setDatasetId] = useState<string | undefined>(initialDatasetId)
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
+
+  // The run record is fetched ONCE per selected run and held here (not in the panels): ResultsView and
+  // TraceView are conditionally mounted per tab, so if each fetched its own record every results↔trace
+  // flip would refetch + re-parse the same run. The App holds the record so it survives the flips; the
+  // panels render the passed record (TraceView keeps its own per-session `getTrace`).
+  const [runRecord, setRunRecord] = useState<RunRecordResponse | undefined>(undefined)
+  const [runRecordLoading, setRunRecordLoading] = useState(false)
+  const [runRecordError, setRunRecordError] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    if (selectedRunId === undefined) {
+      setRunRecord(undefined)
+      setRunRecordError(undefined)
+      setRunRecordLoading(false)
+      return
+    }
+    let cancelled = false
+    setRunRecord(undefined)
+    setRunRecordError(undefined)
+    setRunRecordLoading(true)
+    getRun(selectedRunId)
+      .then((res) => {
+        if (!cancelled) {
+          setRunRecord(res)
+        }
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setRunRecord(undefined)
+          setRunRecordError(errorMessage(e))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRunRecordLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedRunId])
+
+  // A positional edge highlight (`highlightedEdgeIndex`) is an INDEX into `doc.edges`; once the
+  // document mutates or is replaced those indices point at different edges, so a stale highlight would
+  // mark the WRONG edge (and, being RF-`selected`, make it Backspace-deletable). Clear it on any doc
+  // change — node highlights are id-resolved and survive. Mirrors ValidatePanel clearing its verdict.
+  useEffect(() => {
+    setHighlightedEdgeIndex(null)
+  }, [doc])
 
   // Resolve a structured validate target to a selection / edge highlight — the App owns both. A node
   // index is resolved against the current document to a node id; a runtime target already carries one.
@@ -131,8 +181,22 @@ export function App(): ReactElement {
                 }}
               />
             ) : null}
-            {tab === 'results' ? <ResultsView runId={selectedRunId} /> : null}
-            {tab === 'trace' ? <TraceView runId={selectedRunId} /> : null}
+            {tab === 'results' ? (
+              <ResultsView
+                runId={selectedRunId}
+                record={runRecord}
+                loading={runRecordLoading}
+                error={runRecordError}
+              />
+            ) : null}
+            {tab === 'trace' ? (
+              <TraceView
+                runId={selectedRunId}
+                record={runRecord}
+                recordLoading={runRecordLoading}
+                recordError={runRecordError}
+              />
+            ) : null}
           </div>
         </footer>
       </div>

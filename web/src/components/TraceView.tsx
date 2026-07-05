@@ -7,14 +7,20 @@
 // evaluations, so the persisted run stays the single source of truth.
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { JsonValue, TraceEvent } from '@quantize/quantize-api'
-import { ApiClientError, getRun, getTrace } from '../api/client'
+import type { JsonValue, RunRecordResponse, TraceEvent } from '@quantize/quantize-api'
+import { errorMessage, getTrace } from '../api/client'
 import { groupTrace } from '../trace/group'
 import type { TraceNode } from '../trace/group'
 
 export interface TraceViewProps {
   /** The selected run id, or `undefined` when nothing is selected. */
   runId: string | undefined
+  /** The fetched run record (owned by the App, shared with ResultsView), or undefined. */
+  record: RunRecordResponse | undefined
+  /** True while the App is fetching the record (the session dates come from it). */
+  recordLoading: boolean
+  /** A record-fetch error message, or undefined. */
+  recordError: string | undefined
 }
 
 // --- Structural payload accessors (NEVER prose parsing) -------------------------------------------
@@ -229,19 +235,35 @@ function TraceNodeView({ node, depth }: { node: TraceNode; depth: number }): Rea
   )
 }
 
-export function TraceView({ runId }: TraceViewProps): ReactElement {
-  const [sessions, setSessions] = useState<string[]>([])
+export function TraceView({ runId, record, recordLoading, recordError }: TraceViewProps): ReactElement {
   const [selected, setSelected] = useState<string>('')
   const [events, setEvents] = useState<TraceEvent[] | undefined>(undefined)
-  const [error, setError] = useState<string | undefined>(undefined)
+  const [traceError, setTraceError] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(false)
 
+  // The distinct evaluation session dates are the picker options. They come from the App-owned record
+  // — the persisted run is the single source of truth for which sessions exist. Gate on the record's
+  // own `run_id` matching `runId`: during a run switch the App briefly still holds the previous run's
+  // record, so an unguarded derivation would offer the stale run's dates.
+  const sessions = useMemo(() => {
+    if (record === undefined || runId === undefined || record.record.run_id !== runId) {
+      return []
+    }
+    const seen = new Set<string>()
+    const dates: string[] = []
+    for (const evaluation of record.record.evaluations) {
+      if (!seen.has(evaluation.session_date)) {
+        seen.add(evaluation.session_date)
+        dates.push(evaluation.session_date)
+      }
+    }
+    return dates
+  }, [record, runId])
+
   // When the run changes, synchronously reset the session selection so the trace-fetch effect can't
-  // fire ONCE with the PREVIOUS run's `selected` date before the new run's record/dates load — a
-  // wasted `getTrace(newRunId, staleDate)` that returns empty (a brief "No trace" flash). Setting
-  // state during render re-renders immediately with `selected === ''` BEFORE any effect runs, so the
-  // fetch effect's `selected === ''` guard short-circuits until the record effect loads the new run's
-  // sessions and auto-selects a valid one. (React's supported "adjust state on a prop change" pattern.)
+  // fire ONCE with the PREVIOUS run's `selected` date before the new run's dates resolve — a wasted
+  // `getTrace(newRunId, staleDate)`. Setting state during render re-renders immediately with
+  // `selected === ''` BEFORE any effect runs. (React's supported "adjust state on a prop change".)
   const [loadedRunId, setLoadedRunId] = useState(runId)
   if (runId !== loadedRunId) {
     setLoadedRunId(runId)
@@ -249,43 +271,11 @@ export function TraceView({ runId }: TraceViewProps): ReactElement {
     setEvents(undefined)
   }
 
-  // Load the run record for its distinct evaluation session dates (the picker options). The record is
-  // the single source of truth for which sessions exist; auto-select the first so a trace shows.
-  useEffect(() => {
-    if (runId === undefined) {
-      setSessions([])
-      setSelected('')
-      setEvents(undefined)
-      setError(undefined)
-      return
-    }
-    let cancelled = false
-    setError(undefined)
-    getRun(runId)
-      .then((res) => {
-        if (cancelled) {
-          return
-        }
-        const seen = new Set<string>()
-        const dates: string[] = []
-        for (const evaluation of res.record.evaluations) {
-          if (!seen.has(evaluation.session_date)) {
-            seen.add(evaluation.session_date)
-            dates.push(evaluation.session_date)
-          }
-        }
-        setSessions(dates)
-        setSelected(dates[0] ?? '')
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e))
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [runId])
+  // Auto-select the first session once the matching record's dates are known so a trace shows. `''`
+  // is never a user choice (the picker only offers real dates), so this only fires on the initial load.
+  if (selected === '' && sessions.length > 0) {
+    setSelected(sessions[0])
+  }
 
   // Fetch the selected session's trace. The server already filters to that session; we only group.
   useEffect(() => {
@@ -295,7 +285,7 @@ export function TraceView({ runId }: TraceViewProps): ReactElement {
     }
     let cancelled = false
     setLoading(true)
-    setError(undefined)
+    setTraceError(undefined)
     getTrace(runId, selected)
       .then((res) => {
         if (!cancelled) {
@@ -305,9 +295,7 @@ export function TraceView({ runId }: TraceViewProps): ReactElement {
       .catch((e: unknown) => {
         if (!cancelled) {
           setEvents(undefined)
-          setError(
-            e instanceof ApiClientError ? e.message : e instanceof Error ? e.message : String(e),
-          )
+          setTraceError(errorMessage(e))
         }
       })
       .finally(() => {
@@ -327,6 +315,9 @@ export function TraceView({ runId }: TraceViewProps): ReactElement {
   if (runId === undefined) {
     return <div className="trace trace--empty">Select a run to view its trace.</div>
   }
+
+  // A record-fetch failure (App) or a trace-fetch failure (here) — both surface in the same slot.
+  const error = recordError ?? traceError
 
   return (
     <div className="trace">
@@ -354,7 +345,7 @@ export function TraceView({ runId }: TraceViewProps): ReactElement {
         <div className="trace__error" role="alert">
           {error}
         </div>
-      ) : loading ? (
+      ) : recordLoading || loading ? (
         <div className="trace trace--empty">Loading trace…</div>
       ) : events !== undefined && events.length === 0 ? (
         <div className="trace trace--empty">No trace for this session.</div>

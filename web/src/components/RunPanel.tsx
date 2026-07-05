@@ -3,11 +3,12 @@
 // dataset. Optional session fields are OMITTED when blank; forward REQUIRES `last_session` (a UX gate
 // mirroring the server's 422). No numerical/portfolio logic lives here (invariant 5) — the server
 // runs the strategy; this only submits and lists.
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ReactElement } from 'react'
-import type { BacktestRunRequest, ForwardRunRequest, RunListRow } from '@quantize/quantize-api'
+import type { BacktestRunRequest, ForwardRunRequest } from '@quantize/quantize-api'
 import type { StrategyDocument } from '@quantize/quantize-ir'
-import { ApiClientError, listRuns, runBacktest, runForward } from '../api/client'
+import { errorMessage, listRuns, runBacktest, runForward } from '../api/client'
+import { useFetch } from '../useFetch'
 
 type RunMode = 'backtest' | 'forward'
 
@@ -33,62 +34,44 @@ export function RunPanel({ doc, datasetId, selectedRunId, onSelectRun }: RunPane
   const [initialCash, setInitialCash] = useState(String(DEFAULT_CASH))
   const [firstSession, setFirstSession] = useState('')
   const [lastSession, setLastSession] = useState('')
-  const [rows, setRows] = useState<RunListRow[]>([])
-  const [error, setError] = useState<string | undefined>(undefined)
+  const [submitError, setSubmitError] = useState<string | undefined>(undefined)
   const [submitting, setSubmitting] = useState(false)
 
   const strategyId = doc.strategy.id
   const strategyVersion = doc.strategy.version
 
-  const refresh = useCallback(async (): Promise<void> => {
-    try {
-      const list = await listRuns(strategyId)
-      setRows(list.runs)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }, [strategyId])
-
-  // Fetch-on-mount with a cancellation guard (consistent with ResultsView/DatasetPanel): if the
-  // panel unmounts on a tab switch before listRuns resolves, don't set state on the dead component.
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const list = await listRuns(strategyId)
-        if (!cancelled) {
-          setRows(list.runs)
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e))
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [strategyId])
+  // The run list via the shared hook: it resets to empty + loading when `strategyId` changes (so a
+  // different strategy's runs never linger) and exposes `reload()` for the post-submit refresh.
+  const runList = useFetch(() => listRuns(strategyId), [strategyId])
+  const rows = runList.data?.runs ?? []
+  // Submit failures and list-fetch failures share one banner (submit takes precedence when both set).
+  const error = submitError ?? runList.error
 
   const onSubmit = async (): Promise<void> => {
-    setError(undefined)
+    setSubmitError(undefined)
     const first = firstSession.trim()
     const last = lastSession.trim()
 
     // Forward requires last_session — gate client-side before building the request (the server also
     // enforces 422). Backtest may omit it (defaults to the dataset's last session).
     if (mode === 'forward' && last === '') {
-      setError('Last session is required for a forward run.')
+      setSubmitError('Last session is required for a forward run.')
       return
     }
 
+    // Empty input coerces to 0 via `Number('')`, which passes the finiteness guard and the server
+    // accepts (only NEGATIVE cash is rejected) → a silent $0 backtest. Reject a blank field first.
+    if (initialCash.trim() === '') {
+      setSubmitError('Initial cash is required.')
+      return
+    }
     // Base body: identity from the doc, cash from the form. Optional sessions are added only when set
     // — never sent as empty strings.
     const cash = Number(initialCash)
-    // Gate a non-finite cash (empty input → 0, garbage → NaN → JSON null) client-side rather than
-    // round-tripping a guaranteed 422. The server still validates authoritatively.
+    // Gate a non-finite cash (garbage → NaN, `1e999` → Infinity) client-side rather than round-tripping
+    // a guaranteed 422. The server still validates authoritatively.
     if (!Number.isFinite(cash)) {
-      setError('Initial cash must be a number.')
+      setSubmitError('Initial cash must be a number.')
       return
     }
     setSubmitting(true)
@@ -121,14 +104,10 @@ export function RunPanel({ doc, datasetId, selectedRunId, onSelectRun }: RunPane
         }
         runId = (await runForward(req)).run_id
       }
-      await refresh()
+      runList.reload()
       onSelectRun(runId)
     } catch (e) {
-      if (e instanceof ApiClientError) {
-        setError(e.message)
-      } else {
-        setError(e instanceof Error ? e.message : String(e))
-      }
+      setSubmitError(errorMessage(e))
     } finally {
       setSubmitting(false)
     }

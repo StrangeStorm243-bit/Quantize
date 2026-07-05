@@ -2,10 +2,11 @@
 // and POSTs it verbatim; the list comes from `GET /v1/datasets` (M11.1). The active dataset id is
 // lifted to the App via `onSelectDataset` (and remembered in localStorage as a UX convenience ONLY —
 // never as a source of truth for server state). No numerical/portfolio logic lives here (invariant 5).
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ChangeEvent, ReactElement } from 'react'
-import type { DatasetList, DatasetStored, DatasetUpload } from '@quantize/quantize-api'
-import { ApiClientError, getDataset, listDatasets, uploadDataset } from '../api/client'
+import type { DatasetStored, DatasetUpload } from '@quantize/quantize-api'
+import { errorMessage, getDataset, listDatasets, uploadDataset } from '../api/client'
+import { useFetch } from '../useFetch'
 
 /** localStorage key for the last-selected dataset id (UX convenience only). */
 export const LAST_DATASET_KEY = 'quantize.lastDatasetId'
@@ -23,24 +24,16 @@ function abbrev(id: string): string {
 }
 
 export function DatasetPanel({ activeDatasetId, onSelectDataset }: DatasetPanelProps): ReactElement {
-  const [rows, setRows] = useState<DatasetList['datasets']>([])
   const [uploaded, setUploaded] = useState<DatasetStored | undefined>(undefined)
   const [selectedMeta, setSelectedMeta] = useState<DatasetStored | undefined>(undefined)
-  const [error, setError] = useState<string | undefined>(undefined)
+  const [uploadError, setUploadError] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
 
-  const refresh = useCallback(async (): Promise<void> => {
-    try {
-      const list = await listDatasets()
-      setRows(list.datasets)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }, [])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
+  // The dataset list via the shared hook; `reload()` refreshes it after a successful upload.
+  const datasetList = useFetch(() => listDatasets(), [])
+  const rows = datasetList.data?.datasets ?? []
+  // Upload/parse failures and list-fetch failures share one banner (upload takes precedence).
+  const error = uploadError ?? datasetList.error
 
   // Show counts for the selected dataset (fetch-metadata; the list rows carry only identities).
   useEffect(() => {
@@ -66,9 +59,13 @@ export function DatasetPanel({ activeDatasetId, onSelectDataset }: DatasetPanelP
   }, [activeDatasetId])
 
   const onFile = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-    setError(undefined)
+    setUploadError(undefined)
     setUploaded(undefined)
     const file = event.target.files?.[0]
+    // Reset the input value so re-selecting the SAME file after a parse/422 error re-fires `change`
+    // (otherwise the value is unchanged, no change event fires → a silent dead retry). The `File`
+    // reference is already captured, so clearing the input does not affect the read below.
+    event.target.value = ''
     if (file === undefined) {
       return
     }
@@ -77,7 +74,7 @@ export function DatasetPanel({ activeDatasetId, onSelectDataset }: DatasetPanelP
       const text = await file.text()
       parsed = JSON.parse(text)
     } catch {
-      setError('Could not parse the file as JSON. Upload a valid dataset JSON document.')
+      setUploadError('Could not parse the file as JSON. Upload a valid dataset JSON document.')
       return
     }
     setBusy(true)
@@ -85,13 +82,9 @@ export function DatasetPanel({ activeDatasetId, onSelectDataset }: DatasetPanelP
       // POST the parsed document verbatim; the server is authoritative on dataset validity (422).
       const stored = await uploadDataset(parsed as DatasetUpload)
       setUploaded(stored)
-      await refresh()
+      datasetList.reload()
     } catch (e) {
-      if (e instanceof ApiClientError) {
-        setError(e.message)
-      } else {
-        setError(e instanceof Error ? e.message : String(e))
-      }
+      setUploadError(errorMessage(e))
     } finally {
       setBusy(false)
     }

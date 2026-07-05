@@ -1,20 +1,11 @@
 // ResultsView renders a run record's stats, fills, and evaluations — EVERY number comes from the
-// record (invariant 5). The api client is mocked (no network). An ok:false record still renders (it
-// is a valid run to inspect, not an error).
+// record (invariant 5). The record is now OWNED BY THE APP and passed in as a prop (M11.9, F7); the
+// view is presentational (no fetch of its own). An ok:false record still renders (a valid run to
+// inspect, not an error).
 import { render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { PersistedRunRecord, RunRecordResponse } from '@quantize/quantize-api'
 import { ResultsView } from './ResultsView'
-
-vi.mock('../api/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../api/client')>()
-  return { ...actual, getRun: vi.fn() }
-})
-
-// eslint-disable-next-line import/first
-import { getRun } from '../api/client'
-
-const mockGetRun = vi.mocked(getRun)
 
 function record(overrides: Partial<PersistedRunRecord> = {}): PersistedRunRecord {
   return {
@@ -77,17 +68,12 @@ function response(rec: PersistedRunRecord, replay_verifiable = true): RunRecordR
   return { record: rec, replay_verifiable }
 }
 
-beforeEach(() => {
-  mockGetRun.mockReset()
-})
-
 describe('ResultsView', () => {
-  it('renders stats, a fills row, an evaluations row, and the replay badge from the record', async () => {
-    mockGetRun.mockResolvedValue(response(record()))
-    render(<ResultsView runId="run-1" />)
+  it('renders stats, a fills row, an evaluations row, and the replay badge from the record', () => {
+    render(<ResultsView runId="run-1" record={response(record())} loading={false} error={undefined} />)
 
     // Stats are the raw record fields (formatted for display with toFixed, never derived).
-    expect(await screen.findByText('0.0500')).toBeInTheDocument() // total_return
+    expect(screen.getByText('0.0500')).toBeInTheDocument() // total_return
     expect(screen.getByText('-0.0200')).toBeInTheDocument() // max_drawdown
     // A fills row (asset SPY appears in both the fills and evaluations tables).
     expect(screen.getAllByText('SPY').length).toBeGreaterThan(0)
@@ -96,23 +82,35 @@ describe('ResultsView', () => {
     expect(screen.getAllByText('2025-08-01').length).toBeGreaterThan(0)
     // replay_verifiable badge.
     expect(screen.getByText(/replay/i)).toBeInTheDocument()
-    expect(mockGetRun).toHaveBeenCalledWith('run-1')
   })
 
-  it('renders an ok:false record as a valid run (not an error)', async () => {
-    mockGetRun.mockResolvedValue(
-      response(record({ ok: false, fills: [], evaluations: [] }), false),
+  it('renders an ok:false record as a valid run (not an error)', () => {
+    render(
+      <ResultsView
+        runId="run-x"
+        record={response(record({ ok: false, fills: [], evaluations: [] }), false)}
+        loading={false}
+        error={undefined}
+      />,
     )
-    render(<ResultsView runId="run-x" />)
 
     // The failed run still renders its stats — ok:false is a run FACT, not an HTTP error.
-    expect(await screen.findByText(/failed|not ok|ok: no/i)).toBeInTheDocument()
+    expect(screen.getByText(/failed|not ok|ok: no/i)).toBeInTheDocument()
     expect(screen.getByText('0.0500')).toBeInTheDocument()
   })
 
+  it('shows the loading state while the App fetches the record', () => {
+    render(<ResultsView runId="run-1" record={undefined} loading={true} error={undefined} />)
+    expect(screen.getByText(/loading run/i)).toBeInTheDocument()
+  })
+
+  it('surfaces a record-fetch error passed from the App', () => {
+    render(<ResultsView runId="run-1" record={undefined} loading={false} error="boom" />)
+    expect(screen.getByRole('alert')).toHaveTextContent('boom')
+  })
+
   it('renders nothing actionable when no run is selected', () => {
-    render(<ResultsView runId={undefined} />)
-    expect(mockGetRun).not.toHaveBeenCalled()
+    render(<ResultsView runId={undefined} record={undefined} loading={false} error={undefined} />)
     expect(screen.getByText(/select a run/i)).toBeInTheDocument()
   })
 })

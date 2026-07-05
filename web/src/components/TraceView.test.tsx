@@ -10,18 +10,20 @@ import { TraceView } from './TraceView'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
-  return { ...actual, getRun: vi.fn(), getTrace: vi.fn() }
+  return { ...actual, getTrace: vi.fn() }
 })
 
 // eslint-disable-next-line import/first
-import { getRun, getTrace } from '../api/client'
+import { getTrace } from '../api/client'
 
-const mockGetRun = vi.mocked(getRun)
 const mockGetTrace = vi.mocked(getTrace)
 
 // A minimal record carrying just the evaluation session dates the picker needs (two distinct dates).
-function runResponse(sessionDates: string[]): RunRecordResponse {
+// The record is now OWNED BY THE APP and passed in (M11.9, F7); `run_id` must match the `runId` prop
+// (the view gates session derivation on that identity to ignore a previous run's record mid-switch).
+function runResponse(sessionDates: string[], runId = 'run-1'): RunRecordResponse {
   const record = {
+    run_id: runId,
     evaluations: sessionDates.map((session_date) => ({
       session_date,
       evaluation_instant: `${session_date}T21:00:00Z`,
@@ -51,13 +53,16 @@ function event(overrides: Partial<TraceEvent>): TraceEvent {
 }
 
 beforeEach(() => {
-  mockGetRun.mockReset()
   mockGetTrace.mockReset()
 })
 
+// A helper: render with the App-owned record prop (loading/error default to idle).
+function renderTrace(runId: string | undefined, record: RunRecordResponse | undefined): void {
+  render(<TraceView runId={runId} record={record} recordLoading={false} recordError={undefined} />)
+}
+
 describe('TraceView', () => {
   it('drives the fetch from the session picker and renders tailored + generic renderers', async () => {
-    mockGetRun.mockResolvedValue(runResponse(['2026-05-15', '2026-05-16']))
     const trace: TraceResponse = {
       events: [
         event({
@@ -94,7 +99,7 @@ describe('TraceView', () => {
     }
     mockGetTrace.mockResolvedValue(trace)
 
-    render(<TraceView runId="run-1" />)
+    renderTrace('run-1', runResponse(['2026-05-15', '2026-05-16']))
 
     // Auto-selects the first session and fetches its trace.
     await waitFor(() => expect(mockGetTrace).toHaveBeenCalledWith('run-1', '2026-05-15'))
@@ -122,7 +127,6 @@ describe('TraceView', () => {
   })
 
   it('re-fetches when the picker changes and shows the empty state for a session with no trace', async () => {
-    mockGetRun.mockResolvedValue(runResponse(['2026-05-15', '2026-05-16']))
     mockGetTrace.mockImplementation((_runId: string, sessionDate: string) =>
       Promise.resolve({
         events:
@@ -132,7 +136,7 @@ describe('TraceView', () => {
       }),
     )
 
-    render(<TraceView runId="run-1" />)
+    renderTrace('run-1', runResponse(['2026-05-15', '2026-05-16']))
     await waitFor(() => expect(mockGetTrace).toHaveBeenCalledWith('run-1', '2026-05-15'))
 
     fireEvent.change(screen.getByLabelText('trace session'), { target: { value: '2026-05-16' } })
@@ -141,9 +145,15 @@ describe('TraceView', () => {
     expect(await screen.findByText(/no trace for this session/i)).toBeInTheDocument()
   })
 
+  it('surfaces a record-fetch error passed from the App (no trace fetch attempted)', () => {
+    render(<TraceView runId="run-1" record={undefined} recordLoading={false} recordError="record boom" />)
+    expect(screen.getByRole('alert')).toHaveTextContent('record boom')
+    expect(mockGetTrace).not.toHaveBeenCalled()
+  })
+
   it('renders nothing actionable when no run is selected', () => {
-    render(<TraceView runId={undefined} />)
-    expect(mockGetRun).not.toHaveBeenCalled()
+    renderTrace(undefined, undefined)
+    expect(mockGetTrace).not.toHaveBeenCalled()
     expect(screen.getByText(/select a run/i)).toBeInTheDocument()
   })
 })

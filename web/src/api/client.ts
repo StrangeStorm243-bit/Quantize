@@ -45,6 +45,15 @@ export class ApiClientError extends Error {
   }
 }
 
+/**
+ * The display string for a thrown value. {@link ApiClientError} extends `Error`, so its human
+ * `message` is covered by the `Error` branch — there is no separate `ApiClientError` case to write.
+ * (Callers that need the machine `code` read `ApiClientError` directly; this is for plain display.)
+ */
+export function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 // The single fetch path: relative URL in, parsed typed JSON out. On non-2xx it parses the uniform
 // { code, message } error envelope and throws ApiClientError; a non-JSON error body degrades to
 // sensible defaults rather than masking the failure.

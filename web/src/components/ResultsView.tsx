@@ -2,15 +2,19 @@
 // SVG valuations chart, the summary stats, and the fills/evaluations tables. EVERY displayed number
 // is a record field formatted for display; nothing is computed here (invariant 5). An `ok:false`
 // record is a valid run to inspect, not an error.
-import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { RunRecordResponse } from '@quantize/quantize-api'
-import { ApiClientError, getRun } from '../api/client'
 import { SvgLineChart } from './SvgLineChart'
 
 export interface ResultsViewProps {
   /** The selected run id, or `undefined` when nothing is selected. */
   runId: string | undefined
+  /** The fetched run record (owned by the App so it survives results↔trace tab flips), or undefined. */
+  record: RunRecordResponse | undefined
+  /** True while the App is fetching the record. */
+  loading: boolean
+  /** A record-fetch error message, or undefined. */
+  error: string | undefined
 }
 
 // Display formatting only — a raw record number rendered with a fixed precision. Non-finite guards
@@ -19,44 +23,7 @@ function fmt(value: number, digits = 4): string {
   return Number.isFinite(value) ? value.toFixed(digits) : String(value)
 }
 
-export function ResultsView({ runId }: ResultsViewProps): ReactElement {
-  const [data, setData] = useState<RunRecordResponse | undefined>(undefined)
-  const [error, setError] = useState<string | undefined>(undefined)
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (runId === undefined) {
-      setData(undefined)
-      setError(undefined)
-      return
-    }
-    let cancelled = false
-    setLoading(true)
-    setError(undefined)
-    getRun(runId)
-      .then((res) => {
-        if (!cancelled) {
-          setData(res)
-        }
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setData(undefined)
-          setError(
-            e instanceof ApiClientError ? e.message : e instanceof Error ? e.message : String(e),
-          )
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [runId])
-
+export function ResultsView({ runId, record: data, loading, error }: ResultsViewProps): ReactElement {
   if (runId === undefined) {
     return <div className="results results--empty">Select a run to view its results.</div>
   }

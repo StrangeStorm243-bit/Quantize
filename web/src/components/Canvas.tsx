@@ -198,9 +198,11 @@ export function Canvas({
   // document remains the source of truth. We re-seed that local state from the document whenever the
   // document (or catalog) changes — a live edit becomes a doc mutation via a dispatcher, and the doc
   // then flows back here. Positions round-trip through `ui.position`, so the re-seed is a no-op fight.
-  const initial = useMemo(() => project(), [project])
-  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<StrategyFlowNode>(initial.nodes)
-  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(initial.edges)
+  // Seed empty and let the re-seed effect below be the ONLY projection: it runs on mount (`project`'s
+  // identity differs from any mount value) and on every subsequent change, so `toFlow` runs once per
+  // mutation. (A prior `useMemo(project, [project])` seed re-ran `toFlow` and discarded it — dead work.)
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<StrategyFlowNode>([])
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<FlowEdge>([])
   useEffect(() => {
     const flow = project()
     setRfNodes(flow.nodes)
@@ -331,6 +333,12 @@ export function Canvas({
         nodes={rfNodes}
         edges={rfEdges}
         nodeTypes={nodeTypes}
+        // The editor's selection model is SINGLE-element (App.selectedNodeId; one node/edge deleted at
+        // a time). RF's native multi-select (Shift box-select, Ctrl/Cmd multi-click — both on by
+        // default) would be collapsed by the doc-driven re-seed mid-interaction, so a later Delete
+        // could hit the wrong set. Disable both by nulling their key codes.
+        selectionKeyCode={null}
+        multiSelectionKeyCode={null}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onInit={setRfInstance}
