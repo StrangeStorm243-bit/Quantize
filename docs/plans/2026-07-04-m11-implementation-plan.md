@@ -392,3 +392,57 @@ localStorage memo; one-slice change.
   branch `feat/m11-editor` off `origin/main` (fetch first), per §10's shared preamble.
 - Founder flip-point outstanding (non-blocking): D12 (`GET /v1/datasets`) — veto before M11.1
   starts converts M11.6 to upload-only + localStorage memo and drops M11.1.
+
+## Closeout (2026-07-04)
+
+**Status: M11 COMPLETE on `feat/m11-editor`.** The full Build → Test → Run → Inspect → Modify journey
+(§3) is wired end-to-end. Both gates green (PowerShell + POSIX): **875 Python tests + 97 web (vitest)
+tests**, `npm run build` succeeds.
+
+**The seven slices as landed:**
+
+- **M11.1** — `GET /v1/datasets` list endpoint (the one additive backend change, D12): repository
+  list query + route + `DatasetListRow`/`DatasetList` DTOs on the API codegen bundle. No migration.
+- **M11.2** — Vite React app scaffold + typed transport (`web/src/api/client.ts`), `@quantize/*`
+  alias mirroring the tsconfig path map, dev proxy for relative `/v1` URLs (D2/D3). CLAUDE.md
+  "Run frontend (editor, M11)" line filled here.
+- **M11.3** — canonical document store: pure reducers + derived React-Flow views (D4).
+- **M11.4** — catalog + palette + canvas + compatibility-gated connections (allow-list DATA, D5).
+- **M11.5** — schema-driven parameter forms + run-faithful validate panel (structured, never
+  message-parsed, diagnostics) + save/load/version (D6/D7).
+- **M11.6** — datasets, runs, results: DatasetPanel (upload → POST, list via M11.1), RunPanel
+  (backtest/forward submit + run list), ResultsView (renders the persisted record; every number is a
+  record field formatted for display — no client-side metric math, D9).
+- **M11.7** — trace explorer + this closeout (D10): `web/src/trace/group.ts` (pure client-side
+  grouping that MIRRORS `tracing/tree.py` — first-emission sibling order, engine root after node
+  roots) + `web/src/components/TraceView.tsx` (session-date picker from the record's evaluations;
+  tailored renderers keyed on `event_type`/machine tokens; unknown types → generic renderer).
+
+**Self-review sweeps (all clean):**
+
+- (a) No hand-declared domain interfaces in `web/src` duplicating `@quantize/*` names
+  (`interface StrategyDocument|NodeCatalogResponse|PortType|TraceEvent|PersistedRunRecord|…`) → none.
+- (b) No port-type compatibility conditionals (`kind ===`/`dtype ===`) outside the catalog lookup —
+  the only `.kind ===` hits are `App.tsx`'s `HighlightTarget` view union, unrelated to port types.
+- (c) No client-side numeric metric computation (returns/drawdown/PnL) — results and traces render
+  record/payload fields verbatim (`toFixed`/structural read only).
+- (d) No message-string parsing for diagnostics or traces — `ValidatePanel` maps by `loc`/`node_path`;
+  `group.ts` keys on the `event_type` machine token (mirroring the server); `TraceView` reads
+  structured payload fields.
+
+**Deviations:**
+- **D12 list-row shape** — the shipped `DatasetListRow` carries `{dataset_id, dataset_fingerprint,
+  calendar_fingerprint, saved_at}` and deliberately OMITS the `sessions`/`assets` counts D12/Packet
+  M11.1 listed. Those counts require a per-dataset payload decode a discovery list should not do; a
+  pure-column SELECT keeps the list cheap and migration-free, and `DatasetPanel` fetches the
+  selected dataset's `describe()` for its counts. A small, deliberate divergence from the ratified
+  row contract — the endpoint is otherwise as specified.
+- TraceView fetches `getRun(runId)` itself to derive the picker's session dates (kept self-contained
+  rather than lifting the record through `App`), an allowed choice per the packet brief.
+
+**Flip-point D12:** taken (not vetoed) — `GET /v1/datasets` shipped in M11.1, so datasets are
+discoverable across sessions via the server (not a localStorage-only client source of truth).
+
+**Remaining:** a live-browser E2E pass of the §3 journey against a running `uvicorn` + `npm run dev`
+remains for the founder to walk through manually (the automated tests mock the client; no network in
+tests by policy).

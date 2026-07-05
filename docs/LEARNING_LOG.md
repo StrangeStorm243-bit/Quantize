@@ -958,3 +958,79 @@ revert the branch. *Outcome:* … (left for the founder to run and record).
 **Status:** M10 implemented on `feat/m10-descriptor-api` across packets M10.1–M10.4; both gates
 green (PowerShell + POSIX), 866 tests. This is a **projection** endpoint — no persistence, no
 migration, no engine change; the catalog is derived from the registry per request.
+
+---
+
+## M11 — The visual editor: Build → Test → Run → Inspect → Modify (2026-07-04)
+
+**Concepts introduced:**
+
+- *Document-as-store with derived React-Flow views (D4).* The canonical strategy is the **persisted
+  JSON IR**, held in a single `useReducer`-style store; every mutation routes through **pure
+  reducers** and React Flow's nodes/edges are **derived** from the document on each render, never a
+  parallel source of truth. Dragging a node writes `ui.*` back through a reducer; `ui.*` round-trips
+  but is excluded from execution/equality (invariant 1). This is the frontend expression of the
+  source-of-truth hierarchy: the view is disposable, the document is not. *Where:*
+  `web/src/document/store.ts` (reducers), `web/src/document/flow.ts` (document → RF projection),
+  `web/src/App.tsx` (the store owns `doc`; `selectedNodeId`/`highlightedEdgeIndex` are *derived* view
+  state, never a second document).
+- *Compatibility as allow-list DATA, not frontend logic (D5, invariant 5).* The editor gates a
+  connection by **looking up a pair in the server-provided compatibility allow-list** (from
+  `GET /v1/node-types`), never by re-implementing `is_compatible` in TypeScript. There is **no**
+  `kind`/`dtype` conditional in the app — the one `is_compatible` lives in Python and ships to the
+  client as enumerated data. *Where:* `web/src/catalog/` (the fetched catalog + `portTypeKey`
+  lookup), consumed by the canvas connection guard.
+- *Schema-driven forms + structured diagnostics (D6).* Parameter forms are **rendered from each
+  node's verbatim JSON Schema** (the `oneOf`/array shapes survive intact — no flat field DTO), and
+  validation highlights are resolved **purely from a diagnostic's `loc`/`node_path`**, NEVER by
+  parsing its human message. A structural `("nodes", i, …)` maps to the node at index `i`; a runtime
+  `node_path[0]` maps to a node id. *Where:* `web/src/components/ParamForm.tsx`,
+  `web/src/components/ValidatePanel.tsx` (see its header comment: "HIGHLIGHTING IS STRUCTURED — we
+  NEVER parse a message").
+- *Presentation-only trace grouping that MIRRORS the server (D10).* The trace explorer regroups the
+  flat event stream **client-side**, reproducing `tracing/tree.py`'s exact ordering: identity is
+  `(component_path, node_id)`, hierarchy follows component-path **prefixes**, siblings keep
+  **first-emission** order (a JS `Map`'s insertion order — never sorted), and **engine-origin events
+  (`engine.` prefix) form a separate root placed AFTER all node roots**. Grouping is *presentation*,
+  not a re-decision — it only rearranges events the engine already emitted. Tailored renderers key on
+  the machine `event_type` token and read **structured payload fields** (`reason`, `omitted` dust/hold
+  rows, `scaled`); an unknown `event_type` degrades to a generic key/value renderer. No prose is ever
+  parsed. *Where:* `web/src/trace/group.ts` (the pure twin of `build_trace_trees`),
+  `web/src/components/TraceView.tsx` (the renderers + session picker).
+- *The persisted IR stays the single source of truth across an interactive editor.* Every server
+  concern (catalog, strategies, datasets, runs, results, traces) is **fetched, never mirrored**: the
+  App holds only the current *selections* (dataset id, run id) the panels coordinate over. Session
+  dates for the trace picker come from the **run record's** `evaluations[].session_date`, not a client
+  guess. *Where:* `web/src/api/client.ts` (pure typed transport, imports every shape from
+  `@quantize/*` — declares no domain type of its own), `web/src/components/{DatasetPanel,RunPanel,
+  ResultsView,TraceView}.tsx`.
+
+**Files studied:** `web/src/document/store.ts` + `flow.ts` (the canonical store and its RF
+projection) → `web/src/catalog/index.ts` (the fetched allow-list + port-type keys) →
+`web/src/components/*` (ParamForm, ValidatePanel, Canvas, DatasetPanel, RunPanel, ResultsView) →
+`web/src/trace/group.ts` + `web/src/components/TraceView.tsx` (the presentation grouping and tailored
+renderers), against the server contract in `quantize/tracing/tree.py`.
+
+**Reading path:** start at `web/src/document/store.ts` to see the pure reducers and why the document
+is canonical; then `web/src/document/flow.ts` to see the RF view *derived* (not stored); then
+`web/src/catalog/` to see compatibility arrive as data; then `web/src/components/ParamForm.tsx` /
+`ValidatePanel.tsx` for schema-driven forms + structured (never message-parsed) diagnostics; finally
+`web/src/trace/group.ts` beside `quantize/tracing/tree.py` — read both `build_trace_trees` and
+`groupTrace` side by side and confirm the client mirrors the server (engine-root-after-node-roots,
+first-emission sibling order) rather than re-deciding anything.
+
+**Exercise (implement by hand):** in a **scratch branch**, add a second trace event to the
+`groupTrace` fixture in `web/src/trace/group.test.ts` at the **same** `(component_path, node_id)` as
+an existing one but emitted LAST in input order, then run `npx vitest run src/trace`. *Prediction:*
+the two events collapse into the **same** `TraceNode` (identity is `(component_path, node_id)`, not
+per-event), appended to that node's `events` in emission order, and the node's **position among its
+siblings does not move** (first-emission order is fixed by when the node *first* appeared, not its
+last event). Then, as a contrast, change the added event's `event_type` to start with `engine.` and
+predict where it lands (a separate engine root, after all node roots) before re-running. *Outcome:* …
+(left for the founder to run and record).
+
+**Status:** M11 implemented on `feat/m11-editor` across packets M11.1–M11.7; both gates green
+(PowerShell + POSIX), **875 Python tests + 97 web (vitest) tests**. One additive backend endpoint
+(`GET /v1/datasets`, D12) landed in M11.1; everything else is the `web/` Vite React editor. A
+live-browser end-to-end pass of the full §3 journey (Build → Test → Run → Inspect → Modify) remains
+for the founder to walk through manually.

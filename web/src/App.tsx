@@ -16,6 +16,7 @@ import { Palette } from './components/Palette'
 import { ResultsView } from './components/ResultsView'
 import { RunPanel } from './components/RunPanel'
 import { StrategyPanel } from './components/StrategyPanel'
+import { TraceView } from './components/TraceView'
 import { ValidatePanel } from './components/ValidatePanel'
 import type { HighlightTarget } from './components/ValidatePanel'
 import { newStrategyDocument, useStrategyDocument } from './document/store'
@@ -24,7 +25,7 @@ import './App.css'
 // The bottom-panel tabs. The document is the single source of truth; datasets/runs/results are
 // SERVER state fetched via the client — the App only holds the current selections (dataset id, run
 // id) that the panels coordinate over.
-type PanelTab = 'strategies' | 'datasets' | 'runs' | 'results'
+type PanelTab = 'strategies' | 'datasets' | 'runs' | 'results' | 'trace'
 
 // Restore the last-selected dataset id from localStorage (a UX convenience ONLY — the server list is
 // the source of truth; a stale id simply shows as selected until the user picks another).
@@ -90,17 +91,24 @@ export function App(): ReactElement {
         </main>
         <footer className="app-region app-region--bottom" aria-label="panel">
           <nav className="tabbar" aria-label="panel tabs">
-            {(['strategies', 'datasets', 'runs', 'results'] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                className={`tabbar__tab ${tab === t ? 'is-active' : ''}`}
-                aria-pressed={tab === t}
-                onClick={() => setTab(t)}
-              >
-                {t}
-              </button>
-            ))}
+            {(['strategies', 'datasets', 'runs', 'results', 'trace'] as const).map((t) => {
+              // Trace inspects a selected run — disabled until one is chosen (like results, it is
+              // meaningless without a run; the button gates on the App's `selectedRunId`).
+              const needsRun = t === 'trace'
+              const disabled = needsRun && selectedRunId === undefined
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  className={`tabbar__tab ${tab === t ? 'is-active' : ''}`}
+                  aria-pressed={tab === t}
+                  disabled={disabled}
+                  onClick={() => setTab(t)}
+                >
+                  {t}
+                </button>
+              )
+            })}
           </nav>
           <div className="tabpanel">
             {tab === 'strategies' ? <StrategyPanel doc={doc} actions={actions} /> : null}
@@ -119,6 +127,7 @@ export function App(): ReactElement {
               />
             ) : null}
             {tab === 'results' ? <ResultsView runId={selectedRunId} /> : null}
+            {tab === 'trace' ? <TraceView runId={selectedRunId} /> : null}
           </div>
         </footer>
       </div>

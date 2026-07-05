@@ -895,3 +895,129 @@ body {
 .chart__axis--x {
   margin-top: 0.2rem;
 }
+
+/* --- Trace explorer (M11.7) --------------------------------------------------------------------- */
+
+.trace {
+  font-size: 0.8rem;
+}
+
+.trace--empty {
+  color: #8a909c;
+  padding: 0.5rem 0;
+}
+
+.trace__error {
+  color: #8f1d22;
+  padding: 0.4rem 0;
+}
+
+.trace__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.trace__instant {
+  margin-top: 0.6rem;
+  border-top: 1px solid #eceef2;
+  padding-top: 0.4rem;
+}
+
+.trace__instant-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.72rem;
+  color: #8a909c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.trace__roots,
+.trace-node__children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trace-node {
+  margin: 0.15rem 0;
+}
+
+.trace-node__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.trace-node__id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: #2a3242;
+}
+
+.trace-node__origin {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a2a8b4;
+}
+
+.trace-node--engine > .trace-node__head .trace-node__id {
+  color: #6a3fb5;
+}
+
+.trace-event {
+  margin: 0.15rem 0 0.3rem;
+}
+
+.trace-event__type {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  color: #4a6cf7;
+}
+
+.trace-event__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-top: 0.1rem;
+}
+
+.trace-event__kv {
+  color: #3a4152;
+}
+
+.trace-event__kv--muted {
+  color: #8a909c;
+  font-size: 0.74rem;
+}
+
+.trace-event__rows {
+  list-style: none;
+  margin: 0.1rem 0 0;
+  padding: 0;
+}
+
+.trace-event__row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.05rem 0;
+}
+
+.trace-event__cell {
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-event__cell--key {
+  color: #8a909c;
+  min-width: 6rem;
+}
+
+.trace-event__token {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background: #f1f2f6;
+  color: #55607a;
+}
