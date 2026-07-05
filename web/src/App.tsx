@@ -20,6 +20,7 @@ import { TraceView } from './components/TraceView'
 import { ValidatePanel } from './components/ValidatePanel'
 import type { HighlightTarget } from './components/ValidatePanel'
 import { newStrategyDocument, useStrategyDocument } from './document/store'
+import { useSchemaVersionCheck } from './meta'
 import './App.css'
 
 // The bottom-panel tabs. The document is the single source of truth; datasets/runs/results are
@@ -38,6 +39,10 @@ function initialDatasetId(): string | undefined {
 }
 
 export function App(): ReactElement {
+  // Best-effort boot check: warn (never crash) if the server's schema version has drifted from the
+  // version this editor was built against. Fulfills the config.ts pin-vs-service contract.
+  useSchemaVersionCheck()
+
   const [doc, actions] = useStrategyDocument(newStrategyDocument('Untitled'))
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [highlightedEdgeIndex, setHighlightedEdgeIndex] = useState<number | null>(null)

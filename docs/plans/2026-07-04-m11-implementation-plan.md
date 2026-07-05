@@ -396,8 +396,10 @@ localStorage memo; one-slice change.
 ## Closeout (2026-07-04)
 
 **Status: M11 COMPLETE on `feat/m11-editor`.** The full Build → Test → Run → Inspect → Modify journey
-(§3) is wired end-to-end. Both gates green (PowerShell + POSIX): **875 Python tests + 97 web (vitest)
-tests**, `npm run build` succeeds.
+(§3) is wired end-to-end. Both gates green (PowerShell + POSIX): **875 Python tests + 102 web (vitest)
+tests**, `npm run build` succeeds. (Includes a post-review follow-up: a boot-time schema-version
+drift check — `meta.ts`'s `useSchemaVersionCheck` warns, never crashes, if `/v1/meta` reports a
+different `schema_version` than the pinned one — fulfilling the `config.ts` pin-vs-service contract.)
 
 **The seven slices as landed:**
 

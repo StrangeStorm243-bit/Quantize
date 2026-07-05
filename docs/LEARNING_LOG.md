@@ -1030,7 +1030,7 @@ predict where it lands (a separate engine root, after all node roots) before re-
 (left for the founder to run and record).
 
 **Status:** M11 implemented on `feat/m11-editor` across packets M11.1–M11.7; both gates green
-(PowerShell + POSIX), **875 Python tests + 97 web (vitest) tests**. One additive backend endpoint
+(PowerShell + POSIX), **875 Python tests + 102 web (vitest) tests**. One additive backend endpoint
 (`GET /v1/datasets`, D12) landed in M11.1; everything else is the `web/` Vite React editor. A
 live-browser end-to-end pass of the full §3 journey (Build → Test → Run → Inspect → Modify) remains
 for the founder to walk through manually.

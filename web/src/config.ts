@@ -15,7 +15,8 @@ export const PLACEHOLDER_USER_ID = '00000000-0000-0000-0000-000000000001'
 
 /**
  * Pinned IR schema version (D4/D7). New documents are minted with this `schema_version`. It is
- * asserted against the service's `/v1/meta` at runtime elsewhere (a console warning on mismatch,
- * not a crash) — this constant is only the compile-time pin, not a source of truth.
+ * asserted against the service's `/v1/meta` at runtime by `useSchemaVersionCheck` in `meta.ts` (a
+ * console warning on mismatch, not a crash) — this constant is only the compile-time pin, not a
+ * source of truth.
  */
 export const SCHEMA_VERSION = '0.1.0'
