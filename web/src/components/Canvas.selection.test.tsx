@@ -9,14 +9,20 @@ import catalogJson from '../../../tests/goldens/node_catalog.json'
 import { addNode, newStrategyDocument } from '../document/store'
 import type { StrategyDocumentActions } from '../document/store'
 import { CatalogProvider } from '../catalog'
+import { ComponentsProvider } from '../components-cache'
 import { Canvas } from './Canvas'
 
 const catalog = catalogJson as unknown as NodeCatalogResponse
 
-// The CatalogProvider's fetch resolves to the committed golden (no network).
+// The CatalogProvider's fetch resolves to the committed golden (no network). The component cache is
+// unused here (the doc has no component_refs), but the module still imports these — stub them.
 vi.mock('../api/client', async () => {
   const json = (await import('../../../tests/goldens/node_catalog.json')).default
-  return { getNodeCatalog: () => Promise.resolve(json) }
+  return {
+    getNodeCatalog: () => Promise.resolve(json),
+    loadComponentVersion: () => Promise.resolve(undefined),
+    errorMessage: (e: unknown) => String(e),
+  }
 })
 
 // Capture the props handed to <ReactFlow>. `vi.hoisted` makes the box available to the hoisted factory.
@@ -48,6 +54,7 @@ function stubActions(): StrategyDocumentActions {
     setParams: vi.fn(),
     setNodeUi: vi.fn(),
     replace: vi.fn(),
+    replaceIf: vi.fn().mockReturnValue(true),
   }
 }
 
@@ -62,7 +69,9 @@ describe('Canvas multi-select', () => {
     })
     render(
       <CatalogProvider>
-        <Canvas doc={doc} actions={stubActions()} />
+        <ComponentsProvider>
+          <Canvas doc={doc} actions={stubActions()} />
+        </ComponentsProvider>
       </CatalogProvider>,
     )
     // Once the catalog resolves, the Canvas renders <ReactFlow> and the mock captures its props.

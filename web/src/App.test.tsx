@@ -3,8 +3,10 @@
 // RF-`selected`, is Backspace-deletable). We mock Canvas (to observe the `highlightedEdgeIndex` prop
 // and to trigger a doc mutation) and ValidatePanel (to trigger an edge highlight), and stub the api
 // client so no child does real network. NO network.
+import { useRef } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { newStrategyDocument } from './document/store'
 
 // Stub the api client so CatalogProvider / StrategyPanel / useSchemaVersionCheck don't hit the network.
 vi.mock('./api/client', async (importOriginal) => {
@@ -23,16 +25,20 @@ vi.mock('./api/client', async (importOriginal) => {
       node_types: [],
     }),
     listStrategies: vi.fn().mockResolvedValue({ strategies: [] }),
+    // The real Palette now fetches the saved-component list (M12.3) — resolve it empty (no network).
+    listComponents: vi.fn().mockResolvedValue({ components: [] }),
     // Per-test controllable: the App's lifted record fetch (M11.9 F7) is driven through this.
     getRun: vi.fn(),
   }
 })
 
-// Mock Canvas: expose the highlightedEdgeIndex prop and a button that mutates the doc via `actions`.
+// Mock Canvas: expose the highlightedEdgeIndex prop, a button that mutates the doc via `actions`, and a
+// button that toggles an extraction-selection node (so the extraction flow can be driven without RF).
 vi.mock('./components/Canvas', () => ({
   Canvas: (props: {
     highlightedEdgeIndex?: number | null
     actions: { addNode: (args: unknown) => void }
+    onToggleExtractionNode?: (id: string) => void
   }) => (
     <div>
       <span data-testid="edge-highlight">{String(props.highlightedEdgeIndex)}</span>
@@ -49,8 +55,32 @@ vi.mock('./components/Canvas', () => ({
       >
         mutate-doc
       </button>
+      <button type="button" onClick={() => props.onToggleExtractionNode?.('n-1')}>
+        toggle-extract-node
+      </button>
     </div>
   ),
+}))
+
+// Mock ExtractDialog: instead of the real two-phase commit, it CAPTURES the doc identity at first mount
+// (mirroring `onConfirm`'s captured-doc) and exposes a button that hands that captured doc back to the
+// App's `onCommit`. This exercises the App-owned live-document IDENTITY guard end-to-end: if the live
+// doc changed since the dialog opened, `onCommit` must refuse (return false) and NOT replace.
+vi.mock('./components/ExtractDialog', () => ({
+  ExtractDialog: (props: {
+    doc: unknown
+    onCommit: (captured: unknown, strategy: unknown, id: string) => boolean
+  }) => {
+    const captured = useRef(props.doc)
+    return (
+      <button
+        type="button"
+        onClick={() => props.onCommit(captured.current, newStrategyDocument('Extracted'), 'n-new')}
+      >
+        commit-captured
+      </button>
+    )
+  },
 }))
 
 // Mock ValidatePanel: a button that dispatches an edge-index highlight (as a real edge diagnostic would).
@@ -155,5 +185,51 @@ describe('App run-record fetch (the F7 lift)', () => {
     expect(screen.getByTestId('rv-error')).toHaveTextContent('record unavailable')
     expect(screen.getByTestId('rv-loading')).toHaveTextContent('false')
     expect(screen.getByTestId('rv-record')).toHaveTextContent('undefined')
+  })
+})
+
+describe('App extraction commit guard (M12.5b)', () => {
+  // Drive the mocked Canvas + the real toolbar to open the (mocked) ExtractDialog with one node selected.
+  async function openExtractDialog(): Promise<void> {
+    fireEvent.click(screen.getByRole('button', { name: 'Extract component' }))
+    fireEvent.click(screen.getByText('toggle-extract-node'))
+    fireEvent.click(screen.getByRole('button', { name: /Create component/ }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
+  it('applies the extraction when the live doc is unchanged since the commit started', async () => {
+    render(<App />)
+    await openExtractDialog()
+    // captured === live → the App-owned guard passes → the doc is replaced with the extraction result.
+    fireEvent.click(screen.getByText('commit-captured'))
+    expect(screen.getByText(/Extracted · v1/)).toBeInTheDocument()
+    // The applied path closes the dialog (onExtracted).
+    expect(screen.queryByText('commit-captured')).not.toBeInTheDocument()
+    await act(async () => {
+      await Promise.resolve()
+    })
+  })
+
+  it('refuses to clobber the live doc when it changed mid-flight (StrategyPanel New)', async () => {
+    render(<App />)
+    await openExtractDialog()
+    // Navigate to a DIFFERENT document via the bottom StrategyPanel — the modal overlay does NOT cover
+    // it, so this is the real clobber vector. The store returns a NEW object, so the replaceIf
+    // compare-and-swap sees a different live doc than the one captured at Confirm and refuses.
+    fireEvent.change(screen.getByLabelText('new strategy name'), { target: { value: 'Navigated' } })
+    fireEvent.click(screen.getByRole('button', { name: 'New strategy' }))
+    expect(screen.getByText(/Navigated · v1/)).toBeInTheDocument()
+
+    // Commit the STALE captured doc → the identity guard must refuse; nothing is replaced.
+    fireEvent.click(screen.getByText('commit-captured'))
+    expect(screen.getByText(/Navigated · v1/)).toBeInTheDocument()
+    expect(screen.queryByText(/Extracted · v1/)).not.toBeInTheDocument()
+    // The dialog stays open (onExtracted never fired) — the commit was rejected, not applied.
+    expect(screen.getByText('commit-captured')).toBeInTheDocument()
+    await act(async () => {
+      await Promise.resolve()
+    })
   })
 })

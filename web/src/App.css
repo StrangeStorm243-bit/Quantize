@@ -129,6 +129,28 @@ body {
   background: #f0f4ff;
 }
 
+/* A component palette item — visually distinct from a registered-node item. */
+.palette-item--component {
+  border-style: dashed;
+  border-color: #b0a4e6;
+  background: #f7f5ff;
+}
+
+.palette-item--component:hover {
+  border-color: #6a4af7;
+  background: #efeaff;
+}
+
+.palette__hint {
+  font-size: 0.78rem;
+  color: #8a909c;
+  padding: 0.15rem 0.1rem 0.35rem;
+}
+
+.palette__hint--error {
+  color: #b4232a;
+}
+
 /* --- Canvas ----------------------------------------------------------------------------------- */
 
 .canvas {
@@ -261,6 +283,282 @@ body {
 .inspector__unknown {
   color: #b4232a;
   font-size: 0.8rem;
+}
+
+.inspector__inspect {
+  margin-top: 0.6rem;
+}
+
+/* --- Component detail drawer (M12.4) ---------------------------------------------------------- */
+
+/* A modal overlay pinned over the canvas region (`.app-region--center` is `position: relative`). */
+.cdrawer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  padding: 1rem;
+  background: rgba(31, 36, 48, 0.35);
+}
+
+.cdrawer__panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #d8dbe0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.cdrawer__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #e4e7ec;
+  background: #fbfbfc;
+}
+
+.cdrawer__title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.cdrawer__meta {
+  flex: 1;
+  font-size: 0.72rem;
+  color: #8a909c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.cdrawer__close {
+  border: none;
+  background: transparent;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #5a6070;
+}
+
+.cdrawer__body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.cdrawer__status {
+  padding: 1rem;
+  color: #8a909c;
+  font-size: 0.85rem;
+}
+
+/* --- Extraction toolbar + banner (M12.5) ----------------------------------------------------- */
+
+.extract-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #e4e7ec;
+  background: #fbfbfc;
+}
+
+.extract-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+}
+
+.extract-banner__count {
+  flex: 1;
+  font-size: 0.82rem;
+  color: #3a4050;
+  font-weight: 600;
+}
+
+/* --- Extraction dialog (M12.5) --------------------------------------------------------------- */
+
+/* A modal overlay pinned over the canvas region (`.app-region--center` is `position: relative`). */
+.xdialog {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(31, 36, 48, 0.35);
+  overflow: auto;
+}
+
+.xdialog__panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 34rem;
+  border: 1px solid #d8dbe0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.xdialog__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #e4e7ec;
+  background: #fbfbfc;
+}
+
+.xdialog__title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.xdialog__close {
+  border: none;
+  background: transparent;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #5a6070;
+}
+
+.xdialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.75rem;
+  font-size: 0.82rem;
+}
+
+.xdialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.xdialog__label {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8a909c;
+}
+
+.xdialog__input {
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #d8dbe0;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-family: inherit;
+}
+
+.xdialog__section-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8a909c;
+}
+
+.xdialog__hint {
+  margin: 0;
+  color: #8a909c;
+  font-size: 0.8rem;
+}
+
+.xdialog__hint--error {
+  color: #8f1d22;
+}
+
+.xdialog__ports,
+.xdialog__params {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.xdialog__port {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.xdialog__port-dir {
+  min-width: 3.5rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: #8a909c;
+}
+
+.xdialog__port-type {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  color: #4a6cf7;
+}
+
+.xdialog__port-err {
+  font-size: 0.72rem;
+  color: #8f1d22;
+}
+
+.xdialog__param {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.xdialog__param-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1;
+}
+
+.xdialog__error {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #e6a2a4;
+  border-radius: 5px;
+  background: #fdecec;
+  color: #8f1d22;
+}
+
+.xdialog__diags {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.xdialog__diags-title {
+  margin: 0;
+  font-weight: 600;
+  color: #8f1d22;
+}
+
+.xdialog__diag-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.xdialog__foot {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid #e4e7ec;
+  background: #fbfbfc;
 }
 
 .pform {

@@ -9,6 +9,7 @@ import type {
   ApiError,
   BacktestRunRequest,
   ComponentList,
+  ComponentSaved,
   DatasetList,
   DatasetStored,
   DatasetUpload,
@@ -132,6 +133,12 @@ export function validateStrategy(doc: StrategyDocument): Promise<ValidateRespons
 
 export function listComponents(): Promise<ComponentList> {
   return request<ComponentList>('/v1/components')
+}
+
+// POST takes the raw ComponentDefinition as the request body (no envelope), mirroring saveStrategy.
+// The endpoint is idempotent (200 on an identical re-save; 409 on a divergent one at the same version).
+export function saveComponent(def: ComponentDefinition): Promise<ComponentSaved> {
+  return request<ComponentSaved>('/v1/components', postJson(def))
 }
 
 // The response is the raw persisted component IR JSON → typed as ComponentDefinition.

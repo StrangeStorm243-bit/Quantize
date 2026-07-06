@@ -11,13 +11,31 @@ from fastapi import APIRouter, Response, status
 from quantize.api.dto.documents import ComponentList, ComponentListRow, ComponentSaved
 from quantize.api.errors import ApiRequestError
 from quantize.api.parsing import JsonBody, SettingsDep, load_ir_document
+from quantize.api.service import load_component_catalog
+from quantize.components.resolve import diagnose_component_definition
+from quantize.nodes import build_core_catalog
 from quantize.persistence.database import Database
 from quantize.persistence.documents import ComponentRepository
 from quantize.persistence.errors import ARTIFACT_NOT_FOUND, INVALID_ARTIFACT, PersistenceError
+from quantize.runtime.diagnostics import RuntimeDiagnostic
 from quantize.schema.components import ComponentDefinition
 from quantize.schema.serialization import to_ir_json
 
 router = APIRouter(prefix="/v1/components", tags=["components"])
+
+COMPONENT_DEFINITION_INVALID = "component_definition_invalid"
+
+
+def _summarize(diagnostics: list[RuntimeDiagnostic]) -> str:
+    """A single client-facing message from the ordered save-validation diagnostics: the first
+    fault, plus a count of any that follow (the full set is deterministic but a 422 body carries
+    one message — the first is the highest-priority per ``sort_runtime_diagnostics``)."""
+    head = diagnostics[0]
+    message = f"{head.code}: {head.message}"
+    remaining = len(diagnostics) - 1
+    if remaining:
+        message += f" (+{remaining} more)"
+    return message
 
 
 def _component_exists(repo: ComponentRepository, component_id: str, version: str) -> bool:
@@ -34,8 +52,18 @@ def _component_exists(repo: ComponentRepository, component_id: str, version: str
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def save_component(body: JsonBody, settings: SettingsDep, response: Response) -> ComponentSaved:
-    definition = load_ir_document(body, ComponentDefinition)
+    definition = load_ir_document(body, ComponentDefinition)  # 400 parse/shape, 422 version
+    registry = build_core_catalog().descriptor_registry
     with Database(settings.db_path, busy_timeout_ms=settings.busy_timeout_ms) as db:
+        # Semantic validation BEFORE the immutable save: fetch this definition's own nested closure
+        # from the store and run the same definition-level checks resolution runs. A broken
+        # definition (unknown internal type, bad exposed-port wiring, self/transitive recursion,
+        # dangling nested ref) is rejected here — the immutable store never sees it. A no-refs
+        # component yields an empty closure (no extra reads), but the DB is already open for save.
+        catalog = load_component_catalog(db, definition)
+        diagnostics = diagnose_component_definition(definition, catalog, registry)
+        if diagnostics:
+            raise ApiRequestError(422, COMPONENT_DEFINITION_INVALID, _summarize(diagnostics))
         repo = ComponentRepository(db)
         existed = _component_exists(repo, definition.component_id, definition.version)
         try:

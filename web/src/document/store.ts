@@ -13,8 +13,14 @@
 //
 // No numerical, portfolio, or compatibility logic lives here (invariant 5); connection VALIDITY is
 // the canvas's job (D5, M11.4), so `connect` just appends.
-import { useCallback, useMemo, useState } from 'react'
-import type { JsonValue, RegisteredNode, StrategyDocument } from '@quantize/quantize-ir'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import type {
+  ComponentRef,
+  ComponentRefNode,
+  JsonValue,
+  RegisteredNode,
+  StrategyDocument,
+} from '@quantize/quantize-ir'
 import { PLACEHOLDER_USER_ID, SCHEMA_VERSION } from '../config'
 
 /** A node's `params` object (as the IR types it). */
@@ -43,9 +49,16 @@ export interface EdgeSpec {
 }
 
 // Mint a NODE id. IR NodeId is `^[A-Za-z0-9_]+$` (identifier-like, NO hyphens) — a raw hyphenated
-// uuid would FAIL server validation. So we strip the hyphens and prefix a letter.
-function mintNodeId(): string {
+// uuid would FAIL server validation. So we strip the hyphens and prefix a letter. Exported so the
+// extraction reducer (extract.ts) mints ids by the SAME grammar rather than re-encoding it.
+export function mintNodeId(): string {
   return 'n' + crypto.randomUUID().replaceAll('-', '')
+}
+
+// Mint a component-ref id. IR RefId shares NodeId's `^[A-Za-z0-9_]+$` grammar — no hyphens. Exported
+// alongside mintNodeId (single owner of the id grammar).
+export function mintRefId(): string {
+  return 'r' + crypto.randomUUID().replaceAll('-', '')
 }
 
 /**
@@ -96,11 +109,61 @@ export function addNode(doc: StrategyDocument, args: AddNodeArgs): StrategyDocum
   return next
 }
 
-/** Remove a node AND every edge incident to it (either endpoint references the node). */
+/** Arguments for {@link addComponentRefNode}. */
+export interface AddComponentRefArgs {
+  componentId: string
+  version: string
+  position: Position
+}
+
+/**
+ * Place a new `ComponentRefNode` (a pinned instance of a versioned component). If the document already
+ * pins the same `(component_id, version)` we REUSE that `component_refs` entry (a document pins a
+ * given component version once); otherwise we mint a fresh hyphen-free `RefId` and append the pin. The
+ * node starts with empty `params` — the definition's authored values are the defaults; instance params
+ * are per-instance overrides keyed by exposed name (added later via the Inspector).
+ */
+export function addComponentRefNode(
+  doc: StrategyDocument,
+  args: AddComponentRefArgs,
+): StrategyDocument {
+  const next = structuredClone(doc)
+  let ref: ComponentRef | undefined = next.component_refs.find(
+    (r) => r.component_id === args.componentId && r.version === args.version,
+  )
+  if (ref === undefined) {
+    ref = { id: mintRefId(), component_id: args.componentId, version: args.version }
+    next.component_refs.push(ref)
+  }
+  const node: ComponentRefNode = {
+    id: mintNodeId(),
+    type_id: 'component',
+    ref: ref.id,
+    params: {},
+    ui: { position: { x: args.position.x, y: args.position.y } },
+  }
+  next.nodes.push(node)
+  return next
+}
+
+/**
+ * Remove a node AND every edge incident to it (either endpoint references the node), then prune any
+ * `component_refs` pin no remaining node still references. Deleting a `ComponentRefNode` must not
+ * leave its pin behind: the server resolves EVERY declared ref, used or not (a now-orphaned pin is
+ * LIVE document content that can make validate/run fail — e.g. if that component later goes
+ * missing/invalid — and is stale semantic content regardless). We recompute the used set from the
+ * REMAINING nodes (`'ref' in n` is the ComponentRefNode discriminant), so a pin SHARED by two
+ * instances is kept when only one is removed. Removing a registered (non-component) node changes no
+ * pin's used-ness, so its refs survive untouched. Pure — operates on the clone.
+ */
 export function removeNode(doc: StrategyDocument, nodeId: string): StrategyDocument {
   const next = structuredClone(doc)
   next.nodes = next.nodes.filter((n) => n.id !== nodeId)
   next.edges = next.edges.filter((e) => e.from[0] !== nodeId && e.to[0] !== nodeId)
+  const usedRefIds = new Set(
+    next.nodes.filter((n) => 'ref' in n).map((n) => (n as ComponentRefNode).ref),
+  )
+  next.component_refs = next.component_refs.filter((r) => usedRefIds.has(r.id))
   return next
 }
 
@@ -185,6 +248,13 @@ export interface StrategyDocumentActions {
   setParams: (nodeId: string, params: NodeParams) => void
   setNodeUi: (nodeId: string, ui: NodeUi) => void
   replace: (doc: StrategyDocument) => void
+  /**
+   * Compare-and-swap: replace the document with `next` ONLY if the live document is still `expected`
+   * (the object an async writer captured before its awaits), returning whether it applied. The ONE
+   * guard every async document writer shares — a stale write (the doc changed during the await window)
+   * is refused without mutating anything. Synchronous writers use plain {@link replace}.
+   */
+  replaceIf: (expected: StrategyDocument, next: StrategyDocument) => boolean
 }
 
 /**
@@ -196,6 +266,13 @@ export function useStrategyDocument(
   initial: StrategyDocument,
 ): [StrategyDocument, StrategyDocumentActions] {
   const [doc, setDoc] = useState<StrategyDocument>(initial)
+  // A ref that always points at the LIVE document object, updated each render. `replaceIf` compares an
+  // async writer's captured `expected` doc against `latest.current`: identity is EXACT because every
+  // reducer returns a NEW object, so a mismatch means the doc was replaced/edited during the writer's
+  // await window and the stale write must be refused. This is the single compare-and-swap that closes
+  // the late-write clobber hole for ALL async writers (extraction commit + StrategyPanel load, …).
+  const latest = useRef(doc)
+  latest.current = doc
   // Every updater is a FUNCTIONAL setDoc (`d => reducer(d, …)`), so the empty deps are safe — no
   // callback closes over a changing value. Keep them functional: a future edit that captures a prop
   // directly would silently read a stale value.
@@ -212,6 +289,16 @@ export function useStrategyDocument(
     [],
   )
   const replaceCb = useCallback((next: StrategyDocument) => setDoc(next), [])
+  const replaceIfCb = useCallback(
+    (expected: StrategyDocument, next: StrategyDocument): boolean => {
+      if (latest.current !== expected) {
+        return false
+      }
+      setDoc(next)
+      return true
+    },
+    [],
+  )
   // Memoize the actions object so its identity is stable across renders (a consumer may put it in
   // an effect/memo dependency list; a fresh literal each render would re-run those needlessly).
   const actions = useMemo<StrategyDocumentActions>(
@@ -223,8 +310,9 @@ export function useStrategyDocument(
       setParams: setParamsCb,
       setNodeUi: setNodeUiCb,
       replace: replaceCb,
+      replaceIf: replaceIfCb,
     }),
-    [addNodeCb, removeNodeCb, connectCb, disconnectCb, setParamsCb, setNodeUiCb, replaceCb],
+    [addNodeCb, removeNodeCb, connectCb, disconnectCb, setParamsCb, setNodeUiCb, replaceCb, replaceIfCb],
   )
   return [doc, actions]
 }

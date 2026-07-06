@@ -11,7 +11,12 @@ import type {
   CatalogOutputPortDto,
   NodeCatalogResponse,
 } from '@quantize/quantize-api'
-import type { JsonValue, StrategyDocument } from '@quantize/quantize-ir'
+import type {
+  ComponentDefinition,
+  ComponentRef,
+  JsonValue,
+  StrategyDocument,
+} from '@quantize/quantize-ir'
 
 /**
  * The data an IR node contributes to its React Flow node. `typeId` is ALWAYS present. When `toFlow`
@@ -24,6 +29,67 @@ export type FlowNodeData = {
   displayName?: string
   inputs?: CatalogInputPortDto[]
   outputs?: CatalogOutputPortDto[]
+}
+
+/**
+ * The cache key for a component definition: `component_id@version`. A definition is immutable per
+ * version (the store returns 409 on a divergent re-save), so this key is stable forever — it is the
+ * single agreed key format shared by the {@link ComponentsProvider} cache and every consumer that
+ * resolves a `ComponentRef` (toFlow, decideConnection, the Inspector).
+ */
+export function componentCacheKey(componentId: string, version: string): string {
+  return `${componentId}@${version}`
+}
+
+/**
+ * Find a pinned `ComponentRef` by its node-local `ref` id — the FIRST step of resolving a
+ * `ComponentRefNode`. Kept separate from {@link resolveComponentDef} because a consumer (the
+ * Inspector) needs the ref ITSELF — to show `component_id@version` and offer "Inspect internals" —
+ * even when the definition has not been fetched yet (a cache miss). Returns `undefined` when no ref
+ * carries that id.
+ */
+export function findComponentRef(
+  componentRefs: readonly ComponentRef[] | undefined,
+  refId: string,
+): ComponentRef | undefined {
+  return componentRefs?.find((r) => r.id === refId)
+}
+
+/**
+ * The SINGLE ref→definition resolution shared by render (`toFlow`), connect (`decideConnection`) and
+ * inspect (the Inspector). Two steps that must NEVER disagree for the same node: find the pinned ref
+ * by its id, then look its immutable definition up in the cache by the shared `component_id@version`
+ * key. Returns `undefined` on EITHER miss (unknown ref OR definition not fetched) — the same graceful
+ * degradation every consumer already relies on. Centralizing it here means a future resolution change
+ * (a cache-miss fallback, version aliasing) lands in ONE place instead of desyncing the three sites.
+ */
+export function resolveComponentDef(
+  componentRefs: readonly ComponentRef[] | undefined,
+  refId: string,
+  components: ReadonlyMap<string, ComponentDefinition> | undefined,
+): ComponentDefinition | undefined {
+  const ref = findComponentRef(componentRefs, refId)
+  return ref === undefined
+    ? undefined
+    : components?.get(componentCacheKey(ref.component_id, ref.version))
+}
+
+/**
+ * The ONE definition→port mapping. A component's `exposed_inputs`/`exposed_outputs` project onto the
+ * EXACT catalog port DTO shapes so `FlowNodeData`/`StrategyNode`/the connection gate treat a component
+ * instance exactly like a registered node — no new port source, no divergent resolution path. Every
+ * exposed input is `required: true` (the run-faithful preflight requires every exposed input connected
+ * at the top level), and the port TYPE is copied verbatim (data, never compared here — invariant 5).
+ * This is the single resolution path used by toFlow AND decideConnection AND (later) the Inspector.
+ */
+export function componentPorts(def: ComponentDefinition): {
+  inputs: CatalogInputPortDto[]
+  outputs: CatalogOutputPortDto[]
+} {
+  return {
+    inputs: def.exposed_inputs.map((p) => ({ name: p.name, port_type: p.type, required: true })),
+    outputs: def.exposed_outputs.map((p) => ({ name: p.name, port_type: p.type })),
+  }
 }
 
 /** A React Flow node whose `data` carries the mapped IR fields. */
@@ -61,8 +127,15 @@ function gridPosition(index: number): { x: number; y: number } {
  * derive path must stay robust to any valid doc, not only canvas-authored ones).
  */
 export function toFlow(
-  doc: StrategyDocument,
+  // Widened to `nodes`+`edges` (plus the optional `component_refs` this path resolves) so a component
+  // `Graph` — which is exactly `{nodes, edges}` — projects through the SAME function as a full
+  // `StrategyDocument`. A `StrategyDocument` (component_refs required) satisfies this; a `Graph`
+  // (no component_refs) satisfies it too, resolving any nested ref to a bare node (the cache-miss posture).
+  doc: Pick<StrategyDocument, 'nodes' | 'edges'> & {
+    component_refs?: StrategyDocument['component_refs']
+  },
   catalog?: NodeCatalogResponse,
+  components?: ReadonlyMap<string, ComponentDefinition>,
 ): { nodes: StrategyFlowNode[]; edges: FlowEdge[] } {
   // Index node types by id ONCE (when a catalog is provided) so the enrichment is O(nodes).
   const byType =
@@ -72,13 +145,26 @@ export function toFlow(
 
   const nodes: StrategyFlowNode[] = doc.nodes.map((node, index) => {
     const data: FlowNodeData = { typeId: node.type_id }
-    const nodeType = byType?.get(node.type_id)
-    if (nodeType !== undefined) {
-      // Only add the enriched keys when the type resolves — an unknown/future type keeps the bare
-      // `{typeId}` shape (backward-compatible with M11.3 and with the extensible-block seam).
-      data.displayName = nodeType.display_name
-      data.inputs = nodeType.inputs
-      data.outputs = nodeType.outputs
+    if ('ref' in node) {
+      // A ComponentRefNode: resolve its pinned `(component_id, version)` and enrich from the cached
+      // definition. On a cache miss (definition not fetched yet) keep the bare `{typeId: 'component'}`
+      // shape — the SAME degradation an unknown/future registered type gets, never a crash.
+      const def = resolveComponentDef(doc.component_refs, node.ref, components)
+      if (def !== undefined) {
+        const ports = componentPorts(def)
+        data.displayName = def.name
+        data.inputs = ports.inputs
+        data.outputs = ports.outputs
+      }
+    } else {
+      const nodeType = byType?.get(node.type_id)
+      if (nodeType !== undefined) {
+        // Only add the enriched keys when the type resolves — an unknown/future type keeps the bare
+        // `{typeId}` shape (backward-compatible with M11.3 and with the extensible-block seam).
+        data.displayName = nodeType.display_name
+        data.inputs = nodeType.inputs
+        data.outputs = nodeType.outputs
+      }
     }
     return {
       id: node.id,

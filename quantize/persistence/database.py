@@ -65,6 +65,16 @@ class Database:
         self._connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
         self._in_transaction = False
         try:
+            # WAL journal mode (M12.9): under the rollback-journal default, a writer's COMMIT needs
+            # an EXCLUSIVE lock and blocks (then times out to structured ``database_locked`` → 503)
+            # while a reader holds a SHARED lock. Since M12 the validate endpoint READS component
+            # definitions per call, so validating a componentized strategy during a long run's write
+            # could 503 — a failure the validate contract never had. WAL lets readers proceed
+            # against the last committed snapshot while a writer commits, closing it. This pragma
+            # reads the file header, so it sits INSIDE the try: a corrupt/garbage file surfaces here
+            # as the same structured ``corrupt_database`` the migration reads below would raise.
+            # busy_timeout is unchanged.
+            self._connection.execute("PRAGMA journal_mode = WAL")
             self._apply_migrations()
         except sqlite3.DatabaseError as error:
             self._connection.close()

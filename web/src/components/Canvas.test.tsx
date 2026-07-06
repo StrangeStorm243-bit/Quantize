@@ -2,11 +2,12 @@ import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Connection } from '@xyflow/react'
 import type { NodeCatalogResponse } from '@quantize/quantize-api'
-import type { StrategyDocument } from '@quantize/quantize-ir'
+import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
 import catalogJson from '../../../tests/goldens/node_catalog.json'
 import { addNode, connect, newStrategyDocument } from '../document/store'
 import type { StrategyDocumentActions } from '../document/store'
 import { buildCompatibilitySet, CatalogProvider } from '../catalog'
+import { ComponentsProvider, componentCacheKey } from '../components-cache'
 import { Canvas, decideConnection } from './Canvas'
 
 const catalog = catalogJson as unknown as NodeCatalogResponse
@@ -18,6 +19,50 @@ vi.mock('../api/client', async () => {
   const json = (await import('../../../tests/goldens/node_catalog.json')).default
   return { getNodeCatalog: () => Promise.resolve(json) }
 })
+
+// A minimal component definition + a doc that instantiates it, for the component-connection tests.
+const DEF: ComponentDefinition = {
+  schema_version: '0.1.0',
+  component_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  version: '1.0.0',
+  name: 'Momentum Selector',
+  description: null,
+  component_refs: [],
+  implementation: { kind: 'graph', graph: { nodes: [], edges: [] } },
+  exposed_inputs: [
+    { name: 'series', type: { kind: 'TimeSeries', dtype: 'Number' }, maps_to: ['ret', 'series'] },
+  ],
+  exposed_outputs: [{ name: 'assets', type: { kind: 'AssetSet' }, maps_to: ['sel', 'assets'] }],
+  exposed_params: [],
+  provenance: {
+    owner: '00000000-0000-0000-0000-000000000001',
+    creator: '00000000-0000-0000-0000-000000000001',
+    contributors: [],
+    visibility: 'private',
+    duplicable: false,
+    created_at: '2026-07-06T00:00:00Z',
+    forked_from: null,
+  },
+}
+
+// A price node (out "series": TimeSeries[Number]) feeding a component instance whose exposed input
+// "series" is TimeSeries[Number] — an allowed pair via the same allow-set.
+function buildComponentDoc(): { doc: StrategyDocument; priceId: string } {
+  let doc = newStrategyDocument('t')
+  doc = addNode(doc, {
+    typeId: 'data.price',
+    typeVersion: '1.0.0',
+    params: {},
+    position: { x: 0, y: 0 },
+  })
+  const priceId = doc.nodes[0].id
+  doc = {
+    ...doc,
+    component_refs: [{ id: 'r1', component_id: DEF.component_id, version: DEF.version }],
+    nodes: [...doc.nodes, { id: 'mom', type_id: 'component', ref: 'r1', params: {} }],
+  }
+  return { doc, priceId }
+}
 
 afterEach(() => {
   vi.clearAllMocks()
@@ -159,6 +204,38 @@ describe('decideConnection', () => {
       expect(decision.reason).toContain('Incomplete connection')
     }
   })
+
+  it('ALLOWS an edge into a component exposed input whose type matches the allow-set', () => {
+    const { doc, priceId } = buildComponentDoc()
+    const components = new Map([[componentCacheKey(DEF.component_id, DEF.version), DEF]])
+    const decision = decideConnection(
+      catalog,
+      compatSet,
+      doc,
+      { source: priceId, target: 'mom', sourceHandle: 'series', targetHandle: 'series' },
+      components,
+    )
+    expect(decision.allowed).toBe(true)
+    if (decision.allowed) {
+      expect(decision.edge).toEqual({ from: [priceId, 'series'], to: ['mom', 'series'] })
+    }
+  })
+
+  it('rejects with "not loaded" when the component definition is a cache MISS', () => {
+    const { doc, priceId } = buildComponentDoc()
+    // Empty cache → the component endpoint cannot be resolved.
+    const decision = decideConnection(
+      catalog,
+      compatSet,
+      doc,
+      { source: priceId, target: 'mom', sourceHandle: 'series', targetHandle: 'series' },
+      new Map(),
+    )
+    expect(decision.allowed).toBe(false)
+    if (!decision.allowed) {
+      expect(decision.reason).toContain('not loaded')
+    }
+  })
 })
 
 function stubActions(): StrategyDocumentActions {
@@ -170,6 +247,7 @@ function stubActions(): StrategyDocumentActions {
     setParams: vi.fn(),
     setNodeUi: vi.fn(),
     replace: vi.fn(),
+    replaceIf: vi.fn().mockReturnValue(true),
   }
 }
 
@@ -178,7 +256,9 @@ describe('Canvas render', () => {
     const { doc } = buildDoc()
     render(
       <CatalogProvider>
-        <Canvas doc={doc} actions={stubActions()} />
+        <ComponentsProvider>
+          <Canvas doc={doc} actions={stubActions()} />
+        </ComponentsProvider>
       </CatalogProvider>,
     )
     // Once the catalog resolves, the custom node shows the type's display name.
@@ -190,7 +270,9 @@ describe('Canvas render', () => {
     const { doc } = buildDoc()
     const { rerender } = render(
       <CatalogProvider>
-        <Canvas doc={doc} actions={stubActions()} />
+        <ComponentsProvider>
+          <Canvas doc={doc} actions={stubActions()} />
+        </ComponentsProvider>
       </CatalogProvider>,
     )
     await screen.findByText('Trailing Return')
@@ -206,7 +288,9 @@ describe('Canvas render', () => {
     })
     rerender(
       <CatalogProvider>
-        <Canvas doc={withAdded} actions={stubActions()} />
+        <ComponentsProvider>
+          <Canvas doc={withAdded} actions={stubActions()} />
+        </ComponentsProvider>
       </CatalogProvider>,
     )
     expect(await screen.findByText('Fixed Universe')).toBeInTheDocument()

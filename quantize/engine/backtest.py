@@ -37,7 +37,11 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from quantize.components.resolve import ComponentCatalog, resolve_strategy_components
+from quantize.components.resolve import (
+    ComponentCatalog,
+    require_component_catalog,
+    resolve_strategy_components,
+)
 from quantize.engine.errors import (
     EVALUATION_FAILED,
     INVALID_TRANSACTION_COSTS,
@@ -252,8 +256,13 @@ class SessionEngine:
     def preflight(self) -> tuple[RuntimeDiagnostic, ...] | None:
         """Run-entry validation (component resolution feeds the warm-up gate; unsupported cost
         models fail before any session runs). ``None`` = ready; diagnostics = terminal."""
+        # Fail loud (M12.9, GAP-1): a componentized document run with ``components=None`` is a
+        # caller bug; an empty default would report every pinned component as unavailable. This runs
+        # from ``SessionEngine.preflight`` — the single entry both ``run_backtest`` and
+        # ``ForwardReplay`` gate on — so it covers the forward driver too. Explicit empty is valid.
+        catalog = require_component_catalog(self.components, self.document.component_refs)
         resolution = resolve_strategy_components(
-            self.document, self.components or ComponentCatalog(), self.catalog.descriptor_registry
+            self.document, catalog, self.catalog.descriptor_registry
         )
         if not resolution.ok:
             return resolution.diagnostics

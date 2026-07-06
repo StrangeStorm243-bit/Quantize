@@ -9,10 +9,14 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { RunRecordResponse } from '@quantize/quantize-api'
+import type { StrategyDocument } from '@quantize/quantize-ir'
 import { errorMessage, getRun } from './api/client'
 import { CatalogProvider } from './catalog'
+import { ComponentsProvider } from './components-cache'
 import { Canvas } from './components/Canvas'
+import { ComponentDrawer } from './components/ComponentDrawer'
 import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
+import { ExtractDialog } from './components/ExtractDialog'
 import { Inspector } from './components/Inspector'
 import { Palette } from './components/Palette'
 import { ResultsView } from './components/ResultsView'
@@ -51,6 +55,71 @@ export function App(): ReactElement {
   const [tab, setTab] = useState<PanelTab>('strategies')
   const [datasetId, setDatasetId] = useState<string | undefined>(initialDatasetId)
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
+  // The component whose internals are open in the read-only detail drawer (M12.4, E11). Transient view
+  // state — never a second source of truth; the definition itself lives in the immutable cache.
+  const [viewedComponent, setViewedComponent] = useState<{ componentId: string; version: string } | null>(
+    null,
+  )
+
+  // Extraction mode (M12.5, E2): an App-OWNED selection set — NOT React Flow's transient multi-select
+  // (kept disabled since M11.10) — so it survives every doc re-seed by construction. `extractionMode`
+  // gates the Canvas's click-to-toggle + delete-key behaviour; `extractDialogOpen` mounts the dialog.
+  // `componentsRefreshKey` is bumped on a successful extraction so the Palette refetches its list and
+  // the freshly-minted component appears without a page reload.
+  const [extractionMode, setExtractionMode] = useState(false)
+  const [extractionSelection, setExtractionSelection] = useState<Set<string>>(new Set())
+  const [extractDialogOpen, setExtractDialogOpen] = useState(false)
+  const [componentsRefreshKey, setComponentsRefreshKey] = useState(0)
+
+  // Enter extraction mode: seed the set from the single selection (if any), then clear single-select so
+  // the two selection models never fight. Exit paths (cancel / success) always clear the set + dialog.
+  const enterExtractionMode = (): void => {
+    setExtractionSelection(selectedNodeId !== null ? new Set([selectedNodeId]) : new Set())
+    setSelectedNodeId(null)
+    setExtractDialogOpen(false)
+    setExtractionMode(true)
+  }
+  const cancelExtraction = (): void => {
+    setExtractionMode(false)
+    setExtractionSelection(new Set())
+    setExtractDialogOpen(false)
+  }
+  const toggleExtractionNode = (nodeId: string): void => {
+    setExtractionSelection((prev) => {
+      const next = new Set(prev)
+      if (next.has(nodeId)) {
+        next.delete(nodeId)
+      } else {
+        next.add(nodeId)
+      }
+      return next
+    })
+  }
+  // A blessed extraction: replace the doc, refresh the palette, leave the mode, and select the minted
+  // component instance node. Called from the dialog's `onCommit` ONLY after it applies (see below).
+  const onExtracted = (newNodeId: string): void => {
+    setComponentsRefreshKey((k) => k + 1)
+    setExtractionMode(false)
+    setExtractionSelection(new Set())
+    setExtractDialogOpen(false)
+    setSelectedNodeId(newNodeId === '' ? null : newNodeId)
+  }
+  // The App-owned commit gate (M12.5b): the dialog server-validated the rewrite and now asks us to apply
+  // it. The store's `replaceIf` compare-and-swap refuses — WITHOUT mutating anything — if the live
+  // document is no longer the object the commit captured (a mid-flight load/new/edit, e.g. from the
+  // StrategyPanel the modal does not cover). This is the last line closing the stale-clobber hole; the
+  // dialog surfaces a non-destructive message on false.
+  const commitExtraction = (
+    capturedDoc: StrategyDocument,
+    strategy: StrategyDocument,
+    newNodeId: string,
+  ): boolean => {
+    if (!actions.replaceIf(capturedDoc, strategy)) {
+      return false
+    }
+    onExtracted(newNodeId)
+    return true
+  }
 
   // The run record is fetched ONCE per selected run and held here (not in the panels): ResultsView and
   // TraceView are conditionally mounted per tab, so if each fetched its own record every results↔trace
@@ -92,6 +161,17 @@ export function App(): ReactElement {
     }
   }, [selectedRunId])
 
+  // When the selected node leaves the document — Backspace-delete, a load/replace, or an extraction
+  // rewrite — clear the stale selection: nothing else does, so `selectedNodeId` would otherwise point
+  // at a nonexistent id. That phantom is not just cosmetic: `enterExtractionMode` seeds the extraction
+  // set from it, so a deleted-then-extract flow would seed an un-toggleable ghost member that errors the
+  // preview. Resolving by id (O(n) over nodes) keyed on [doc, selectedNodeId] covers every removal path.
+  useEffect(() => {
+    if (selectedNodeId !== null && !doc.nodes.some((n) => n.id === selectedNodeId)) {
+      setSelectedNodeId(null)
+    }
+  }, [doc, selectedNodeId])
+
   // A positional edge highlight (`highlightedEdgeIndex`) is an INDEX into `doc.edges`; once the
   // document mutates or is replaced those indices point at different edges, so a stale highlight would
   // mark the WRONG edge (and, being RF-`selected`, make it Backspace-deletable). Clear it on any doc
@@ -119,87 +199,137 @@ export function App(): ReactElement {
 
   return (
     <CatalogProvider>
-      <div className="app">
-        <header className="app-header">
-          <h1>Quantize</h1>
-          <span className="app-header__name">
-            {doc.strategy.name} · v{doc.strategy.version}
-          </span>
-        </header>
-        <main className="app-body">
-          <aside className="app-region app-region--left" aria-label="palette">
-            <Palette />
-          </aside>
-          <section className="app-region app-region--center" aria-label="canvas">
-            <Canvas
-              doc={doc}
-              actions={actions}
-              onNodeClick={(id) => setSelectedNodeId(id)}
-              selectedNodeId={selectedNodeId}
-              highlightedEdgeIndex={highlightedEdgeIndex}
-            />
-          </section>
-          <aside className="app-region app-region--right" aria-label="inspector">
-            <Inspector doc={doc} selectedNodeId={selectedNodeId} actions={actions} />
-            <ValidatePanel doc={doc} onHighlight={onHighlight} />
-          </aside>
-        </main>
-        <footer className="app-region app-region--bottom" aria-label="panel">
-          <nav className="tabbar" aria-label="panel tabs">
-            {(['strategies', 'datasets', 'runs', 'results', 'trace'] as const).map((t) => {
-              // Trace inspects a selected run — disabled until one is chosen (like results, it is
-              // meaningless without a run; the button gates on the App's `selectedRunId`).
-              const needsRun = t === 'trace'
-              const disabled = needsRun && selectedRunId === undefined
-              return (
-                <button
-                  key={t}
-                  type="button"
-                  className={`tabbar__tab ${tab === t ? 'is-active' : ''}`}
-                  aria-pressed={tab === t}
-                  disabled={disabled}
-                  onClick={() => setTab(t)}
-                >
-                  {t}
-                </button>
-              )
-            })}
-          </nav>
-          <div className="tabpanel">
-            {tab === 'strategies' ? <StrategyPanel doc={doc} actions={actions} /> : null}
-            {tab === 'datasets' ? (
-              <DatasetPanel activeDatasetId={datasetId} onSelectDataset={setDatasetId} />
-            ) : null}
-            {tab === 'runs' ? (
-              <RunPanel
+      <ComponentsProvider>
+        <div className="app">
+          <header className="app-header">
+            <h1>Quantize</h1>
+            <span className="app-header__name">
+              {doc.strategy.name} · v{doc.strategy.version}
+            </span>
+          </header>
+          <main className="app-body">
+            <aside className="app-region app-region--left" aria-label="palette">
+              <Palette refreshKey={componentsRefreshKey} />
+            </aside>
+            <section className="app-region app-region--center" aria-label="canvas">
+              <div className="extract-toolbar">
+                {extractionMode ? (
+                  <div className="extract-banner" role="status">
+                    <span className="extract-banner__count">
+                      Extraction mode — {extractionSelection.size} node
+                      {extractionSelection.size === 1 ? '' : 's'} selected
+                    </span>
+                    <button
+                      type="button"
+                      className="pform__btn pform__btn--primary"
+                      disabled={extractionSelection.size === 0}
+                      onClick={() => setExtractDialogOpen(true)}
+                    >
+                      Create component…
+                    </button>
+                    <button type="button" className="pform__btn" onClick={cancelExtraction}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" className="pform__btn" onClick={enterExtractionMode}>
+                    Extract component
+                  </button>
+                )}
+              </div>
+              <Canvas
                 doc={doc}
-                datasetId={datasetId}
-                selectedRunId={selectedRunId}
-                onSelectRun={(runId) => {
-                  setSelectedRunId(runId)
-                  setTab('results')
-                }}
+                actions={actions}
+                onNodeClick={(id) => setSelectedNodeId(id)}
+                selectedNodeId={selectedNodeId}
+                selectedNodeIds={extractionMode ? extractionSelection : undefined}
+                extractionMode={extractionMode}
+                onToggleExtractionNode={toggleExtractionNode}
+                highlightedEdgeIndex={highlightedEdgeIndex}
               />
-            ) : null}
-            {tab === 'results' ? (
-              <ResultsView
-                runId={selectedRunId}
-                record={runRecord}
-                loading={runRecordLoading}
-                error={runRecordError}
+              {viewedComponent !== null ? (
+                <ComponentDrawer
+                  componentId={viewedComponent.componentId}
+                  version={viewedComponent.version}
+                  onClose={() => setViewedComponent(null)}
+                />
+              ) : null}
+              {extractDialogOpen ? (
+                <ExtractDialog
+                  doc={doc}
+                  selection={extractionSelection}
+                  onCommit={commitExtraction}
+                  onCancel={() => setExtractDialogOpen(false)}
+                />
+              ) : null}
+            </section>
+            <aside className="app-region app-region--right" aria-label="inspector">
+              <Inspector
+                doc={doc}
+                selectedNodeId={selectedNodeId}
+                actions={actions}
+                onInspectComponent={(target) => setViewedComponent(target)}
               />
-            ) : null}
-            {tab === 'trace' ? (
-              <TraceView
-                runId={selectedRunId}
-                record={runRecord}
-                recordLoading={runRecordLoading}
-                recordError={runRecordError}
-              />
-            ) : null}
-          </div>
-        </footer>
-      </div>
+              <ValidatePanel doc={doc} onHighlight={onHighlight} />
+            </aside>
+          </main>
+          <footer className="app-region app-region--bottom" aria-label="panel">
+            <nav className="tabbar" aria-label="panel tabs">
+              {(['strategies', 'datasets', 'runs', 'results', 'trace'] as const).map((t) => {
+                // Trace inspects a selected run — disabled until one is chosen (like results, it is
+                // meaningless without a run; the button gates on the App's `selectedRunId`).
+                const needsRun = t === 'trace'
+                const disabled = needsRun && selectedRunId === undefined
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    className={`tabbar__tab ${tab === t ? 'is-active' : ''}`}
+                    aria-pressed={tab === t}
+                    disabled={disabled}
+                    onClick={() => setTab(t)}
+                  >
+                    {t}
+                  </button>
+                )
+              })}
+            </nav>
+            <div className="tabpanel">
+              {tab === 'strategies' ? <StrategyPanel doc={doc} actions={actions} /> : null}
+              {tab === 'datasets' ? (
+                <DatasetPanel activeDatasetId={datasetId} onSelectDataset={setDatasetId} />
+              ) : null}
+              {tab === 'runs' ? (
+                <RunPanel
+                  doc={doc}
+                  datasetId={datasetId}
+                  selectedRunId={selectedRunId}
+                  onSelectRun={(runId) => {
+                    setSelectedRunId(runId)
+                    setTab('results')
+                  }}
+                />
+              ) : null}
+              {tab === 'results' ? (
+                <ResultsView
+                  runId={selectedRunId}
+                  record={runRecord}
+                  loading={runRecordLoading}
+                  error={runRecordError}
+                />
+              ) : null}
+              {tab === 'trace' ? (
+                <TraceView
+                  runId={selectedRunId}
+                  record={runRecord}
+                  recordLoading={runRecordLoading}
+                  recordError={runRecordError}
+                />
+              ) : null}
+            </div>
+          </footer>
+        </div>
+      </ComponentsProvider>
     </CatalogProvider>
   )
 }

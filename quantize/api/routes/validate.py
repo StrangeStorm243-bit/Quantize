@@ -18,20 +18,32 @@ from quantize.api.dto.validate import (
     StructuralDiagnosticDto,
     ValidateResponse,
 )
-from quantize.api.parsing import JsonBody, load_ir_document
+from quantize.api.parsing import JsonBody, SettingsDep, load_ir_document
+from quantize.api.service import load_component_catalog
+from quantize.components.resolve import ComponentCatalog
 from quantize.evaluator.plan import resolve_warmup
 from quantize.evaluator.preflight import run_document_preflight
 from quantize.nodes import build_core_catalog
+from quantize.persistence.database import Database
 from quantize.schema.document import StrategyDocument
 
 router = APIRouter(prefix="/v1/strategies", tags=["strategies"])
 
 
 @router.post("/validate")
-def validate_strategy(body: JsonBody) -> ValidateResponse:
+def validate_strategy(body: JsonBody, settings: SettingsDep) -> ValidateResponse:
     document = load_ir_document(body, StrategyDocument)  # 400 parse/shape, 422 version
     catalog = build_core_catalog()
-    preflight = run_document_preflight(document, registry=catalog.descriptor_registry)
+    # Only touch the store when the document actually pins components — a no-refs strategy keeps the
+    # DB-free fast path (opening ``Database(path)`` would auto-create the file for nothing).
+    if document.component_refs:
+        with Database(settings.db_path, busy_timeout_ms=settings.busy_timeout_ms) as db:
+            components = load_component_catalog(db, document)
+    else:
+        components = ComponentCatalog()
+    preflight = run_document_preflight(
+        document, registry=catalog.descriptor_registry, components=components
+    )
     warmup_sessions = (
         resolve_warmup(document, catalog, preflight.resolution).total if preflight.ok else None
     )

@@ -81,7 +81,12 @@ export function StrategyPanel({ doc, actions }: StrategyPanelProps): ReactElemen
   }
 
   // Load the LATEST version of a strategy and replace the store doc with the persisted IR verbatim.
+  // Capture the document identity at CLICK time and apply via the store's `replaceIf` compare-and-swap:
+  // the load's two awaits open a window in which the user could edit/replace the doc, so a stale load
+  // must NOT silently discard that concurrent change. On refusal we surface a non-destructive message —
+  // a second click captures the fresh doc and naturally succeeds.
   const onLoad = async (strategyId: string): Promise<void> => {
+    const captured = doc
     setError(undefined)
     setStatus(undefined)
     try {
@@ -92,7 +97,10 @@ export function StrategyPanel({ doc, actions }: StrategyPanelProps): ReactElemen
       }
       const latest = versions.reduce((a, b) => (b > a ? b : a), versions[0])
       const loaded = await loadStrategyVersion(strategyId, latest)
-      actions.replace(loaded)
+      if (!actions.replaceIf(captured, loaded)) {
+        setStatus('Document changed while loading — not applied. Click again to load.')
+        return
+      }
       setStatus(`Loaded ${strategyId} v${latest}.`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

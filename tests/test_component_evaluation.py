@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from quantize.components.resolve import ComponentCatalog, resolve_strategy_components
+from quantize.engine.backtest import run_backtest
+from quantize.engine.state import PortfolioState
 from quantize.evaluator.evaluate import EvaluationOutcome, evaluate_strategy
 from quantize.evaluator.plan import resolve_warmup
 from quantize.runtime.values import ScalarValue
@@ -52,6 +56,35 @@ def _scaler_strategy(offset: float = 3.0) -> StrategyDocument:
     return synthetic_document(
         nodes, edges, [ComponentRef(id="r1", component_id=SCALER_ID, version="1.0.0")]
     )
+
+
+def test_evaluate_componentized_document_without_catalog_fails_loud() -> None:
+    """``evaluate_strategy`` routes through ``run_document_preflight``, so a componentized document
+    with ``components=None`` raises the GAP-1 loud failure rather than reporting the pinned
+    component unavailable (M12.9)."""
+    with pytest.raises(ValueError, match="document pins components"):
+        evaluate_strategy(
+            _scaler_strategy(offset=3.0),
+            catalog=build_synthetic_catalog(),
+            market_data=two_session_dataset(),
+            run_id=RUN_ID,
+            evaluation_instant=EVAL_INSTANT,
+            components=None,
+        )
+
+
+def test_run_backtest_componentized_document_without_catalog_fails_loud() -> None:
+    """The engine entry fails loud at ``SessionEngine.preflight`` too (which ``ForwardReplay``
+    also gates on): a componentized run with ``components=None`` is a caller bug (M12.9)."""
+    with pytest.raises(ValueError, match="document pins components"):
+        run_backtest(
+            _scaler_strategy(offset=3.0),
+            catalog=build_synthetic_catalog(),
+            market_data=two_session_dataset(),
+            run_id=RUN_ID,
+            initial_state=PortfolioState.of(cash=100.0),
+            components=None,
+        )
 
 
 def test_component_evaluates_end_to_end() -> None:

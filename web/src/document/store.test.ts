@@ -1,7 +1,9 @@
+import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { RegisteredNode, StrategyDocument } from '@quantize/quantize-ir'
 import { PLACEHOLDER_USER_ID, SCHEMA_VERSION } from '../config'
 import {
+  addComponentRefNode,
   addNode,
   bumpStrategyVersion,
   connect,
@@ -10,6 +12,7 @@ import {
   removeNode,
   setNodeUi,
   setParams,
+  useStrategyDocument,
 } from './store'
 
 // A typed fixture built in-code (NOT imported from tests/fixtures — cross-root import fragility).
@@ -278,5 +281,186 @@ describe('reducer behavior', () => {
     const doc = makeFixture()
     const result = setParams(doc, 'rk', { descending: false, extra: 1 })
     expect(result.nodes[1].params).toEqual({ descending: false, extra: 1 })
+  })
+})
+
+describe('removeNode prunes unused component_refs (M12.7)', () => {
+  // The server resolves EVERY declared `component_refs` entry (used or not), so a pin left behind by
+  // a deleted ComponentRefNode is LIVE document content — it can make validate/run fail and is stale
+  // regardless. removeNode must prune refs no remaining node references. These tests pin that, and in
+  // particular that a ref SHARED by two instances survives removal of only one of them.
+  const CID_A = '66666666-6666-6666-6666-666666666666'
+  const CID_B = '77777777-7777-7777-7777-777777777777'
+
+  it('removing the ONLY ComponentRefNode using ref R prunes R from component_refs', () => {
+    const doc = addComponentRefNode(newStrategyDocument('s'), {
+      componentId: CID_A,
+      version: '1.0.0',
+      position: { x: 0, y: 0 },
+    })
+    expect(doc.component_refs).toHaveLength(1)
+    const before = snap(doc)
+    const compNodeId = doc.nodes[doc.nodes.length - 1].id
+
+    const result = removeNode(doc, compNodeId)
+
+    // Input untouched (pure), and the now-orphaned ref is gone.
+    expect(snap(doc)).toEqual(before)
+    expect(result.nodes).toEqual([])
+    expect(result.component_refs).toEqual([])
+  })
+
+  it('removing ONE of TWO ComponentRefNodes that SHARE ref R keeps R', () => {
+    // addComponentRefNode REUSES the pin for the same (component_id, version): two instances, one ref.
+    const one = addComponentRefNode(newStrategyDocument('s'), {
+      componentId: CID_A,
+      version: '1.0.0',
+      position: { x: 0, y: 0 },
+    })
+    const two = addComponentRefNode(one, {
+      componentId: CID_A,
+      version: '1.0.0',
+      position: { x: 1, y: 1 },
+    })
+    expect(two.component_refs).toHaveLength(1)
+    const refId = two.component_refs[0].id
+    // Both nodes are component instances (empty base doc); remove the first.
+    const firstCompNodeId = two.nodes[0].id
+
+    const result = removeNode(two, firstCompNodeId)
+
+    // The surviving instance still references R → R must stay.
+    expect(result.nodes).toHaveLength(1)
+    expect(result.component_refs).toHaveLength(1)
+    expect(result.component_refs[0].id).toBe(refId)
+  })
+
+  it('removing a registered (non-component) node leaves still-used component_refs intact', () => {
+    const withComp = addComponentRefNode(newStrategyDocument('s'), {
+      componentId: CID_A,
+      version: '1.0.0',
+      position: { x: 0, y: 0 },
+    })
+    const withReg = addNode(withComp, {
+      typeId: 'transform.rank',
+      typeVersion: '1.0.0',
+      params: {},
+      position: { x: 5, y: 5 },
+    })
+    const refId = withReg.component_refs[0].id
+    const regNodeId = withReg.nodes[withReg.nodes.length - 1].id
+
+    const result = removeNode(withReg, regNodeId)
+
+    // The component node survives, so its ref is untouched.
+    expect(result.nodes.some((n) => 'ref' in n)).toBe(true)
+    expect(result.component_refs).toHaveLength(1)
+    expect(result.component_refs[0].id).toBe(refId)
+  })
+
+  it('removing a component node does NOT touch refs used by OTHER remaining component nodes', () => {
+    const a = addComponentRefNode(newStrategyDocument('s'), {
+      componentId: CID_A,
+      version: '1.0.0',
+      position: { x: 0, y: 0 },
+    })
+    const b = addComponentRefNode(a, {
+      componentId: CID_B,
+      version: '1.0.0',
+      position: { x: 1, y: 1 },
+    })
+    // Two distinct pins, two component nodes (refs appended in call order: A then B).
+    expect(b.component_refs.map((r) => r.component_id)).toEqual([CID_A, CID_B])
+    const nodeAId = b.nodes[0].id // the instance of CID_A
+
+    const result = removeNode(b, nodeAId)
+
+    // A's pin is pruned; B's pin (still used) is kept.
+    expect(result.component_refs.map((r) => r.component_id)).toEqual([CID_B])
+  })
+})
+
+describe('useStrategyDocument.replaceIf (compare-and-swap)', () => {
+  // The single guard every async document writer shares: apply `next` iff the live doc is still the
+  // `expected` object the writer captured. Identity is exact because reducers return fresh objects.
+  it('applies and returns true when expected === the current document', () => {
+    const initial = newStrategyDocument('a')
+    const { result } = renderHook(() => useStrategyDocument(initial))
+    const next = newStrategyDocument('b')
+    let applied: boolean | undefined
+    act(() => {
+      applied = result.current[1].replaceIf(initial, next)
+    })
+    expect(applied).toBe(true)
+    expect(result.current[0]).toBe(next)
+  })
+
+  it('refuses and returns false when expected !== the current document, leaving it untouched', () => {
+    const initial = newStrategyDocument('a')
+    const { result } = renderHook(() => useStrategyDocument(initial))
+    const stale = newStrategyDocument('stale') // a DIFFERENT object than the live doc
+    const next = newStrategyDocument('b')
+    let applied: boolean | undefined
+    act(() => {
+      applied = result.current[1].replaceIf(stale, next)
+    })
+    expect(applied).toBe(false)
+    expect(result.current[0]).toBe(initial)
+  })
+})
+
+describe('addComponentRefNode', () => {
+  it('mints a new component_refs entry when none matches (component_id, version)', () => {
+    const doc = makeFixture()
+    const before = snap(doc)
+    const result = addComponentRefNode(doc, {
+      componentId: '99999999-9999-9999-9999-999999999999',
+      version: '2.0.0',
+      position: { x: 5, y: 6 },
+    })
+
+    // Input untouched.
+    expect(snap(doc)).toEqual(before)
+    // A fresh ref was appended (the fixture already had c0).
+    expect(result.component_refs).toHaveLength(2)
+    const newRef = result.component_refs[1]
+    expect(newRef.component_id).toBe('99999999-9999-9999-9999-999999999999')
+    expect(newRef.version).toBe('2.0.0')
+    expect(newRef.id).toMatch(/^[A-Za-z0-9_]+$/)
+    expect(newRef.id).not.toContain('-')
+
+    // A ComponentRefNode was appended, wired to that ref, with empty params and a position.
+    const node = result.nodes[result.nodes.length - 1]
+    expect(node.type_id).toBe('component')
+    expect('ref' in node && node.ref).toBe(newRef.id)
+    expect(node.id).not.toContain('-')
+    expect(node.params).toEqual({})
+    expect(node.ui).toEqual({ position: { x: 5, y: 6 } })
+  })
+
+  it('REUSES an existing (component_id, version) ref instead of minting a duplicate', () => {
+    const doc = makeFixture()
+    // The fixture pins c0 → 5555… @ 1.2.3.
+    const result = addComponentRefNode(doc, {
+      componentId: '55555555-5555-5555-5555-555555555555',
+      version: '1.2.3',
+      position: { x: 0, y: 0 },
+    })
+    // No new ref entry.
+    expect(result.component_refs).toHaveLength(1)
+    expect(result.component_refs[0].id).toBe('c0')
+    // The node points at the reused ref id.
+    const node = result.nodes[result.nodes.length - 1]
+    expect('ref' in node && node.ref).toBe('c0')
+  })
+
+  it('is pure — a genuinely-unknown future field survives', () => {
+    const base = { ...makeFixture(), __future_field__: { keep: 'me' } } as unknown as StrategyDocument
+    const result = addComponentRefNode(base, {
+      componentId: '99999999-9999-9999-9999-999999999999',
+      version: '2.0.0',
+      position: { x: 1, y: 1 },
+    })
+    expect((result as unknown as Record<string, unknown>).__future_field__).toEqual({ keep: 'me' })
   })
 })

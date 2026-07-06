@@ -24,7 +24,12 @@ import type {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { NodeCatalogResponse } from '@quantize/quantize-api'
-import type { StrategyDocument } from '@quantize/quantize-ir'
+import type {
+  ComponentDefinition,
+  ComponentRefNode,
+  RegisteredNode,
+  StrategyDocument,
+} from '@quantize/quantize-ir'
 import {
   buildCompatibilitySet,
   defaultParamsFor,
@@ -33,11 +38,14 @@ import {
   nodeTypeById,
   useCatalog,
 } from '../catalog'
+import type { PortType } from '../catalog'
+import { addComponentRefNode } from '../document/store'
 import type { EdgeSpec, StrategyDocumentActions } from '../document/store'
-import { toFlow } from '../document/flow'
+import { componentPorts, resolveComponentDef, toFlow } from '../document/flow'
 import type { StrategyFlowNode } from '../document/flow'
-import { NODE_DRAG_MIME } from './Palette'
-import type { NodeDragPayload } from './Palette'
+import { useComponentDefs } from '../components-cache'
+import { COMPONENT_DRAG_MIME, NODE_DRAG_MIME } from './Palette'
+import type { ComponentDragPayload, NodeDragPayload } from './Palette'
 
 /** The RF node key our single custom node registers under. */
 const STRATEGY_NODE_TYPE = 'strategyNode'
@@ -87,24 +95,69 @@ export type ConnectionDecision =
   | { allowed: true; edge: EdgeSpec }
   | { allowed: false; reason: string }
 
+// Resolve ONE endpoint's port type. A registered node resolves via the catalog (`type_id` → node type
+// → port); a `ComponentRefNode` resolves via its pinned definition in the cache through the SAME
+// `componentPorts` helper `toFlow` uses — so a component instance's ports come from ONE place, never a
+// second resolution path. Returns the port TYPE (data, copied — never compared here) or a graceful
+// reason: an unknown/future node type, a definition not yet loaded, or an unknown port.
+function resolveEndpointPortType(
+  catalog: NodeCatalogResponse,
+  doc: StrategyDocument,
+  components: ReadonlyMap<string, ComponentDefinition> | undefined,
+  node: RegisteredNode | ComponentRefNode,
+  handle: string,
+  direction: 'output' | 'input',
+): { portType: PortType } | { reason: string } {
+  if ('ref' in node) {
+    const def = resolveComponentDef(doc.component_refs, node.ref, components)
+    if (def === undefined) {
+      return { reason: 'Component definition is not loaded (or the ref is unknown).' }
+    }
+    const ports = componentPorts(def)
+    const port =
+      direction === 'output'
+        ? ports.outputs.find((p) => p.name === handle)
+        : ports.inputs.find((p) => p.name === handle)
+    if (port === undefined) {
+      return { reason: 'Connection references an unknown port.' }
+    }
+    return { portType: port.port_type }
+  }
+  const nodeType = nodeTypeById(catalog, node.type_id)
+  if (nodeType === undefined) {
+    return { reason: `Unknown node type "${node.type_id}".` }
+  }
+  const port =
+    direction === 'output'
+      ? nodeType.outputs.find((p) => p.name === handle)
+      : nodeType.inputs.find((p) => p.name === handle)
+  if (port === undefined) {
+    return { reason: 'Connection references an unknown port.' }
+  }
+  return { portType: port.port_type }
+}
+
 /**
  * Decide whether a candidate React Flow connection may become an IR edge — the CORE gate.
  *
- * Resolves the source node's OUTPUT port type and the target node's INPUT port type from the catalog
- * + the document (node id → `type_id` → node type → port), then defers the verdict entirely to the
- * allow-set lookup `isAllowed`. There is no conditional over `kind`/`dtype` here. Anything that fails
- * to resolve (missing endpoint/handle, unknown node type, unknown port) rejects gracefully with a
- * clear reason rather than crashing. A candidate that duplicates an existing `(from, to)` edge is
- * also rejected — the canvas is the dedupe layer, which is what `store.connect` relies on.
+ * Resolves the source node's OUTPUT port type and the target node's INPUT port type (a registered node
+ * via the catalog, a component instance via the cached definition — one resolution path), then defers
+ * the verdict entirely to the allow-set lookup `isAllowed`. There is no conditional over `kind`/`dtype`
+ * here. Anything that fails to resolve (missing endpoint/handle, unknown node type, a component
+ * definition not yet loaded, unknown port) rejects gracefully with a clear reason rather than crashing.
+ * A candidate that duplicates an existing `(from, to)` edge is also rejected — the canvas is the dedupe
+ * layer, which is what `store.connect` relies on.
  *
  * The compatibility allow-set is passed in (memoized by the caller) so it is not rebuilt per attempt;
- * this function stays pure over its arguments.
+ * this function stays pure over its arguments. `components` is optional — when absent, a component
+ * endpoint simply rejects as "not loaded" (the same graceful degradation as a cache miss).
  */
 export function decideConnection(
   catalog: NodeCatalogResponse,
   compatSet: Set<string>,
   doc: StrategyDocument,
   connection: Connection,
+  components?: ReadonlyMap<string, ComponentDefinition>,
 ): ConnectionDecision {
   const { source, target, sourceHandle, targetHandle } = connection
   if (!source || !target || !sourceHandle || !targetHandle) {
@@ -115,16 +168,13 @@ export function decideConnection(
   if (sourceNode === undefined || targetNode === undefined) {
     return { allowed: false, reason: 'Connection references an unknown node.' }
   }
-  const sourceType = nodeTypeById(catalog, sourceNode.type_id)
-  const targetType = nodeTypeById(catalog, targetNode.type_id)
-  if (sourceType === undefined || targetType === undefined) {
-    const unknown = sourceType === undefined ? sourceNode.type_id : targetNode.type_id
-    return { allowed: false, reason: `Unknown node type "${unknown}".` }
+  const out = resolveEndpointPortType(catalog, doc, components, sourceNode, sourceHandle, 'output')
+  if ('reason' in out) {
+    return { allowed: false, reason: out.reason }
   }
-  const outPort = sourceType.outputs.find((o) => o.name === sourceHandle)
-  const inPort = targetType.inputs.find((i) => i.name === targetHandle)
-  if (outPort === undefined || inPort === undefined) {
-    return { allowed: false, reason: 'Connection references an unknown port.' }
+  const inp = resolveEndpointPortType(catalog, doc, components, targetNode, targetHandle, 'input')
+  if ('reason' in inp) {
+    return { allowed: false, reason: inp.reason }
   }
   // Reject a structurally identical repeat: the same `(from, to)` handle tuple already exists. Doing
   // this here — not in `store.connect` — is what makes the store's "the canvas prevents duplicates"
@@ -139,10 +189,10 @@ export function decideConnection(
   if (isDuplicate) {
     return {
       allowed: false,
-      reason: `${labelOf(catalog, outPort.port_type)} → ${labelOf(catalog, inPort.port_type)} is already connected`,
+      reason: `${labelOf(catalog, out.portType)} → ${labelOf(catalog, inp.portType)} is already connected`,
     }
   }
-  if (isAllowed(compatSet, outPort.port_type, inPort.port_type)) {
+  if (isAllowed(compatSet, out.portType, inp.portType)) {
     return {
       allowed: true,
       edge: { from: [source, sourceHandle], to: [target, targetHandle] },
@@ -150,7 +200,7 @@ export function decideConnection(
   }
   return {
     allowed: false,
-    reason: `${labelOf(catalog, outPort.port_type)} → ${labelOf(catalog, inPort.port_type)} is not an allowed connection`,
+    reason: `${labelOf(catalog, out.portType)} → ${labelOf(catalog, inp.portType)} is not an allowed connection`,
   }
 }
 
@@ -165,6 +215,20 @@ export interface CanvasProps {
   onNodeClick?: (nodeId: string) => void
   /** The App-selected node id: marks that RF node `selected` so the canvas shows the selection. */
   selectedNodeId?: string | null
+  /**
+   * The App-owned EXTRACTION selection set (M12.5, E2). When present it drives `selected` on every RF
+   * node (`selectedNodeIds.has(id)`) INSTEAD of the single `selectedNodeId`, so the whole subgraph the
+   * user is picking highlights at once. Absent (extraction mode off) → single-select as before.
+   */
+  selectedNodeIds?: ReadonlySet<string> | undefined
+  /**
+   * True while extraction mode is active (M12.5). It flips two behaviours: a node click TOGGLES set
+   * membership (via `onToggleExtractionNode`) instead of single-selecting, and RF's Delete/Backspace is
+   * disabled (`deleteKeyCode={null}`) so a stray keypress can never delete the highlighted subgraph.
+   */
+  extractionMode?: boolean
+  /** Toggle a node in/out of the extraction selection set (called on a node click while in mode). */
+  onToggleExtractionNode?: (nodeId: string) => void
   /** A validate-highlighted edge INDEX (into `doc.edges`); marks the matching RF edge `selected`. */
   highlightedEdgeIndex?: number | null
 }
@@ -174,25 +238,45 @@ export function Canvas({
   actions,
   onNodeClick,
   selectedNodeId,
+  selectedNodeIds,
+  extractionMode,
+  onToggleExtractionNode,
   highlightedEdgeIndex,
 }: CanvasProps): ReactElement {
   const { catalog, loading, error } = useCatalog()
+  const { defs: componentDefs, ensure: ensureComponent } = useComponentDefs()
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance<StrategyFlowNode, FlowEdge> | null>(
     null,
   )
   const [rejection, setRejection] = useState<string | undefined>(undefined)
 
+  // Fill the component-definition cache for every pinned ref in the document so a loaded componentized
+  // strategy renders NAMED component nodes (`toFlow` degrades to a bare node until each arrives). `ensure`
+  // is cache-forever and idempotent per key, so re-running on every doc change costs nothing after the
+  // first fetch.
+  useEffect(() => {
+    for (const ref of doc.component_refs) {
+      ensureComponent(ref.component_id, ref.version)
+    }
+  }, [doc.component_refs, ensureComponent])
+
   // Project the document into the RF node/edge shapes, tagging each node with our custom type so
-  // React Flow renders `StrategyNode`. `catalog` may be undefined early — `toFlow` handles that.
+  // React Flow renders `StrategyNode`. `catalog`/`componentDefs` may be sparse early — `toFlow` handles
+  // a missing catalog and a component cache miss (bare node) without crashing.
   const project = useCallback((): { nodes: StrategyFlowNode[]; edges: FlowEdge[] } => {
-    const flow = toFlow(doc, catalog)
+    const flow = toFlow(doc, catalog, componentDefs)
     return {
-      // Mark the App-selected node so the canvas reflects the current selection/highlight.
-      nodes: flow.nodes.map((n) => ({ ...n, type: STRATEGY_NODE_TYPE, selected: n.id === selectedNodeId })),
+      // Mark the selected node(s): the extraction SET (when present) marks every member; otherwise the
+      // single App-selected node. This is the ONE projection generalization E2 asks for.
+      nodes: flow.nodes.map((n) => ({
+        ...n,
+        type: STRATEGY_NODE_TYPE,
+        selected: selectedNodeIds ? selectedNodeIds.has(n.id) : n.id === selectedNodeId,
+      })),
       // `toFlow` maps `doc.edges` in order, so flow index === doc-edge index — the highlight target.
       edges: flow.edges.map((e, i) => (i === highlightedEdgeIndex ? { ...e, selected: true } : e)),
     }
-  }, [doc, catalog, selectedNodeId, highlightedEdgeIndex])
+  }, [doc, catalog, componentDefs, selectedNodeId, selectedNodeIds, highlightedEdgeIndex])
 
   // React Flow owns LOCAL node/edge state so it can move nodes and draw edges interactively; the
   // document remains the source of truth. We re-seed that local state from the document whenever the
@@ -223,7 +307,7 @@ export function Canvas({
       if (catalog === undefined) {
         return
       }
-      const decision = decideConnection(catalog, compatSet, doc, connection)
+      const decision = decideConnection(catalog, compatSet, doc, connection, componentDefs)
       if (decision.allowed) {
         actions.connect(decision.edge)
         setRejection(undefined)
@@ -231,7 +315,7 @@ export function Canvas({
         setRejection(decision.reason)
       }
     },
-    [catalog, compatSet, doc, actions],
+    [catalog, compatSet, doc, componentDefs, actions],
   )
 
   const onNodesDelete = useCallback(
@@ -266,9 +350,14 @@ export function Canvas({
 
   const onNodeClickHandler = useCallback(
     (_event: unknown, node: StrategyFlowNode) => {
-      onNodeClick?.(node.id)
+      // In extraction mode a click TOGGLES set membership; otherwise it single-selects (unchanged).
+      if (extractionMode) {
+        onToggleExtractionNode?.(node.id)
+      } else {
+        onNodeClick?.(node.id)
+      }
     },
-    [onNodeClick],
+    [extractionMode, onToggleExtractionNode, onNodeClick],
   )
 
   const onDragOver = useCallback((event: DragEvent) => {
@@ -279,7 +368,31 @@ export function Canvas({
   const onDrop = useCallback(
     (event: DragEvent) => {
       event.preventDefault()
-      if (catalog === undefined || rfInstance === null) {
+      if (rfInstance === null) {
+        return
+      }
+      // A dragged COMPONENT: mint a `ComponentRefNode` (no catalog needed — components resolve from the
+      // definition cache, not the node catalog). Applying the existing pure reducer via `replace` keeps
+      // the verbatim-preservation law and needs no new dispatcher.
+      const componentRaw = event.dataTransfer.getData(COMPONENT_DRAG_MIME)
+      if (componentRaw !== '') {
+        let componentPayload: ComponentDragPayload
+        try {
+          componentPayload = JSON.parse(componentRaw) as ComponentDragPayload
+        } catch {
+          return
+        }
+        const position = rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+        actions.replace(
+          addComponentRefNode(doc, {
+            componentId: componentPayload.component_id,
+            version: componentPayload.version,
+            position,
+          }),
+        )
+        return
+      }
+      if (catalog === undefined) {
         return
       }
       const raw = event.dataTransfer.getData(NODE_DRAG_MIME)
@@ -304,7 +417,7 @@ export function Canvas({
         position,
       })
     },
-    [catalog, rfInstance, actions],
+    [catalog, rfInstance, doc, actions],
   )
 
   if (loading) {
@@ -339,6 +452,10 @@ export function Canvas({
         // could hit the wrong set. Disable both by nulling their key codes.
         selectionKeyCode={null}
         multiSelectionKeyCode={null}
+        // While extraction mode is active, disable Delete/Backspace: the App-owned selection set is
+        // highlighted via RF `selected`, and a stray keypress must NOT delete the picked subgraph.
+        // Off-mode the prop is OMITTED (spread), leaving RF's default delete keys in place.
+        {...(extractionMode ? { deleteKeyCode: null } : {})}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onInit={setRfInstance}
