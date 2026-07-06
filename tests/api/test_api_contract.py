@@ -27,6 +27,8 @@ from quantize.api.dto.catalog import (
 from quantize.api.dto.common import ApiError, MetaResponse
 from quantize.api.dto.datasets import (
     CalendarDto,
+    DatasetList,
+    DatasetListRow,
     DatasetStored,
     DatasetUpload,
     ObservationDto,
@@ -196,6 +198,16 @@ _SAMPLES: dict[str, Any] = {
         sessions=1,
         assets=1,
     ),
+    "DatasetList": DatasetList(
+        datasets=(
+            DatasetListRow(
+                dataset_id="a" * 64,
+                dataset_fingerprint="b" * 64,
+                calendar_fingerprint="c" * 64,
+                saved_at="t",
+            ),
+        )
+    ),
     "BacktestRunRequest": BacktestRunRequest(
         strategy_id="s1",
         strategy_version=1,
@@ -314,6 +326,7 @@ def test_dtos_forbid_unknown_fields(api_schema: dict[str, Any]) -> None:
         "MetaResponse",
         "BacktestRunRequest",
         "DatasetUpload",
+        "DatasetListRow",
         "NodeCatalogResponse",
         "NodeTypeDto",
     ):
@@ -338,6 +351,8 @@ def test_ts_exports_core_interfaces(api_ts: str) -> None:
         "RunRecordResponse",
         "NodeCatalogResponse",
         "NodeTypeDto",
+        "DatasetList",
+        "DatasetListRow",
     ):
         assert f"export interface {interface}" in api_ts
 

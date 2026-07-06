@@ -25,7 +25,9 @@ try {
         @{ Name = "mypy";                Cmd = { & $python -m mypy } },
         @{ Name = "node24 activation";   Cmd = { & (Join-Path $repoRoot "scripts\node24.ps1") } },
         @{ Name = "codegen check";       Cmd = { & $python -m quantize.codegen check } },
-        @{ Name = "tsc typecheck";       Cmd = { npm run typecheck } }
+        @{ Name = "tsc typecheck";       Cmd = { npm run typecheck } },
+        @{ Name = "web typecheck";       Cmd = { npm --prefix web run typecheck } },
+        @{ Name = "web test";            Cmd = { npm --prefix web run test } }
     )
     foreach ($stage in $stages) {
         Write-Host ""

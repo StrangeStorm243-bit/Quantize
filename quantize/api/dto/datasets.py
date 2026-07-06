@@ -53,3 +53,20 @@ class DatasetStored(_Dto):
     calendar_fingerprint: str
     sessions: int
     assets: int
+
+
+class DatasetListRow(_Dto):
+    """One dataset discovery row — mirrors ``persistence.datasets.DatasetSummary``.
+
+    Stored columns ONLY (identity + both fingerprints + ``saved_at``); deliberately no
+    ``sessions``/``assets`` counts — those need a per-dataset payload decode (use ``DatasetStored``
+    from ``GET /v1/datasets/{id}`` when a dataset is selected)."""
+
+    dataset_id: str
+    dataset_fingerprint: str
+    calendar_fingerprint: str
+    saved_at: str
+
+
+class DatasetList(_Dto):
+    datasets: tuple[DatasetListRow, ...]

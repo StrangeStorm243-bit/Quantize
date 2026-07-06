@@ -35,9 +35,10 @@ with **structured decision tracing**. The visual canvas is only an editor for th
 - **Run tests:** `pytest` (runtime; frontend tests from M11).
 - **Lint:** `ruff check .` · **Format check:** `ruff format --check .` · **Type-check:** `mypy`.
 - **Full gate (canonical):** `./scripts/gate.ps1` — pytest, ruff check, format check, mypy, Node-24
-  activation, `codegen check`, `npm run typecheck`, fail-fast, from any cwd. Run it before claiming
-  a milestone or slice done. POSIX sibling: `bash scripts/gate.sh` — identical stage set and order;
-  change both scripts together.
+  activation, `codegen check`, `npm run typecheck`, `web typecheck`, `web test`, fail-fast, from any
+  cwd. Run it before claiming a milestone or slice done. POSIX sibling: `bash scripts/gate.sh` —
+  identical stage set and order; change both scripts together. The two `web` stages (M11.2) require
+  `web/node_modules` — run `npm ci` (or `npm install`) in `web/` once before the gate.
 - **Node:** baseline **24 LTS** (`.nvmrc`; `engine-strict`). The system Node may differ, and
   non-interactive shells do not load the user profile, so a bare `node`/`npm`/`tsc`/codegen call can
   resolve to the wrong Node. Before any Node-dependent command, run `./scripts/node24.ps1` in the
@@ -48,7 +49,11 @@ with **structured decision tracing**. The visual canvas is only an editor for th
   --port 8000` (localhost binding is the documented default — no auth exists by design; the DB
   path is `QUANTIZE_DB_PATH`, default `quantize.db`). `GET /v1/node-types` (M10) serves the
   read-only node-type descriptor + parameter-form + compatibility metadata (M11 editor
-  prerequisites).  ·  **Run frontend (editor):** _TBD (M11)_
+  prerequisites).  ·  **Run frontend (editor, M11):** `cd web && npm install` (once) then
+  `npm run dev` (Vite dev server). The API must be running — start `uvicorn
+  quantize.api.app:create_app --factory --host 127.0.0.1 --port 8000` first; the Vite dev proxy
+  forwards the app's relative `/v1/...` requests to it (no CORS by design). Web checks: `npm --prefix
+  web run typecheck` and `npm --prefix web run test` (also run by the full gate).
 - **Generate JSON Schema + TS types (codegen):** `python -m quantize.codegen generate` emits **two
   bundles** — the IR bundle (`schema/quantize.schema.json` + `ts/quantize-ir.d.ts`) and the API-DTO
   bundle (`schema/quantize-api.schema.json` + `ts/quantize-api.d.ts`, added M9); needs Node 24 on

@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Response, status
 
-from quantize.api.dto.datasets import DatasetStored, DatasetUpload
+from quantize.api.dto.datasets import (
+    DatasetList,
+    DatasetListRow,
+    DatasetStored,
+    DatasetUpload,
+)
 from quantize.api.errors import ApiRequestError
 from quantize.api.parsing import JsonBody, SettingsDep, load_dto
 from quantize.market.calendar import ExchangeCalendar, MarketSession
@@ -69,6 +74,25 @@ def upload_dataset(body: JsonBody, settings: SettingsDep, response: Response) ->
         info, created = DatasetRepository(db).save(market_data)
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return _stored(info)
+
+
+@router.get("")
+def list_datasets(settings: SettingsDep) -> DatasetList:
+    """List every stored dataset for cross-session discovery — stored columns only, no payload
+    decode (mirrors the strategies/runs list endpoints)."""
+    with Database(settings.db_path, busy_timeout_ms=settings.busy_timeout_ms) as db:
+        summaries = DatasetRepository(db).list_datasets()
+    return DatasetList(
+        datasets=tuple(
+            DatasetListRow(
+                dataset_id=s.dataset_id,
+                dataset_fingerprint=s.dataset_fingerprint,
+                calendar_fingerprint=s.calendar_fingerprint,
+                saved_at=s.saved_at,
+            )
+            for s in summaries
+        )
+    )
 
 
 @router.get("/{dataset_id}")

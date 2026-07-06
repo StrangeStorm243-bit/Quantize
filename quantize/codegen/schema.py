@@ -25,7 +25,7 @@ from pydantic.json_schema import models_json_schema
 
 from quantize.api.dto.catalog import NodeCatalogResponse
 from quantize.api.dto.common import ApiError, MetaResponse
-from quantize.api.dto.datasets import DatasetStored, DatasetUpload
+from quantize.api.dto.datasets import DatasetList, DatasetStored, DatasetUpload
 from quantize.api.dto.documents import (
     ComponentList,
     ComponentSaved,
@@ -88,6 +88,7 @@ _API_ROOT_MODELS: list[tuple[type[BaseModel], Literal["validation", "serializati
     (ComponentList, "serialization"),
     (DatasetUpload, "serialization"),
     (DatasetStored, "serialization"),
+    (DatasetList, "serialization"),
     (BacktestRunRequest, "serialization"),
     (ForwardRunRequest, "serialization"),
     (RunCreated, "serialization"),
