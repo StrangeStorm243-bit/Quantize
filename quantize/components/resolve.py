@@ -566,21 +566,26 @@ def _instantiate(
     )
 
 
-def resolve_strategy_components(
-    document: StrategyDocument,
+def _fetch_definition_closure(
+    seed: Mapping[ComponentKey, ComponentDefinition],
+    initial_refs: Sequence[ComponentRef],
     catalog: ComponentCatalog,
-    registry: NodeRegistryView,
-) -> ResolvedStrategy:
-    """Resolve every pinned component reference of *document* (transitively) and instantiate the
-    strategy's component nodes. See the module docstring for the failure layering."""
-    diagnostics: list[RuntimeDiagnostic] = []
+    diagnostics: list[RuntimeDiagnostic],
+) -> dict[ComponentKey, ComponentDefinition]:
+    """Breadth-first fetch of the pinned definition closure, shared by the strategy-resolution and
+    single-definition-diagnosis boundaries so their closure walk cannot drift.
 
-    # Fetch the full pinned closure, breadth-first over declared refs (used or not — the set of
-    # pinned versions a strategy resolves is deterministic and complete).
-    fetched: dict[ComponentKey, ComponentDefinition] = {}
+    Starts from ``seed`` (empty for a strategy; ``{own_key: definition}`` for a definition, so a
+    self/transitive reference resolves to the definition under scrutiny rather than reporting it
+    unavailable) and walks ``initial_refs`` and, transitively, each fetched definition's own
+    ``component_refs``. A ``(component_id, version)`` absent from *catalog* is left out and
+    diagnosed ``component_definition_unavailable`` into the SHARED *diagnostics* list (so the
+    caller's later ``if not diagnostics`` gate sees it). Returns the fetched map (``seed`` is not
+    mutated)."""
+    fetched: dict[ComponentKey, ComponentDefinition] = dict(seed)
     missing: set[ComponentKey] = set()
     queue: list[ComponentKey] = sorted(
-        ComponentKey(ref.component_id, ref.version) for ref in document.component_refs
+        ComponentKey(ref.component_id, ref.version) for ref in initial_refs
     )
     while queue:
         key = queue.pop(0)
@@ -601,9 +606,22 @@ def resolve_strategy_components(
         queue.extend(
             sorted(ComponentKey(ref.component_id, ref.version) for ref in definition.component_refs)
         )
+    return fetched
 
-    ordered_definitions = [fetched[key] for key in sorted(fetched)]
 
+def _run_definition_gates(
+    ordered_definitions: Sequence[ComponentDefinition],
+    registry: NodeRegistryView,
+    fetched: Mapping[ComponentKey, ComponentDefinition],
+    diagnostics: list[RuntimeDiagnostic],
+) -> None:
+    """The three definition-level gates in order, shared by both boundaries so a fourth gate added
+    to one is never silently skipped by the other: recursion rejection over the closure
+    (``validate_component_set``), structural validity per definition
+    (``COMPONENT_DEFINITION_INVALID``), and — only if still clean (no fetch/recursion/structural
+    fault) — the registry-semantic check (``_check_definition``). Appends into the SHARED
+    *diagnostics* list; the caller owns the final sort. *ordered_definitions* is supplied by the
+    caller (each boundary keeps its own order)."""
     # Recursion rejection over the fetched closure (completes M1's bounded supplied-set check).
     set_validation = validate_component_set(ordered_definitions)
     for error in set_validation.errors:
@@ -621,9 +639,30 @@ def resolve_strategy_components(
                 )
             )
 
+    # Registry-semantic checks only once every definition is structurally sound (layered so
+    # instance-level noise never precedes a definition-level fault).
     if not diagnostics:
         for definition in ordered_definitions:
             diagnostics += _check_definition(definition, registry, fetched)
+
+
+def resolve_strategy_components(
+    document: StrategyDocument,
+    catalog: ComponentCatalog,
+    registry: NodeRegistryView,
+) -> ResolvedStrategy:
+    """Resolve every pinned component reference of *document* (transitively) and instantiate the
+    strategy's component nodes. See the module docstring for the failure layering."""
+    diagnostics: list[RuntimeDiagnostic] = []
+
+    # Fetch the full pinned closure, breadth-first over declared refs (used or not — the set of
+    # pinned versions a strategy resolves is deterministic and complete), then run the three shared
+    # definition-level gates over it in closure order.
+    fetched = _fetch_definition_closure(
+        seed={}, initial_refs=document.component_refs, catalog=catalog, diagnostics=diagnostics
+    )
+    ordered_definitions = [fetched[key] for key in sorted(fetched)]
+    _run_definition_gates(ordered_definitions, registry, fetched, diagnostics)
 
     # Instantiate only over a sound closure — instance-level faults layer after definition-level
     # ones (like M1 -> M2), and instantiation must not recurse into a cyclic or missing closure.
@@ -673,55 +712,14 @@ def diagnose_component_definition(
     # reference resolves to it (mirroring resolution, where the definition is part of the fetched
     # closure) rather than being mis-reported as "unavailable".
     own_key = _definition_key(definition)
-    fetched: dict[ComponentKey, ComponentDefinition] = {own_key: definition}
-    missing: set[ComponentKey] = set()
-    queue: list[ComponentKey] = sorted(
-        ComponentKey(ref.component_id, ref.version) for ref in definition.component_refs
+    fetched = _fetch_definition_closure(
+        seed={own_key: definition},
+        initial_refs=definition.component_refs,
+        catalog=catalog,
+        diagnostics=diagnostics,
     )
-    while queue:
-        key = queue.pop(0)
-        if key in fetched or key in missing:
-            continue
-        nested = catalog.get(key)
-        if nested is None:
-            missing.add(key)
-            diagnostics.append(
-                RuntimeDiagnostic(
-                    COMPONENT_DEFINITION_UNAVAILABLE,
-                    f"component definition {key} is not available",
-                    subject=str(key),
-                )
-            )
-            continue
-        fetched[key] = nested
-        queue.extend(
-            sorted(ComponentKey(ref.component_id, ref.version) for ref in nested.component_refs)
-        )
-
     # The definition under scrutiny first, then the rest of the closure (deterministic order).
     ordered_definitions = [definition] + [fetched[key] for key in sorted(fetched) if key != own_key]
-
-    # Recursion rejection over the closure (direct + transitive).
-    set_validation = validate_component_set(ordered_definitions)
-    for error in set_validation.errors:
-        diagnostics.append(RuntimeDiagnostic(error.code, error.message, subject=error.subject))
-
-    # Each definition must be structurally valid.
-    for candidate in ordered_definitions:
-        structural = validate_component_definition(candidate)
-        for error in structural.errors:
-            diagnostics.append(
-                RuntimeDiagnostic(
-                    COMPONENT_DEFINITION_INVALID,
-                    f"component {_definition_key(candidate)}: {error.code}: {error.message}",
-                    subject=str(_definition_key(candidate)),
-                )
-            )
-
-    # Registry-semantic checks only once every definition is structurally sound (layered like the
-    # strategy path so instance-level noise never precedes a definition-level fault).
-    if not diagnostics:
-        for candidate in ordered_definitions:
-            diagnostics += _check_definition(candidate, registry, fetched)
+    _run_definition_gates(ordered_definitions, registry, fetched, diagnostics)
 
     return list(sort_runtime_diagnostics(diagnostics))
