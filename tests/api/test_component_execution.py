@@ -17,6 +17,9 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from quantize.api.settings import ApiSettings
+from quantize.persistence.database import Database
+from quantize.persistence.documents import ComponentRepository
+from quantize.schema.components import ComponentDefinition
 from tests.helpers import load_fixture
 
 _JSON = {"content-type": "application/json"}
@@ -116,6 +119,32 @@ def test_self_recursive_component_rejected_at_save(client: TestClient, db: ApiSe
     assert saved.status_code == 422, saved.text
     assert saved.json()["code"] == "component_definition_invalid"
     assert _SELF_ID not in _component_ids(client)  # the immutable store never saw it
+
+
+def test_run_layer_recursion_defense_over_http_store_bypass(
+    client: TestClient, db: ApiSettings
+) -> None:
+    """Defense-in-depth over HTTP (M12.9): since M12.8 the save route 422s a recursive definition,
+    so no API test can plant one via POST anymore — the run-layer ``validate_component_set``
+    rejection is otherwise unreachable end-to-end. But ``ComponentRepository.save`` performs NO
+    semantic validation, so a direct write / migration / import is a real bypass vector. Plant the
+    self-recursive definition STRAIGHT THROUGH the repository (bypassing the save route), reference
+    it from a saved strategy, and assert the run-layer recursion defense still fires at validate."""
+    # Plant the recursive definition directly in the immutable store; the save ROUTE would 422 it.
+    definition = ComponentDefinition.model_validate(_self_recursive_component())
+    with Database(db.db_path) as database:
+        ComponentRepository(database).save(definition)
+
+    # A strategy pinning the planted (recursive) component. Strategy save does not check refs (201).
+    strategy = load_fixture("strategy_a_component")
+    strategy["strategy"]["id"] = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    strategy["component_refs"][0]["component_id"] = _SELF_ID
+    assert _post(client, "/v1/strategies", strategy).status_code == 201
+
+    body = _validate(client, strategy).json()
+    assert body["ok"] is False, body
+    # Membership, not exact set: a wrapping component_definition_invalid may accompany.
+    assert "component_direct_recursion" in _runtime_codes(body)
 
 
 def test_unknown_internal_node_type_rejected_at_save(client: TestClient, db: ApiSettings) -> None:
