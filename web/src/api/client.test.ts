@@ -10,7 +10,7 @@ import type {
   TraceResponse,
   ValidateResponse,
 } from '@quantize/quantize-api'
-import type { StrategyDocument } from '@quantize/quantize-ir'
+import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
 import {
   ApiClientError,
   getMeta,
@@ -21,6 +21,7 @@ import {
   listRuns,
   loadStrategyVersion,
   runBacktest,
+  saveComponent,
   saveStrategy,
   validateStrategy,
 } from './client'
@@ -208,6 +209,40 @@ describe('POST wrappers', () => {
     expect(init?.method).toBe('POST')
     expect(init?.body).toBe(JSON.stringify(DOC))
     expect(result).toEqual(verdict)
+  })
+
+  it('saveComponent POSTs the raw ComponentDefinition to /v1/components', async () => {
+    const def: ComponentDefinition = {
+      schema_version: '0.1.0',
+      component_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      version: '1.0.0',
+      name: 'Momentum',
+      description: null,
+      component_refs: [],
+      implementation: { kind: 'graph', graph: { nodes: [], edges: [] } },
+      exposed_inputs: [],
+      exposed_outputs: [],
+      exposed_params: [],
+      provenance: {
+        owner: '00000000-0000-0000-0000-000000000001',
+        creator: '00000000-0000-0000-0000-000000000001',
+        contributors: [],
+        visibility: 'private',
+        duplicable: false,
+        created_at: '2026-07-06T00:00:00Z',
+        forked_from: null,
+      },
+    }
+    mockFetch(stubResponse({ component_id: def.component_id, version: def.version }))
+
+    const result = await saveComponent(def)
+
+    const [url, init] = lastCall()
+    expect(url).toBe('/v1/components')
+    expect(init?.method).toBe('POST')
+    expect((init?.headers as Record<string, string>)['content-type']).toBe('application/json')
+    expect(init?.body).toBe(JSON.stringify(def))
+    expect(result).toEqual({ component_id: def.component_id, version: def.version })
   })
 
   it('runBacktest POSTs the request body to /v1/runs/backtest', async () => {

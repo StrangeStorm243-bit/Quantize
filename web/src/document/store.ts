@@ -14,7 +14,13 @@
 // No numerical, portfolio, or compatibility logic lives here (invariant 5); connection VALIDITY is
 // the canvas's job (D5, M11.4), so `connect` just appends.
 import { useCallback, useMemo, useState } from 'react'
-import type { JsonValue, RegisteredNode, StrategyDocument } from '@quantize/quantize-ir'
+import type {
+  ComponentRef,
+  ComponentRefNode,
+  JsonValue,
+  RegisteredNode,
+  StrategyDocument,
+} from '@quantize/quantize-ir'
 import { PLACEHOLDER_USER_ID, SCHEMA_VERSION } from '../config'
 
 /** A node's `params` object (as the IR types it). */
@@ -46,6 +52,11 @@ export interface EdgeSpec {
 // uuid would FAIL server validation. So we strip the hyphens and prefix a letter.
 function mintNodeId(): string {
   return 'n' + crypto.randomUUID().replaceAll('-', '')
+}
+
+// Mint a component-ref id. IR RefId shares NodeId's `^[A-Za-z0-9_]+$` grammar — no hyphens.
+function mintRefId(): string {
+  return 'r' + crypto.randomUUID().replaceAll('-', '')
 }
 
 /**
@@ -90,6 +101,43 @@ export function addNode(doc: StrategyDocument, args: AddNodeArgs): StrategyDocum
     type_id: args.typeId,
     type_version: args.typeVersion,
     params: structuredClone(args.params),
+    ui: { position: { x: args.position.x, y: args.position.y } },
+  }
+  next.nodes.push(node)
+  return next
+}
+
+/** Arguments for {@link addComponentRefNode}. */
+export interface AddComponentRefArgs {
+  componentId: string
+  version: string
+  position: Position
+}
+
+/**
+ * Place a new `ComponentRefNode` (a pinned instance of a versioned component). If the document already
+ * pins the same `(component_id, version)` we REUSE that `component_refs` entry (a document pins a
+ * given component version once); otherwise we mint a fresh hyphen-free `RefId` and append the pin. The
+ * node starts with empty `params` — the definition's authored values are the defaults; instance params
+ * are per-instance overrides keyed by exposed name (added later via the Inspector).
+ */
+export function addComponentRefNode(
+  doc: StrategyDocument,
+  args: AddComponentRefArgs,
+): StrategyDocument {
+  const next = structuredClone(doc)
+  let ref: ComponentRef | undefined = next.component_refs.find(
+    (r) => r.component_id === args.componentId && r.version === args.version,
+  )
+  if (ref === undefined) {
+    ref = { id: mintRefId(), component_id: args.componentId, version: args.version }
+    next.component_refs.push(ref)
+  }
+  const node: ComponentRefNode = {
+    id: mintNodeId(),
+    type_id: 'component',
+    ref: ref.id,
+    params: {},
     ui: { position: { x: args.position.x, y: args.position.y } },
   }
   next.nodes.push(node)

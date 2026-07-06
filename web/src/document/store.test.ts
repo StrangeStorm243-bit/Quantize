@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { RegisteredNode, StrategyDocument } from '@quantize/quantize-ir'
 import { PLACEHOLDER_USER_ID, SCHEMA_VERSION } from '../config'
 import {
+  addComponentRefNode,
   addNode,
   bumpStrategyVersion,
   connect,
@@ -278,5 +279,61 @@ describe('reducer behavior', () => {
     const doc = makeFixture()
     const result = setParams(doc, 'rk', { descending: false, extra: 1 })
     expect(result.nodes[1].params).toEqual({ descending: false, extra: 1 })
+  })
+})
+
+describe('addComponentRefNode', () => {
+  it('mints a new component_refs entry when none matches (component_id, version)', () => {
+    const doc = makeFixture()
+    const before = snap(doc)
+    const result = addComponentRefNode(doc, {
+      componentId: '99999999-9999-9999-9999-999999999999',
+      version: '2.0.0',
+      position: { x: 5, y: 6 },
+    })
+
+    // Input untouched.
+    expect(snap(doc)).toEqual(before)
+    // A fresh ref was appended (the fixture already had c0).
+    expect(result.component_refs).toHaveLength(2)
+    const newRef = result.component_refs[1]
+    expect(newRef.component_id).toBe('99999999-9999-9999-9999-999999999999')
+    expect(newRef.version).toBe('2.0.0')
+    expect(newRef.id).toMatch(/^[A-Za-z0-9_]+$/)
+    expect(newRef.id).not.toContain('-')
+
+    // A ComponentRefNode was appended, wired to that ref, with empty params and a position.
+    const node = result.nodes[result.nodes.length - 1]
+    expect(node.type_id).toBe('component')
+    expect('ref' in node && node.ref).toBe(newRef.id)
+    expect(node.id).not.toContain('-')
+    expect(node.params).toEqual({})
+    expect(node.ui).toEqual({ position: { x: 5, y: 6 } })
+  })
+
+  it('REUSES an existing (component_id, version) ref instead of minting a duplicate', () => {
+    const doc = makeFixture()
+    // The fixture pins c0 → 5555… @ 1.2.3.
+    const result = addComponentRefNode(doc, {
+      componentId: '55555555-5555-5555-5555-555555555555',
+      version: '1.2.3',
+      position: { x: 0, y: 0 },
+    })
+    // No new ref entry.
+    expect(result.component_refs).toHaveLength(1)
+    expect(result.component_refs[0].id).toBe('c0')
+    // The node points at the reused ref id.
+    const node = result.nodes[result.nodes.length - 1]
+    expect('ref' in node && node.ref).toBe('c0')
+  })
+
+  it('is pure — a genuinely-unknown future field survives', () => {
+    const base = { ...makeFixture(), __future_field__: { keep: 'me' } } as unknown as StrategyDocument
+    const result = addComponentRefNode(base, {
+      componentId: '99999999-9999-9999-9999-999999999999',
+      version: '2.0.0',
+      position: { x: 1, y: 1 },
+    })
+    expect((result as unknown as Record<string, unknown>).__future_field__).toEqual({ keep: 'me' })
   })
 })
