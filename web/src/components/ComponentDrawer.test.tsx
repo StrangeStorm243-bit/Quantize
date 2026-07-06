@@ -8,6 +8,8 @@ import type { ComponentDefinition } from '@quantize/quantize-ir'
 
 const state = vi.hoisted(() => ({
   def: undefined as ComponentDefinition | undefined,
+  // The raw cache map handed to `toFlow` — nested `ComponentRefNode`s resolve against this by key.
+  defs: new Map<string, ComponentDefinition>(),
   ensure: vi.fn(),
 }))
 // Capture the props handed to <ReactFlow> so we can assert it is structurally read-only.
@@ -24,7 +26,7 @@ vi.mock('../catalog', () => ({
 }))
 vi.mock('../components-cache', () => ({
   useComponentDefs: () => ({
-    defs: new Map(),
+    defs: state.defs,
     get: () => state.def,
     ensure: state.ensure,
     seed: vi.fn(),
@@ -85,9 +87,44 @@ function makeDef(): ComponentDefinition {
   }
 }
 
+const SUB_CID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+
+// A nested component definition (referenced by the parent below).
+function makeNestedDef(): ComponentDefinition {
+  return {
+    ...makeDef(),
+    component_id: SUB_CID,
+    name: 'SubComponent',
+    implementation: {
+      kind: 'graph',
+      graph: {
+        nodes: [{ id: 'rk2', type_id: 'transform.rank', type_version: '1.0.0', params: {} }],
+        edges: [],
+      },
+    },
+  }
+}
+
+// A parent whose internal graph contains a ComponentRefNode pointing at SUB_CID. Note the ref
+// resolves against the DEFINITION's `component_refs`, NOT the `graph` (which carries none).
+function makeParentWithNestedRef(): ComponentDefinition {
+  return {
+    ...makeDef(),
+    component_refs: [{ id: 'subref', component_id: SUB_CID, version: '1.0.0' }],
+    implementation: {
+      kind: 'graph',
+      graph: {
+        nodes: [{ id: 'sub', type_id: 'component', ref: 'subref', params: {} }],
+        edges: [],
+      },
+    },
+  }
+}
+
 afterEach(() => {
   box.props = undefined
   state.def = undefined
+  state.defs = new Map()
   vi.clearAllMocks()
 })
 
@@ -138,5 +175,47 @@ describe('ComponentDrawer', () => {
     render(<ComponentDrawer componentId={CID} version="1.0.0" onClose={onClose} />)
     fireEvent.click(screen.getByRole('button', { name: /close/i }))
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('renders a nested ComponentRefNode using the nested definition name (invariant 8: components nest)', () => {
+    // FIX 1: the graph's ComponentRefNode.ref resolves against the DEFINITION's component_refs, and the
+    // nested def is seeded in the cache map → the nested component's NAME renders, not a bare box.
+    state.def = makeParentWithNestedRef()
+    state.defs = new Map([[`${SUB_CID}@1.0.0`, makeNestedDef()]])
+    render(<ComponentDrawer componentId={CID} version="1.0.0" onClose={vi.fn()} />)
+
+    expect(screen.getByText('SubComponent')).toBeInTheDocument()
+    // The nested ref's definition was ensured into the cache (in addition to the drawer's own).
+    expect(state.ensure).toHaveBeenCalledWith(SUB_CID, '1.0.0')
+  })
+
+  it('leaves a nested ComponentRefNode bare on a cache miss (graceful, no crash)', () => {
+    // Nested def NOT seeded → toFlow keeps the bare `{typeId: 'component'}` shape, no crash.
+    state.def = makeParentWithNestedRef()
+    state.defs = new Map()
+    render(<ComponentDrawer componentId={CID} version="1.0.0" onClose={vi.fn()} />)
+
+    expect(screen.getByText('component')).toBeInTheDocument()
+  })
+
+  it('closes on Escape (keyboard users are not trapped)', () => {
+    // FIX 2: the dialog overlay dismisses on Escape.
+    state.def = makeDef()
+    const onClose = vi.fn()
+    render(<ComponentDrawer componentId={CID} version="1.0.0" onClose={onClose} />)
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('closes on a backdrop click but not on a click inside the content', () => {
+    state.def = makeDef()
+    const onClose = vi.fn()
+    render(<ComponentDrawer componentId={CID} version="1.0.0" onClose={onClose} />)
+    // A click inside the content (the RF surface) does NOT dismiss (the panel stops propagation).
+    fireEvent.click(screen.getByTestId('rf'))
+    expect(onClose).not.toHaveBeenCalled()
+    // A click on the backdrop (the overlay itself) dismisses.
+    fireEvent.click(screen.getByRole('dialog'))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

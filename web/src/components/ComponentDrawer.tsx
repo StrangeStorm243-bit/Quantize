@@ -66,20 +66,35 @@ export function ComponentDrawer({ componentId, version, onClose }: ComponentDraw
   const def = get(componentId, version)
 
   // On a cache miss, fetch the definition once (cache-forever). The drawer only READS the cache.
+  // Once loaded, also `ensure` each NESTED component ref's definition so nested `ComponentRefNode`s
+  // resolve to their name/ports rather than degrading to bare boxes (invariant 8: components nest).
+  // `ensure` is idempotent/cache-forever, so iterating every render is safe against loops; a nested
+  // def still loading or 404 → its node stays bare (graceful, no crash).
   useEffect(() => {
     if (def === undefined) {
       ensure(componentId, version)
+      return
+    }
+    for (const ref of def.component_refs) {
+      ensure(ref.component_id, ref.version)
     }
   }, [def, componentId, version, ensure])
 
-  // Project the internal graph through the SAME `toFlow` (a `Graph` is `{nodes, edges}` — it satisfies
-  // toFlow's widened first param). Only when the implementation is a viewable `graph`.
-  const graph =
-    def !== undefined && def.implementation.kind === 'graph' ? def.implementation.graph : undefined
-  const flow = useMemo(
-    () => (graph === undefined ? { nodes: [], edges: [] } : toFlow(graph, catalog, defs)),
-    [graph, catalog, defs],
-  )
+  // Project the internal graph through the SAME `toFlow`. A component `Graph` is `{nodes, edges}` and
+  // carries NO `component_refs` — nested `ComponentRefNode.ref` values resolve against the DEFINITION's
+  // `component_refs`, so we splice those onto the widened first arg (toFlow's `Pick<…> &
+  // {component_refs?}` already accepts it) or every nested ref would degrade to a bare `component` box.
+  // Only when the implementation is a viewable `graph`.
+  const flow = useMemo(() => {
+    if (def === undefined || def.implementation.kind !== 'graph') {
+      return { nodes: [], edges: [] }
+    }
+    return toFlow(
+      { ...def.implementation.graph, component_refs: def.component_refs },
+      catalog,
+      defs,
+    )
+  }, [def, catalog, defs])
   const rfNodes = useMemo<StrategyFlowNode[]>(
     () => flow.nodes.map((n) => ({ ...n, type: DRAWER_NODE_TYPE })),
     [flow],
@@ -87,8 +102,22 @@ export function ComponentDrawer({ componentId, version, onClose }: ComponentDraw
   const nodeTypes = useMemo(() => ({ [DRAWER_NODE_TYPE]: ReadOnlyNode }), [])
 
   return (
-    <div className="cdrawer" role="dialog" aria-label="component internals">
-      <div className="cdrawer__panel">
+    // Dismissable overlay: Escape closes (keyboard users aren't trapped) and a click on the backdrop
+    // (the overlay background, NOT the inner panel) closes. The inner panel stops propagation so a
+    // click inside the content never dismisses. The × button remains.
+    <div
+      className="cdrawer"
+      role="dialog"
+      aria-label="component internals"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          onClose()
+        }
+      }}
+      onClick={onClose}
+    >
+      <div className="cdrawer__panel" onClick={(e) => e.stopPropagation()}>
         <header className="cdrawer__head">
           <div className="cdrawer__title">{def !== undefined ? def.name : 'Component'}</div>
           <div className="cdrawer__meta">{`${componentId}@${version}`}</div>
