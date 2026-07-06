@@ -161,6 +161,17 @@ export function App(): ReactElement {
     }
   }, [selectedRunId])
 
+  // When the selected node leaves the document — Backspace-delete, a load/replace, or an extraction
+  // rewrite — clear the stale selection: nothing else does, so `selectedNodeId` would otherwise point
+  // at a nonexistent id. That phantom is not just cosmetic: `enterExtractionMode` seeds the extraction
+  // set from it, so a deleted-then-extract flow would seed an un-toggleable ghost member that errors the
+  // preview. Resolving by id (O(n) over nodes) keyed on [doc, selectedNodeId] covers every removal path.
+  useEffect(() => {
+    if (selectedNodeId !== null && !doc.nodes.some((n) => n.id === selectedNodeId)) {
+      setSelectedNodeId(null)
+    }
+  }, [doc, selectedNodeId])
+
   // A positional edge highlight (`highlightedEdgeIndex`) is an INDEX into `doc.edges`; once the
   // document mutates or is replaced those indices point at different edges, so a stale highlight would
   // mark the WRONG edge (and, being RF-`selected`, make it Backspace-deletable). Clear it on any doc
