@@ -28,7 +28,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { ValidateResponse } from '@quantize/quantize-api'
-import type { StrategyDocument } from '@quantize/quantize-ir'
+import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
 import { ApiClientError, errorMessage, saveComponent, validateStrategy } from '../api/client'
 import { labelOf, nodeTypeById, useCatalog } from '../catalog'
 import type { PortType } from '../catalog'
@@ -97,6 +97,16 @@ export function ExtractDialog({
       mounted.current = false
     }
   }, [])
+  // Orphan-accumulation bound (A1): the definition from the last attempt that SAVED (phase 2 succeeded)
+  // but then FAILED later — validate `ok:false` (phase 3) OR `onCommit` refused (phase 4). The immutable
+  // store has no DELETE, and `extractComponent` mints a fresh `component_id` per call, so a naive retry
+  // of the same extraction would strand ANOTHER orphan every time — unbounded. On a semantically-
+  // identical retry we reuse this id so phase 2 re-POSTs identical content under the same id (the
+  // server's idempotent 200 — no new row), capping accumulation at one saved component per distinct
+  // content. A ref, not state: the dialog unmounts on close, which is the natural reset. Residual
+  // (accepted, bounded): the FIRST failed attempt still leaves one orphan, because validation resolves
+  // the component from the DB and thus requires it already saved.
+  const lastSaved = useRef<ComponentDefinition | undefined>(undefined)
   // Move focus into the modal on open (a11y): the first field, so the dialog is immediately usable.
   const nameRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -225,10 +235,39 @@ export function ExtractDialog({
       return
     }
 
+    // Reuse the previously-saved definition on a semantically-identical retry (A1). The ONLY definition-
+    // level nondeterminism is `component_id` + `provenance.created_at` (inner node ids are COPIED from the
+    // strategy, not minted — see extract.ts). Normalize just those two onto the last saved id/timestamp;
+    // if the rest is byte-identical, this is the SAME component → substitute the remembered definition and
+    // repoint the new strategy's ref (the sole place the fresh `component_id` appears) back to it, so
+    // saveComponent re-POSTs identical content under the same id. A genuine content change (rename, port
+    // or param edit) is NOT equal → we proceed with the fresh definition (a different component).
+    let definition = result.definition
+    let strategy = result.strategy
+    const last = lastSaved.current
+    if (last !== undefined) {
+      const candidate: ComponentDefinition = {
+        ...result.definition,
+        component_id: last.component_id,
+        provenance: { ...result.definition.provenance, created_at: last.provenance.created_at },
+      }
+      if (JSON.stringify(candidate) === JSON.stringify(last)) {
+        definition = last
+        strategy = {
+          ...result.strategy,
+          component_refs: result.strategy.component_refs.map((r) =>
+            r.component_id === result.definition.component_id
+              ? { ...r, component_id: last.component_id }
+              : r,
+          ),
+        }
+      }
+    }
+
     setBusy(true)
     // Phase 2: persist the component. A failure (409 divergent / 422 invalid / network) → abort.
     try {
-      await saveComponent(result.definition)
+      await saveComponent(definition)
     } catch (e) {
       if (!mounted.current) return
       setBusy(false)
@@ -240,7 +279,7 @@ export function ExtractDialog({
     // Phase 3: run-faithful validation of the REWRITTEN strategy against server authority.
     let verdict: ValidateResponse
     try {
-      verdict = await validateStrategy(result.strategy)
+      verdict = await validateStrategy(strategy)
     } catch (e) {
       if (!mounted.current) return
       setBusy(false)
@@ -249,7 +288,9 @@ export function ExtractDialog({
     }
     if (!mounted.current) return
     if (!verdict.ok) {
-      // The server rejected the rewrite — render its diagnostics; the document is NEVER touched.
+      // The server rejected the rewrite — render its diagnostics; the document is NEVER touched. The
+      // component IS already saved (phase 2), so remember it: an identical retry reuses this id (A1).
+      lastSaved.current = definition
       setBusy(false)
       setDiagnostics(verdict)
       return
@@ -258,14 +299,19 @@ export function ExtractDialog({
     // Phase 4: the server blessed it (`ok:true` — the mutation gate, UNCHANGED). Hand the rewrite to the
     // App, which applies it ONLY if the live doc is still `capturedDoc`. A refusal (doc changed under us)
     // is non-destructive: nothing was mutated, so we surface a message and seed NOTHING.
-    const minted = result.strategy.nodes.find((n) => !capturedDoc.nodes.some((o) => o.id === n.id))
-    const applied = onCommit(capturedDoc, result.strategy, minted?.id ?? '')
+    const minted = strategy.nodes.find((n) => !capturedDoc.nodes.some((o) => o.id === n.id))
+    const applied = onCommit(capturedDoc, strategy, minted?.id ?? '')
     if (!applied) {
+      // Doc changed under us — nothing was mutated. The component IS saved, so remember it: an identical
+      // retry reuses this id (A1) rather than stranding a second orphan.
+      lastSaved.current = definition
       setBusy(false)
       setErrorText('The document changed during extraction; nothing was applied.')
       return
     }
-    seed(result.definition)
+    // Applied — clear the remembered definition (the dialog closes anyway, but be explicit).
+    lastSaved.current = undefined
+    seed(definition)
   }
 
   // Flatten server diagnostics to code+message rows, reusing the validate panel's presentation classes.

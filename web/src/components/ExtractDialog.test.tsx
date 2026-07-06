@@ -257,6 +257,77 @@ describe('ExtractDialog two-phase commit', () => {
   })
 })
 
+// M12.9: reuse the previously-saved definition on a semantically-identical extraction retry so a
+// validate-rejected / commit-refused attempt does not strand a FRESH orphan in the immutable store on
+// every retry. Bound: at most one saved component per DISTINCT content.
+describe('ExtractDialog orphan-accumulation bound (M12.9)', () => {
+  it('validate ok:false then an unchanged retry re-saves under the SAME component_id (A1)', async () => {
+    vi.mocked(validateStrategy).mockResolvedValue({
+      ok: false,
+      structural: [],
+      semantic: [],
+      runtime: [{ code: 'component_needs_terminal', message: 'no terminal', subject: 'mom', node_path: [] }],
+    } as unknown as ValidateResponse)
+    renderDialog(strategyA(), MOMENTUM)
+    fireEvent.change(await screen.findByLabelText('component name'), { target: { value: 'Momentum' } })
+
+    // First attempt: saves, then validate rejects.
+    fireEvent.click(screen.getByRole('button', { name: 'Create component' }))
+    expect(await screen.findByText('component_needs_terminal')).toBeInTheDocument()
+    await waitFor(() => expect(vi.mocked(saveComponent)).toHaveBeenCalledTimes(1))
+    const firstDef = vi.mocked(saveComponent).mock.calls[0][0] as { component_id: string }
+
+    // Second attempt with UNCHANGED inputs: reuses the id → same component_id saved, no new orphan.
+    fireEvent.click(screen.getByRole('button', { name: 'Create component' }))
+    await waitFor(() => expect(vi.mocked(saveComponent)).toHaveBeenCalledTimes(2))
+    const secondDef = vi.mocked(saveComponent).mock.calls[1][0] as { component_id: string }
+    expect(secondDef.component_id).toBe(firstDef.component_id)
+
+    // The strategy handed to validate references that SAME reused component_id.
+    const secondStrategy = vi.mocked(validateStrategy).mock.calls[1][0] as StrategyDocument
+    expect(secondStrategy.component_refs.some((r) => r.component_id === firstDef.component_id)).toBe(true)
+  })
+
+  it('a CHANGED retry (renamed component) saves under a DIFFERENT component_id (genuine new component)', async () => {
+    vi.mocked(validateStrategy).mockResolvedValue({
+      ok: false,
+      structural: [],
+      semantic: [],
+      runtime: [{ code: 'component_needs_terminal', message: 'no terminal', subject: 'mom', node_path: [] }],
+    } as unknown as ValidateResponse)
+    renderDialog(strategyA(), MOMENTUM)
+    fireEvent.change(await screen.findByLabelText('component name'), { target: { value: 'Momentum' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create component' }))
+    await waitFor(() => expect(vi.mocked(saveComponent)).toHaveBeenCalledTimes(1))
+    const firstDef = vi.mocked(saveComponent).mock.calls[0][0] as { component_id: string }
+
+    // Change the NAME → the normalized candidate no longer matches → a genuinely different component.
+    fireEvent.change(screen.getByLabelText('component name'), { target: { value: 'Momentum v2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create component' }))
+    await waitFor(() => expect(vi.mocked(saveComponent)).toHaveBeenCalledTimes(2))
+    const secondDef = vi.mocked(saveComponent).mock.calls[1][0] as { component_id: string }
+    expect(secondDef.component_id).not.toBe(firstDef.component_id)
+  })
+
+  it('onCommit refused then an unchanged retry reuses the SAME component_id (A1, commit-refused arm)', async () => {
+    // onCommit always refuses (doc changed under us). The component is saved but never applied.
+    const { onCommit } = renderDialog(strategyA(), MOMENTUM, { onCommit: () => false })
+    fireEvent.change(await screen.findByLabelText('component name'), { target: { value: 'Momentum' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create component' }))
+    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(vi.mocked(saveComponent)).toHaveBeenCalledTimes(1))
+    const firstDef = vi.mocked(saveComponent).mock.calls[0][0] as { component_id: string }
+
+    // Identical retry → the commit-refused path armed the reuse, so the SAME id is re-saved.
+    fireEvent.click(screen.getByRole('button', { name: 'Create component' }))
+    await waitFor(() => expect(vi.mocked(saveComponent)).toHaveBeenCalledTimes(2))
+    const secondDef = vi.mocked(saveComponent).mock.calls[1][0] as { component_id: string }
+    expect(secondDef.component_id).toBe(firstDef.component_id)
+  })
+})
+
 // M12.5b: guards that prevent a STALE `ok:true` (or a cancel/navigate mid-flight) from clobbering the
 // live document, plus the UX/a11y polish. The two-phase ORDER and the ok:true gate are unchanged — these
 // only ADD abort conditions.
