@@ -118,8 +118,8 @@ shorting, no options/futures, no intraday/HFT, scheduled daily/weekly/monthly ev
 
 The MVP is built as a spine — **IR + one engine + tracing + persistence + API + editor** — proven
 end to end on two reference strategies. **Milestones M1–M12 are complete** (M12 delivers the
-component authoring/extraction UI and MVP closeout). At the time of writing the suite reports **895
-Python tests** (`pytest`) and **204 web tests** (`vitest`), green on Python 3.13/3.14 and Windows/
+component authoring/extraction UI and MVP closeout). At the time of writing the suite reports **904
+Python tests** (`pytest`) and **220 web tests** (`vitest`), green on Python 3.13/3.14 and Windows/
 Linux, with byte-stable golden and backtest↔forward consistency coverage.
 
 For the full milestone breakdown (M1 IR + structural validation through M12 component UI), see

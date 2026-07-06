@@ -216,7 +216,8 @@ describe('App extraction commit guard (M12.5b)', () => {
     render(<App />)
     await openExtractDialog()
     // Navigate to a DIFFERENT document via the bottom StrategyPanel — the modal overlay does NOT cover
-    // it, so this is the real clobber vector. The store returns a NEW object → docRef identity changes.
+    // it, so this is the real clobber vector. The store returns a NEW object, so the replaceIf
+    // compare-and-swap sees a different live doc than the one captured at Confirm and refuses.
     fireEvent.change(screen.getByLabelText('new strategy name'), { target: { value: 'Navigated' } })
     fireEvent.click(screen.getByRole('button', { name: 'New strategy' }))
     expect(screen.getByText(/Navigated · v1/)).toBeInTheDocument()

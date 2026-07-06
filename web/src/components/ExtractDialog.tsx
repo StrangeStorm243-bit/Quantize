@@ -102,8 +102,10 @@ export function ExtractDialog({
   // store has no DELETE, and `extractComponent` mints a fresh `component_id` per call, so a naive retry
   // of the same extraction would strand ANOTHER orphan every time — unbounded. On a semantically-
   // identical retry we reuse this id so phase 2 re-POSTs identical content under the same id (the
-  // server's idempotent 200 — no new row), capping accumulation at one saved component per distinct
-  // content. A ref, not state: the dialog unmounts on close, which is the natural reset. Residual
+  // server's idempotent 200 — no new row). A single ref remembers only the LAST save, so the retry
+  // loop (same content, repeated Confirm) strands no extra orphans; an A→B→A content alternation can
+  // still strand one per switch-back. A ref, not state: the dialog unmounts on close, which is the
+  // natural reset. Residual
   // (accepted, bounded): the FIRST failed attempt still leaves one orphan, because validation resolves
   // the component from the DB and thus requires it already saved.
   const lastSaved = useRef<ComponentDefinition | undefined>(undefined)

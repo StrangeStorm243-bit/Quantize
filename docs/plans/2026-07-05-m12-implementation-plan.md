@@ -712,6 +712,35 @@ message (single `component_definition_invalid` envelope code) — fine for v0's 
 (ExtractDialog displays the string); a future client branching on fault kind would want a granular
 code.
 
+### M12.9 — ultra-review fix wave (2026-07-06)
+
+A recall-biased high-effort review (8 finder angles → 23 candidates → per-candidate adversarial
+verification) surfaced 10 findings on the full branch; ALL TEN were fixed by four parallel agents
+(one commit per finding, `e5e784e..5debc45`), each fix independently spec'd from the verified
+finding and the whole wave consolidated-reviewed → **APPROVED**:
+- **Correctness:** two-pass exposed-port naming (a rename can no longer be silently dropped when
+  collision suffixes shift — overrides are keyed by the exact preview defaults); saved-definition
+  reuse on semantically-identical extraction retries (orphan accumulation bounded — same
+  component_id re-POSTs → idempotent 200; the single first-failure orphan remains, accepted);
+  SQLite **WAL journal mode** (validate can no longer 503 on a read during a concurrent run's
+  write; one lock-pathology test rewritten to assert the improved behavior — the non-poisoning
+  property remains covered by three other tests); `replaceIf` compare-and-swap in the document
+  store used by BOTH async writers (StrategyPanel load + extraction commit — App's bespoke docRef
+  deleted); stale `selectedNodeId` cleared when its node leaves the document (no phantom
+  extraction seeds).
+- **Fail-loud seam:** componentized documents now REQUIRE an explicit ComponentCatalog at
+  preflight/engine (`require_component_catalog` — None + pinned refs raises; explicit empty stays
+  valid), closing the silent-empty-default seam that produced GAP-1.
+- **Coverage:** the run-layer recursion defense is integration-tested again via a store-bypass
+  plant (direct `ComponentRepository.save`).
+- **Deduplication:** resolve/diagnose share `_fetch_definition_closure` + `_run_definition_gates`
+  (byte-identical behavior); extract.ts reuses store.ts minters; one shared `resolveComponentDef`
+  for render/connect/inspect (Inspector's def-step stays on the provider's get — documented
+  partial).
+**Final counts: 904 Python + 220 web, both gates green** (branch tip after the wave). Remaining
+accepted nit: the commit-time `database_locked` recovery path has no reachable dedicated test
+under WAL (defensive code, noted in its docstring).
+
 ### Cross-cutting acceptance audit (MVP_PLAN.md:282-290 — item by item)
 
 The list is one sentence in `PRODUCT.md`/`MVP_PLAN.md`; decomposed into its ten clauses, each with
