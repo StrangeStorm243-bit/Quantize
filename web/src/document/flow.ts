@@ -89,7 +89,13 @@ function gridPosition(index: number): { x: number; y: number } {
  * derive path must stay robust to any valid doc, not only canvas-authored ones).
  */
 export function toFlow(
-  doc: StrategyDocument,
+  // Widened to `nodes`+`edges` (plus the optional `component_refs` this path resolves) so a component
+  // `Graph` — which is exactly `{nodes, edges}` — projects through the SAME function as a full
+  // `StrategyDocument`. A `StrategyDocument` (component_refs required) satisfies this; a `Graph`
+  // (no component_refs) satisfies it too, resolving any nested ref to a bare node (the cache-miss posture).
+  doc: Pick<StrategyDocument, 'nodes' | 'edges'> & {
+    component_refs?: StrategyDocument['component_refs']
+  },
   catalog?: NodeCatalogResponse,
   components?: ReadonlyMap<string, ComponentDefinition>,
 ): { nodes: StrategyFlowNode[]; edges: FlowEdge[] } {
@@ -105,7 +111,7 @@ export function toFlow(
       // A ComponentRefNode: resolve its pinned `(component_id, version)` and enrich from the cached
       // definition. On a cache miss (definition not fetched yet) keep the bare `{typeId: 'component'}`
       // shape — the SAME degradation an unknown/future registered type gets, never a crash.
-      const ref = doc.component_refs.find((r) => r.id === node.ref)
+      const ref = doc.component_refs?.find((r) => r.id === node.ref)
       const def =
         ref === undefined ? undefined : components?.get(componentCacheKey(ref.component_id, ref.version))
       if (def !== undefined) {

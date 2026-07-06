@@ -285,6 +285,76 @@ body {
   font-size: 0.8rem;
 }
 
+.inspector__inspect {
+  margin-top: 0.6rem;
+}
+
+/* --- Component detail drawer (M12.4) ---------------------------------------------------------- */
+
+/* A modal overlay pinned over the canvas region (`.app-region--center` is `position: relative`). */
+.cdrawer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  padding: 1rem;
+  background: rgba(31, 36, 48, 0.35);
+}
+
+.cdrawer__panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #d8dbe0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.cdrawer__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #e4e7ec;
+  background: #fbfbfc;
+}
+
+.cdrawer__title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.cdrawer__meta {
+  flex: 1;
+  font-size: 0.72rem;
+  color: #8a909c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.cdrawer__close {
+  border: none;
+  background: transparent;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #5a6070;
+}
+
+.cdrawer__body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.cdrawer__status {
+  padding: 1rem;
+  color: #8a909c;
+  font-size: 0.85rem;
+}
+
 .pform {
   display: flex;
   flex-direction: column;

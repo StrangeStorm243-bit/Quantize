@@ -13,6 +13,7 @@ import { errorMessage, getRun } from './api/client'
 import { CatalogProvider } from './catalog'
 import { ComponentsProvider } from './components-cache'
 import { Canvas } from './components/Canvas'
+import { ComponentDrawer } from './components/ComponentDrawer'
 import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
 import { Inspector } from './components/Inspector'
 import { Palette } from './components/Palette'
@@ -52,6 +53,11 @@ export function App(): ReactElement {
   const [tab, setTab] = useState<PanelTab>('strategies')
   const [datasetId, setDatasetId] = useState<string | undefined>(initialDatasetId)
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
+  // The component whose internals are open in the read-only detail drawer (M12.4, E11). Transient view
+  // state — never a second source of truth; the definition itself lives in the immutable cache.
+  const [viewedComponent, setViewedComponent] = useState<{ componentId: string; version: string } | null>(
+    null,
+  )
 
   // The run record is fetched ONCE per selected run and held here (not in the panels): ResultsView and
   // TraceView are conditionally mounted per tab, so if each fetched its own record every results↔trace
@@ -140,9 +146,21 @@ export function App(): ReactElement {
                 selectedNodeId={selectedNodeId}
                 highlightedEdgeIndex={highlightedEdgeIndex}
               />
+              {viewedComponent !== null ? (
+                <ComponentDrawer
+                  componentId={viewedComponent.componentId}
+                  version={viewedComponent.version}
+                  onClose={() => setViewedComponent(null)}
+                />
+              ) : null}
             </section>
             <aside className="app-region app-region--right" aria-label="inspector">
-              <Inspector doc={doc} selectedNodeId={selectedNodeId} actions={actions} />
+              <Inspector
+                doc={doc}
+                selectedNodeId={selectedNodeId}
+                actions={actions}
+                onInspectComponent={(target) => setViewedComponent(target)}
+              />
               <ValidatePanel doc={doc} onHighlight={onHighlight} />
             </aside>
           </main>
