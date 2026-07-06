@@ -15,6 +15,7 @@ import { ComponentsProvider } from './components-cache'
 import { Canvas } from './components/Canvas'
 import { ComponentDrawer } from './components/ComponentDrawer'
 import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
+import { ExtractDialog } from './components/ExtractDialog'
 import { Inspector } from './components/Inspector'
 import { Palette } from './components/Palette'
 import { ResultsView } from './components/ResultsView'
@@ -58,6 +59,50 @@ export function App(): ReactElement {
   const [viewedComponent, setViewedComponent] = useState<{ componentId: string; version: string } | null>(
     null,
   )
+
+  // Extraction mode (M12.5, E2): an App-OWNED selection set — NOT React Flow's transient multi-select
+  // (kept disabled since M11.10) — so it survives every doc re-seed by construction. `extractionMode`
+  // gates the Canvas's click-to-toggle + delete-key behaviour; `extractDialogOpen` mounts the dialog.
+  // `componentsRefreshKey` is bumped on a successful extraction so the Palette refetches its list and
+  // the freshly-minted component appears without a page reload.
+  const [extractionMode, setExtractionMode] = useState(false)
+  const [extractionSelection, setExtractionSelection] = useState<Set<string>>(new Set())
+  const [extractDialogOpen, setExtractDialogOpen] = useState(false)
+  const [componentsRefreshKey, setComponentsRefreshKey] = useState(0)
+
+  // Enter extraction mode: seed the set from the single selection (if any), then clear single-select so
+  // the two selection models never fight. Exit paths (cancel / success) always clear the set + dialog.
+  const enterExtractionMode = (): void => {
+    setExtractionSelection(selectedNodeId !== null ? new Set([selectedNodeId]) : new Set())
+    setSelectedNodeId(null)
+    setExtractDialogOpen(false)
+    setExtractionMode(true)
+  }
+  const cancelExtraction = (): void => {
+    setExtractionMode(false)
+    setExtractionSelection(new Set())
+    setExtractDialogOpen(false)
+  }
+  const toggleExtractionNode = (nodeId: string): void => {
+    setExtractionSelection((prev) => {
+      const next = new Set(prev)
+      if (next.has(nodeId)) {
+        next.delete(nodeId)
+      } else {
+        next.add(nodeId)
+      }
+      return next
+    })
+  }
+  // A blessed extraction: the doc was already replaced (in the dialog) — here we refresh the palette,
+  // leave the mode, and select the freshly-minted component instance node.
+  const onExtracted = (newNodeId: string): void => {
+    setComponentsRefreshKey((k) => k + 1)
+    setExtractionMode(false)
+    setExtractionSelection(new Set())
+    setExtractDialogOpen(false)
+    setSelectedNodeId(newNodeId === '' ? null : newNodeId)
+  }
 
   // The run record is fetched ONCE per selected run and held here (not in the panels): ResultsView and
   // TraceView are conditionally mounted per tab, so if each fetched its own record every results↔trace
@@ -136,14 +181,42 @@ export function App(): ReactElement {
           </header>
           <main className="app-body">
             <aside className="app-region app-region--left" aria-label="palette">
-              <Palette />
+              <Palette refreshKey={componentsRefreshKey} />
             </aside>
             <section className="app-region app-region--center" aria-label="canvas">
+              <div className="extract-toolbar">
+                {extractionMode ? (
+                  <div className="extract-banner" role="status">
+                    <span className="extract-banner__count">
+                      Extraction mode — {extractionSelection.size} node
+                      {extractionSelection.size === 1 ? '' : 's'} selected
+                    </span>
+                    <button
+                      type="button"
+                      className="pform__btn pform__btn--primary"
+                      disabled={extractionSelection.size === 0}
+                      onClick={() => setExtractDialogOpen(true)}
+                    >
+                      Create component…
+                    </button>
+                    <button type="button" className="pform__btn" onClick={cancelExtraction}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" className="pform__btn" onClick={enterExtractionMode}>
+                    Extract component
+                  </button>
+                )}
+              </div>
               <Canvas
                 doc={doc}
                 actions={actions}
                 onNodeClick={(id) => setSelectedNodeId(id)}
                 selectedNodeId={selectedNodeId}
+                selectedNodeIds={extractionMode ? extractionSelection : undefined}
+                extractionMode={extractionMode}
+                onToggleExtractionNode={toggleExtractionNode}
                 highlightedEdgeIndex={highlightedEdgeIndex}
               />
               {viewedComponent !== null ? (
@@ -151,6 +224,15 @@ export function App(): ReactElement {
                   componentId={viewedComponent.componentId}
                   version={viewedComponent.version}
                   onClose={() => setViewedComponent(null)}
+                />
+              ) : null}
+              {extractDialogOpen ? (
+                <ExtractDialog
+                  doc={doc}
+                  selection={extractionSelection}
+                  onReplace={actions.replace}
+                  onCancel={() => setExtractDialogOpen(false)}
+                  onExtracted={onExtracted}
                 />
               ) : null}
             </section>

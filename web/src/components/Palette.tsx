@@ -47,11 +47,19 @@ function handleComponentDragStart(event: DragEvent<HTMLDivElement>, row: Compone
   event.dataTransfer.effectAllowed = 'copy'
 }
 
-export function Palette(): ReactElement {
+/** Props: an optional refresh nonce the App bumps after an extraction so the list refetches (M12.5). */
+export interface PaletteProps {
+  /** Bumping this re-runs the `listComponents` fetch so a freshly-minted component appears at once. */
+  refreshKey?: number
+}
+
+export function Palette({ refreshKey }: PaletteProps = {}): ReactElement {
   const { catalog, loading, error } = useCatalog()
   // The saved-component list is SERVER state, fetched independently of the node catalog. Every list
-  // row (one per component version) is a draggable source. Hooks run before the early returns below.
-  const components = useFetch(listComponents, [])
+  // row (one per component version) is a draggable source. `refreshKey` is part of the fetch deps so a
+  // successful extraction (which increments it in the App) re-fetches and surfaces the new component.
+  // Hooks run before the early returns below.
+  const components = useFetch(listComponents, [refreshKey])
 
   if (loading) {
     return <div className="palette palette--status">Loading node catalog…</div>

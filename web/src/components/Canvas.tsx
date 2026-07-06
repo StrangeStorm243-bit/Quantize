@@ -217,6 +217,20 @@ export interface CanvasProps {
   onNodeClick?: (nodeId: string) => void
   /** The App-selected node id: marks that RF node `selected` so the canvas shows the selection. */
   selectedNodeId?: string | null
+  /**
+   * The App-owned EXTRACTION selection set (M12.5, E2). When present it drives `selected` on every RF
+   * node (`selectedNodeIds.has(id)`) INSTEAD of the single `selectedNodeId`, so the whole subgraph the
+   * user is picking highlights at once. Absent (extraction mode off) → single-select as before.
+   */
+  selectedNodeIds?: ReadonlySet<string> | undefined
+  /**
+   * True while extraction mode is active (M12.5). It flips two behaviours: a node click TOGGLES set
+   * membership (via `onToggleExtractionNode`) instead of single-selecting, and RF's Delete/Backspace is
+   * disabled (`deleteKeyCode={null}`) so a stray keypress can never delete the highlighted subgraph.
+   */
+  extractionMode?: boolean
+  /** Toggle a node in/out of the extraction selection set (called on a node click while in mode). */
+  onToggleExtractionNode?: (nodeId: string) => void
   /** A validate-highlighted edge INDEX (into `doc.edges`); marks the matching RF edge `selected`. */
   highlightedEdgeIndex?: number | null
 }
@@ -226,6 +240,9 @@ export function Canvas({
   actions,
   onNodeClick,
   selectedNodeId,
+  selectedNodeIds,
+  extractionMode,
+  onToggleExtractionNode,
   highlightedEdgeIndex,
 }: CanvasProps): ReactElement {
   const { catalog, loading, error } = useCatalog()
@@ -251,12 +268,17 @@ export function Canvas({
   const project = useCallback((): { nodes: StrategyFlowNode[]; edges: FlowEdge[] } => {
     const flow = toFlow(doc, catalog, componentDefs)
     return {
-      // Mark the App-selected node so the canvas reflects the current selection/highlight.
-      nodes: flow.nodes.map((n) => ({ ...n, type: STRATEGY_NODE_TYPE, selected: n.id === selectedNodeId })),
+      // Mark the selected node(s): the extraction SET (when present) marks every member; otherwise the
+      // single App-selected node. This is the ONE projection generalization E2 asks for.
+      nodes: flow.nodes.map((n) => ({
+        ...n,
+        type: STRATEGY_NODE_TYPE,
+        selected: selectedNodeIds ? selectedNodeIds.has(n.id) : n.id === selectedNodeId,
+      })),
       // `toFlow` maps `doc.edges` in order, so flow index === doc-edge index — the highlight target.
       edges: flow.edges.map((e, i) => (i === highlightedEdgeIndex ? { ...e, selected: true } : e)),
     }
-  }, [doc, catalog, componentDefs, selectedNodeId, highlightedEdgeIndex])
+  }, [doc, catalog, componentDefs, selectedNodeId, selectedNodeIds, highlightedEdgeIndex])
 
   // React Flow owns LOCAL node/edge state so it can move nodes and draw edges interactively; the
   // document remains the source of truth. We re-seed that local state from the document whenever the
@@ -330,9 +352,14 @@ export function Canvas({
 
   const onNodeClickHandler = useCallback(
     (_event: unknown, node: StrategyFlowNode) => {
-      onNodeClick?.(node.id)
+      // In extraction mode a click TOGGLES set membership; otherwise it single-selects (unchanged).
+      if (extractionMode) {
+        onToggleExtractionNode?.(node.id)
+      } else {
+        onNodeClick?.(node.id)
+      }
     },
-    [onNodeClick],
+    [extractionMode, onToggleExtractionNode, onNodeClick],
   )
 
   const onDragOver = useCallback((event: DragEvent) => {
@@ -427,6 +454,10 @@ export function Canvas({
         // could hit the wrong set. Disable both by nulling their key codes.
         selectionKeyCode={null}
         multiSelectionKeyCode={null}
+        // While extraction mode is active, disable Delete/Backspace: the App-owned selection set is
+        // highlighted via RF `selected`, and a stray keypress must NOT delete the picked subgraph.
+        // Off-mode the prop is OMITTED (spread), leaving RF's default delete keys in place.
+        {...(extractionMode ? { deleteKeyCode: null } : {})}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onInit={setRfInstance}
