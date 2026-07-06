@@ -23,7 +23,7 @@ import type {
   StrategyDocument,
 } from '@quantize/quantize-ir'
 import { nodeTypeById } from '../catalog'
-import { PLACEHOLDER_USER_ID } from '../config'
+import { PLACEHOLDER_USER_ID, SCHEMA_VERSION } from '../config'
 
 /** A graph node as the IR types it (an ordinary registered node OR a nested component instance). */
 type GraphNode = RegisteredNode | ComponentRefNode
@@ -63,7 +63,9 @@ function mintId(prefix: string): string {
   return prefix + crypto.randomUUID().replaceAll('-', '')
 }
 
-// A stable string key for a `[nodeId, port]` endpoint (NUL-separated; neither part can contain NUL).
+// A stable string key for a `[nodeId, port]` endpoint (space-separated). NodeId/PortName both obey the
+// grammar `^[A-Za-z0-9_]+$`, which forbids spaces, so the first space unambiguously delimits node from
+// port and the mapping is injective.
 function endpointKey(ep: readonly [string, string]): string {
   return ep[0] + ' ' + ep[1]
 }
@@ -175,7 +177,8 @@ export function extractComponent(
         if (match === undefined) {
           throw new ExtractionError(`Component instance "${node.id}" has no ${direction} port "${port}".`)
         }
-        return match.type
+        // Data copy — never alias the def-cache's immutable exposed-port type (matches paramSchema).
+        return structuredClone(match.type)
       }
       const nodeType = nodeTypeById(catalog, node.type_id)
       if (nodeType === undefined) {
@@ -186,7 +189,8 @@ export function extractComponent(
       if (match === undefined) {
         throw new ExtractionError(`Node "${node.id}" has no ${direction} port "${port}".`)
       }
-      return match.port_type
+      // Data copy — never alias the app-wide immutable catalog port type (matches paramSchema).
+      return structuredClone(match.port_type)
     }
 
     // --- Exposed-name assignment: default = inner port name; collision → `_2`, `_3`, ...; overridable.
@@ -205,6 +209,9 @@ export function extractComponent(
       if (override !== undefined) {
         if (!IDENTIFIER.test(override)) {
           throw new ExtractionError(`Exposed port name "${override}" is not a valid identifier.`)
+        }
+        if (usedNames.has(override)) {
+          throw new ExtractionError(`Exposed port name "${override}" is used more than once.`)
         }
         usedNames.add(override)
         return override
@@ -284,7 +291,7 @@ export function extractComponent(
     const nodeId = mintId('n')
 
     const definition: ComponentDefinition = {
-      schema_version: '0.1.0',
+      schema_version: SCHEMA_VERSION,
       component_id: componentId,
       version: '1.0.0',
       name: opts.name,

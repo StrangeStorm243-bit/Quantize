@@ -54,7 +54,10 @@ function normalizeStrategy(strat: unknown): unknown {
   compNode.params = {}
   const nodeId = compNode.id
   const refId = compNode.ref
-  const componentId = s.component_refs.find((r) => r.id === refId)?.component_id ?? ''
+  const componentId = s.component_refs.find((r) => r.id === refId)?.component_id
+  if (componentId === undefined) {
+    throw new Error(`no component_ref for ref "${refId}" in the rewritten strategy`)
+  }
   let text = JSON.stringify(s)
   text = text.split(nodeId).join('NODE').split(refId).join('REF').split(componentId).join('CID')
   return JSON.parse(text)
@@ -313,6 +316,34 @@ describe('extractComponent — edge classification', () => {
     })
     expect('error' in result).toBe(true)
   })
+
+  it('rejects two portNames overrides that collapse two exposed ports onto one name', () => {
+    const catalog = makeCatalog([
+      nodeType('dual', [inPort('values', CS), inPort('link', CS)], [outPort('out', CS)]),
+      nodeType('src', [], [outPort('out', CS)]),
+    ])
+    // Two distinct boundary inputs (x.values, x.link) each overridden to the SAME exposed name → the
+    // second override collides with the first's reservation and must be rejected (ambiguous wiring).
+    const doc = makeDoc(
+      [reg('x', 'dual'), reg('o1', 'src'), reg('o2', 'src')],
+      [
+        { from: ['o1', 'out'], to: ['x', 'values'] },
+        { from: ['o2', 'out'], to: ['x', 'link'] },
+      ],
+    )
+    const result = extractComponent(doc, new Set(['x']), catalog, new Map(), {
+      name: 'C',
+      exposedParams: [],
+      portNames: new Map([
+        ['values', 'same'],
+        ['link', 'same'],
+      ]),
+    })
+    expect('error' in result).toBe(true)
+    if ('error' in result) {
+      expect(result.error).toContain('used more than once')
+    }
+  })
 })
 
 describe('extractComponent — nested component instances (E4)', () => {
@@ -432,5 +463,104 @@ describe('extractComponent — pre-checks and verbatim preservation', () => {
     )
     expect((strategy as unknown as Record<string, unknown>).__future_field__).toEqual({ keep: 'me' })
     expect(deep(base)).toEqual(before)
+  })
+})
+
+// A registered node carrying a `ui.position` (the `reg` helper deliberately omits ui).
+function regAt(id: string, typeId: string, x: number, y: number): StrategyDocument['nodes'][number] {
+  return { id, type_id: typeId, type_version: '1.0.0', params: {}, ui: { position: { x, y } } }
+}
+
+describe('extractComponent — minted node ui centroid', () => {
+  it('places the minted node at the bounding-box centroid of the selected positions', () => {
+    const catalog = makeCatalog([nodeType('m', [inPort('in', CS)], [outPort('out', CS)])])
+    // positions (0,0),(100,0),(0,40) → centroid ((0+100)/2, (0+40)/2) = (50,20).
+    const doc = makeDoc(
+      [regAt('x', 'm', 0, 0), regAt('y', 'm', 100, 0), regAt('z', 'm', 0, 40)],
+      [
+        { from: ['x', 'out'], to: ['y', 'in'] },
+        { from: ['y', 'out'], to: ['z', 'in'] },
+      ],
+    )
+    const { strategy } = expectSuccess(
+      extractComponent(doc, new Set(['x', 'y', 'z']), catalog, new Map(), {
+        name: 'C',
+        exposedParams: [],
+      }),
+    )
+    const node = strategy.nodes.find((n) => n.type_id === 'component')!
+    expect(node.ui).toEqual({ position: { x: 50, y: 20 } })
+  })
+
+  it('computes the centroid over ONLY the selected nodes that carry a position', () => {
+    const catalog = makeCatalog([nodeType('m', [inPort('in', CS)], [outPort('out', CS)])])
+    // x@(0,0) and y@(100,40) have positions; z has none → centroid over {x,y} = (50,20).
+    const doc = makeDoc(
+      [regAt('x', 'm', 0, 0), regAt('y', 'm', 100, 40), reg('z', 'm')],
+      [
+        { from: ['x', 'out'], to: ['y', 'in'] },
+        { from: ['y', 'out'], to: ['z', 'in'] },
+      ],
+    )
+    const { strategy } = expectSuccess(
+      extractComponent(doc, new Set(['x', 'y', 'z']), catalog, new Map(), {
+        name: 'C',
+        exposedParams: [],
+      }),
+    )
+    const node = strategy.nodes.find((n) => n.type_id === 'component')!
+    expect(node.ui).toEqual({ position: { x: 50, y: 20 } })
+  })
+
+  it('omits ui entirely (not {}) when no selected node has a position', () => {
+    const catalog = makeCatalog([nodeType('m', [inPort('in', CS)], [outPort('out', CS)])])
+    const doc = makeDoc(
+      [reg('x', 'm'), reg('y', 'm')],
+      [{ from: ['x', 'out'], to: ['y', 'in'] }],
+    )
+    const { strategy } = expectSuccess(
+      extractComponent(doc, new Set(['x', 'y']), catalog, new Map(), {
+        name: 'C',
+        exposedParams: [],
+      }),
+    )
+    const node = strategy.nodes.find((n) => n.type_id === 'component')!
+    expect(node.ui).toBeUndefined()
+    expect('ui' in node).toBe(false)
+  })
+})
+
+describe('extractComponent — additional edge/param cases', () => {
+  it('two outside sources into one inner input port → 1 exposed input, 2 rewired edges', () => {
+    const catalog = makeCatalog([
+      nodeType('sink', [inPort('in', CS)], []),
+      nodeType('src', [], [outPort('out', CS)]),
+    ])
+    const doc = makeDoc(
+      [reg('x', 'sink'), reg('o1', 'src'), reg('o2', 'src')],
+      [
+        { from: ['o1', 'out'], to: ['x', 'in'] },
+        { from: ['o2', 'out'], to: ['x', 'in'] },
+      ],
+    )
+    const { definition, strategy } = expectSuccess(
+      extractComponent(doc, new Set(['x']), catalog, new Map(), { name: 'C', exposedParams: [] }),
+    )
+    expect(definition.exposed_inputs).toEqual([{ name: 'in', type: CS, maps_to: ['x', 'in'] }])
+    const node = strategy.nodes.find((n) => n.type_id === 'component')!
+    expect(strategy.edges).toEqual([
+      { from: ['o1', 'out'], to: [node.id, 'in'] },
+      { from: ['o2', 'out'], to: [node.id, 'in'] },
+    ])
+  })
+
+  it('errors when an exposedParams entry references a non-selected node', () => {
+    const catalog = makeCatalog([nodeType('m', [], [])])
+    const doc = makeDoc([reg('x', 'm'), reg('y', 'm')], [])
+    const result = extractComponent(doc, new Set(['x']), catalog, new Map(), {
+      name: 'C',
+      exposedParams: [{ nodeId: 'y', paramKey: 'p', exposedName: 'p' }],
+    })
+    expect('error' in result).toBe(true)
   })
 })
