@@ -144,11 +144,24 @@ export function addComponentRefNode(
   return next
 }
 
-/** Remove a node AND every edge incident to it (either endpoint references the node). */
+/**
+ * Remove a node AND every edge incident to it (either endpoint references the node), then prune any
+ * `component_refs` pin no remaining node still references. Deleting a `ComponentRefNode` must not
+ * leave its pin behind: the server resolves EVERY declared ref, used or not (a now-orphaned pin is
+ * LIVE document content that can make validate/run fail — e.g. if that component later goes
+ * missing/invalid — and is stale semantic content regardless). We recompute the used set from the
+ * REMAINING nodes (`'ref' in n` is the ComponentRefNode discriminant), so a pin SHARED by two
+ * instances is kept when only one is removed. Removing a registered (non-component) node changes no
+ * pin's used-ness, so its refs survive untouched. Pure — operates on the clone.
+ */
 export function removeNode(doc: StrategyDocument, nodeId: string): StrategyDocument {
   const next = structuredClone(doc)
   next.nodes = next.nodes.filter((n) => n.id !== nodeId)
   next.edges = next.edges.filter((e) => e.from[0] !== nodeId && e.to[0] !== nodeId)
+  const usedRefIds = new Set(
+    next.nodes.filter((n) => 'ref' in n).map((n) => (n as ComponentRefNode).ref),
+  )
+  next.component_refs = next.component_refs.filter((r) => usedRefIds.has(r.id))
   return next
 }
 
