@@ -6,6 +6,7 @@
 // The api client is stubbed so no child hits the network. NO network.
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { newStrategyDocument } from './document/store'
 
 vi.mock('./api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api/client')>()
@@ -51,16 +52,22 @@ vi.mock('./components/Canvas', () => ({
   ),
 }))
 
-// ExtractDialog mock: expose its selection and buttons to simulate a blessed extraction / a cancel.
+// ExtractDialog mock: expose its selection and buttons to simulate a blessed extraction / a cancel. A
+// blessed extraction now goes through `onCommit(capturedDoc, strategy, id)`; passing the LIVE `doc`
+// (unchanged) makes the App-owned identity guard apply it (replace + onExtracted internally).
 vi.mock('./components/ExtractDialog', () => ({
   ExtractDialog: (props: {
+    doc: unknown
     selection: ReadonlySet<string>
-    onExtracted: (id: string) => void
+    onCommit: (captured: unknown, strategy: unknown, id: string) => boolean
     onCancel: () => void
   }) => (
     <div data-testid="extract-dialog">
       <span data-testid="dlg-selection">{[...props.selection].sort().join(',')}</span>
-      <button type="button" onClick={() => props.onExtracted('newnode')}>
+      <button
+        type="button"
+        onClick={() => props.onCommit(props.doc, newStrategyDocument('Extracted'), 'newnode')}
+      >
         simulate-extracted
       </button>
       <button type="button" onClick={props.onCancel}>

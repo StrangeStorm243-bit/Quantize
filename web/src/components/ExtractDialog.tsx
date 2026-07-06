@@ -7,8 +7,17 @@
 //   1. `extractComponent` in memory (pure; on {error} → abort, doc untouched)
 //   2. `saveComponent(definition)`  (ApiClientError → abort, doc untouched)
 //   3. `validateStrategy(strategy)` (ok:false → render diagnostics, abort, doc untouched)
-//   4. ONLY on ok:true → `onReplace(strategy)` + cache `seed(definition)` + `onExtracted(newNodeId)`
+//   4. ONLY on ok:true → `onCommit(capturedDoc, strategy, newNodeId)` (the App replaces the doc iff it
+//      is STILL `capturedDoc`) + cache `seed(definition)` on a successful apply.
 // Any failure leaves `doc` exactly as it was — the parent never sees a mutation on an abort path.
+//
+// Late-result safety (M12.5b): the save→validate window is async, so the doc can change under us — the
+// user could load/create a DIFFERENT strategy from the bottom StrategyPanel (which the modal overlay
+// does NOT cover). A stale `ok:true` must never clobber the live doc. Three guards close this:
+//   (a) abort controls (Cancel / × / Escape / backdrop) are inert while `busy` — no cancel mid-flight;
+//   (b) a `mounted` ref bails after every await if the dialog was unmounted (defense-in-depth);
+//   (c) an App-owned live-document IDENTITY check: `onCommit` applies only if the live doc is still the
+//       object captured when the commit started (every reducer returns a new object, so `===` is exact).
 //
 // Client pre-checks are STRUCTURAL only (E6): `extractComponent` enforces non-empty + weak connectivity,
 // and exposed-port NAMES are constrained to `^[A-Za-z0-9_]+$` here (they become instance port names used
@@ -16,7 +25,7 @@
 // job — that is exactly why the commit runs validate before touching the document. No numerical,
 // portfolio, or type-compatibility logic lives here (CLAUDE.md invariant 5); no domain type is
 // re-declared (invariant 4) — the definition/strategy are the generated IR types.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { ValidateResponse } from '@quantize/quantize-api'
 import type { StrategyDocument } from '@quantize/quantize-ir'
@@ -31,16 +40,24 @@ import type { ExposedParamRequest } from '../document/extract'
 const IDENTIFIER = /^[A-Za-z0-9_]+$/
 
 export interface ExtractDialogProps {
-  /** The current (pre-extraction) document — READ ONLY here; only ever mutated via `onReplace`. */
+  /** The current (pre-extraction) document — READ ONLY here; only ever mutated via `onCommit`. */
   doc: StrategyDocument
   /** The App-owned extraction selection (the subgraph to extract). */
   selection: ReadonlySet<string>
-  /** Commit the rewritten strategy (the ONLY document-mutation path — fired on server `ok:true`). */
-  onReplace: (doc: StrategyDocument) => void
+  /**
+   * The ONLY document-mutation path — fired on server `ok:true`. The App verifies the LIVE document is
+   * still `capturedDoc` (the object identity captured when this commit began) before replacing it, and
+   * reports back whether it applied. `false` → the doc changed under us (e.g. a mid-flight load/new from
+   * the StrategyPanel); the dialog must NOT seed the cache and surfaces a non-destructive message.
+   * `newNodeId` is the minted component-instance node id (App selects it on a successful apply).
+   */
+  onCommit: (
+    capturedDoc: StrategyDocument,
+    strategy: StrategyDocument,
+    newNodeId: string,
+  ) => boolean
   /** Close the dialog without touching anything. */
   onCancel: () => void
-  /** Fire on a successful commit with the minted instance node's id (App refreshes/exits/selects). */
-  onExtracted: (newNodeId: string) => void
 }
 
 /** One exposable parameter row: `paramKey` on `nodeId` (shown under the node's display label). */
@@ -65,12 +82,26 @@ function paramKeyOf(nodeId: string, paramKey: string): string {
 export function ExtractDialog({
   doc,
   selection,
-  onReplace,
+  onCommit,
   onCancel,
-  onExtracted,
 }: ExtractDialogProps): ReactElement {
   const { catalog } = useCatalog()
   const { defs, get, seed } = useComponentDefs()
+
+  // Set false on unmount so an in-flight commit can bail after each await instead of applying a stale
+  // `ok:true` (or calling setState on an unmounted tree). Mirrors App's `getRun` `cancelled` guard.
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  // Move focus into the modal on open (a11y): the first field, so the dialog is immediately usable.
+  const nameRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    nameRef.current?.focus()
+  }, [])
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -139,18 +170,27 @@ export function ExtractDialog({
   }, [catalog, doc, selection, get])
 
   // Every previewed port's effective name must be a valid identifier before Confirm is allowed (E6).
-  const portsValid = previewPorts.every((p) => IDENTIFIER.test(portEdits[p.name] ?? p.name))
+  const effectivePortNames = previewPorts.map((p) => portEdits[p.name] ?? p.name)
+  const portsValid = effectivePortNames.every((n) => IDENTIFIER.test(n))
+  // Inputs and outputs share ONE namespace (matching extract.ts `assignName`), so a duplicate EFFECTIVE
+  // name across ANY two ports is rejected at commit. Catch it here so Confirm blocks with an inline note
+  // rather than the user discovering it only after the (safe but late) commit-time throw.
+  const portNamesDuplicated = new Set(effectivePortNames).size !== effectivePortNames.length
   const confirmDisabled =
     busy ||
     catalog === undefined ||
     previewError !== undefined ||
     name.trim() === '' ||
-    !portsValid
+    !portsValid ||
+    portNamesDuplicated
 
   const onConfirm = async (): Promise<void> => {
     if (catalog === undefined) {
       return
     }
+    // Capture the source-document identity NOW. The apply (phase 4) is gated on the live doc still being
+    // this exact object — if the user loads/creates a different strategy mid-flight, `onCommit` refuses.
+    const capturedDoc = doc
     setErrorText(undefined)
     setDiagnostics(undefined)
 
@@ -190,20 +230,24 @@ export function ExtractDialog({
     try {
       await saveComponent(result.definition)
     } catch (e) {
+      if (!mounted.current) return
       setBusy(false)
       setErrorText(e instanceof ApiClientError ? `${e.code}: ${e.message}` : errorMessage(e))
       return
     }
+    if (!mounted.current) return
 
     // Phase 3: run-faithful validation of the REWRITTEN strategy against server authority.
     let verdict: ValidateResponse
     try {
       verdict = await validateStrategy(result.strategy)
     } catch (e) {
+      if (!mounted.current) return
       setBusy(false)
       setErrorText(e instanceof ApiClientError ? `${e.code}: ${e.message}` : errorMessage(e))
       return
     }
+    if (!mounted.current) return
     if (!verdict.ok) {
       // The server rejected the rewrite — render its diagnostics; the document is NEVER touched.
       setBusy(false)
@@ -211,11 +255,17 @@ export function ExtractDialog({
       return
     }
 
-    // Phase 4: the server blessed it — NOW (and only now) mutate the document + seed the cache.
-    onReplace(result.strategy)
+    // Phase 4: the server blessed it (`ok:true` — the mutation gate, UNCHANGED). Hand the rewrite to the
+    // App, which applies it ONLY if the live doc is still `capturedDoc`. A refusal (doc changed under us)
+    // is non-destructive: nothing was mutated, so we surface a message and seed NOTHING.
+    const minted = result.strategy.nodes.find((n) => !capturedDoc.nodes.some((o) => o.id === n.id))
+    const applied = onCommit(capturedDoc, result.strategy, minted?.id ?? '')
+    if (!applied) {
+      setBusy(false)
+      setErrorText('The document changed during extraction; nothing was applied.')
+      return
+    }
     seed(result.definition)
-    const minted = result.strategy.nodes.find((n) => !doc.nodes.some((o) => o.id === n.id))
-    onExtracted(minted?.id ?? '')
   }
 
   // Flatten server diagnostics to code+message rows, reusing the validate panel's presentation classes.
@@ -232,19 +282,32 @@ export function ExtractDialog({
     <div
       className="xdialog"
       role="dialog"
+      aria-modal="true"
       aria-label="create component"
       tabIndex={-1}
       onKeyDown={(e) => {
-        if (e.key === 'Escape') {
+        // Escape aborts — but NOT while a commit is in flight (a late `ok:true` must not clobber).
+        if (e.key === 'Escape' && !busy) {
           onCancel()
         }
       }}
-      onClick={onCancel}
+      onClick={() => {
+        // Backdrop click aborts — inert while busy, same reason as Escape.
+        if (!busy) {
+          onCancel()
+        }
+      }}
     >
       <div className="xdialog__panel" onClick={(e) => e.stopPropagation()}>
         <header className="xdialog__head">
           <div className="xdialog__title">Create component</div>
-          <button type="button" className="xdialog__close" onClick={onCancel} aria-label="close">
+          <button
+            type="button"
+            className="xdialog__close"
+            onClick={onCancel}
+            disabled={busy}
+            aria-label="close"
+          >
             ×
           </button>
         </header>
@@ -253,6 +316,7 @@ export function ExtractDialog({
           <label className="xdialog__field">
             <span className="xdialog__label">Name</span>
             <input
+              ref={nameRef}
               className="xdialog__input"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -302,6 +366,11 @@ export function ExtractDialog({
                 })}
               </ul>
             )}
+            {portNamesDuplicated ? (
+              <p className="xdialog__hint xdialog__hint--error">
+                Exposed port names must be unique (inputs and outputs share one namespace).
+              </p>
+            ) : null}
           </section>
 
           <section className="xdialog__section">
@@ -373,7 +442,7 @@ export function ExtractDialog({
           >
             {busy ? 'Creating…' : 'Create component'}
           </button>
-          <button type="button" className="pform__btn" onClick={onCancel}>
+          <button type="button" className="pform__btn" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
         </footer>
