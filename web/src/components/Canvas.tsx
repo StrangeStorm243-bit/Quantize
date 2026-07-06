@@ -41,7 +41,7 @@ import {
 import type { PortType } from '../catalog'
 import { addComponentRefNode } from '../document/store'
 import type { EdgeSpec, StrategyDocumentActions } from '../document/store'
-import { componentCacheKey, componentPorts, toFlow } from '../document/flow'
+import { componentPorts, resolveComponentDef, toFlow } from '../document/flow'
 import type { StrategyFlowNode } from '../document/flow'
 import { useComponentDefs } from '../components-cache'
 import { COMPONENT_DRAG_MIME, NODE_DRAG_MIME } from './Palette'
@@ -109,9 +109,7 @@ function resolveEndpointPortType(
   direction: 'output' | 'input',
 ): { portType: PortType } | { reason: string } {
   if ('ref' in node) {
-    const ref = doc.component_refs.find((r) => r.id === node.ref)
-    const def =
-      ref === undefined ? undefined : components?.get(componentCacheKey(ref.component_id, ref.version))
+    const def = resolveComponentDef(doc.component_refs, node.ref, components)
     if (def === undefined) {
       return { reason: 'Component definition is not loaded (or the ref is unknown).' }
     }

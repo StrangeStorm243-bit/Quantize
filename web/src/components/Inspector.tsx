@@ -13,6 +13,7 @@ import type { ReactElement } from 'react'
 import type { JsonValue, StrategyDocument } from '@quantize/quantize-ir'
 import { nodeTypeById, useCatalog } from '../catalog'
 import { useComponentDefs } from '../components-cache'
+import { findComponentRef } from '../document/flow'
 import type { NodeParams, StrategyDocumentActions } from '../document/store'
 import type { ParameterSchema } from './ParamForm'
 import { ParamForm } from './ParamForm'
@@ -45,7 +46,10 @@ export function Inspector({
 
   // A ComponentRefNode: resolve its pinned definition from the cache and edit its exposed params.
   if ('ref' in node) {
-    const ref = doc.component_refs.find((r) => r.id === node.ref)
+    // Single-source the ref step through the shared helper (the same `.find` toFlow/decideConnection
+    // use); the def then comes from the provider's key lookup, which is `defs.get(componentCacheKey(...))`
+    // under the hood — the SAME second step the shared `resolveComponentDef` performs.
+    const ref = findComponentRef(doc.component_refs, node.ref)
     const def = ref === undefined ? undefined : get(ref.component_id, ref.version)
     const inspectButton =
       ref !== undefined && onInspectComponent !== undefined ? (

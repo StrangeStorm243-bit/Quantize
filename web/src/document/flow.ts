@@ -11,7 +11,12 @@ import type {
   CatalogOutputPortDto,
   NodeCatalogResponse,
 } from '@quantize/quantize-api'
-import type { ComponentDefinition, JsonValue, StrategyDocument } from '@quantize/quantize-ir'
+import type {
+  ComponentDefinition,
+  ComponentRef,
+  JsonValue,
+  StrategyDocument,
+} from '@quantize/quantize-ir'
 
 /**
  * The data an IR node contributes to its React Flow node. `typeId` is ALWAYS present. When `toFlow`
@@ -34,6 +39,39 @@ export type FlowNodeData = {
  */
 export function componentCacheKey(componentId: string, version: string): string {
   return `${componentId}@${version}`
+}
+
+/**
+ * Find a pinned `ComponentRef` by its node-local `ref` id — the FIRST step of resolving a
+ * `ComponentRefNode`. Kept separate from {@link resolveComponentDef} because a consumer (the
+ * Inspector) needs the ref ITSELF — to show `component_id@version` and offer "Inspect internals" —
+ * even when the definition has not been fetched yet (a cache miss). Returns `undefined` when no ref
+ * carries that id.
+ */
+export function findComponentRef(
+  componentRefs: readonly ComponentRef[] | undefined,
+  refId: string,
+): ComponentRef | undefined {
+  return componentRefs?.find((r) => r.id === refId)
+}
+
+/**
+ * The SINGLE ref→definition resolution shared by render (`toFlow`), connect (`decideConnection`) and
+ * inspect (the Inspector). Two steps that must NEVER disagree for the same node: find the pinned ref
+ * by its id, then look its immutable definition up in the cache by the shared `component_id@version`
+ * key. Returns `undefined` on EITHER miss (unknown ref OR definition not fetched) — the same graceful
+ * degradation every consumer already relies on. Centralizing it here means a future resolution change
+ * (a cache-miss fallback, version aliasing) lands in ONE place instead of desyncing the three sites.
+ */
+export function resolveComponentDef(
+  componentRefs: readonly ComponentRef[] | undefined,
+  refId: string,
+  components: ReadonlyMap<string, ComponentDefinition> | undefined,
+): ComponentDefinition | undefined {
+  const ref = findComponentRef(componentRefs, refId)
+  return ref === undefined
+    ? undefined
+    : components?.get(componentCacheKey(ref.component_id, ref.version))
 }
 
 /**
@@ -111,9 +149,7 @@ export function toFlow(
       // A ComponentRefNode: resolve its pinned `(component_id, version)` and enrich from the cached
       // definition. On a cache miss (definition not fetched yet) keep the bare `{typeId: 'component'}`
       // shape — the SAME degradation an unknown/future registered type gets, never a crash.
-      const ref = doc.component_refs?.find((r) => r.id === node.ref)
-      const def =
-        ref === undefined ? undefined : components?.get(componentCacheKey(ref.component_id, ref.version))
+      const def = resolveComponentDef(doc.component_refs, node.ref, components)
       if (def !== undefined) {
         const ports = componentPorts(def)
         data.displayName = def.name

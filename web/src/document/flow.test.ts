@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
-import { componentCacheKey, toFlow } from './flow'
+import { componentCacheKey, findComponentRef, resolveComponentDef, toFlow } from './flow'
 
 // A minimal component definition used to exercise the ComponentRefNode enrichment path.
 const DEF: ComponentDefinition = {
@@ -121,6 +121,50 @@ describe('toFlow', () => {
     const before = JSON.parse(JSON.stringify(doc))
     toFlow(doc)
     expect(JSON.parse(JSON.stringify(doc))).toEqual(before)
+  })
+})
+
+// The single shared ref→definition resolution used by render (toFlow), connect (decideConnection) and
+// inspect (the Inspector). These lock in the two-step contract so the three sites can never diverge.
+describe('findComponentRef / resolveComponentDef', () => {
+  const REFS = makeComponentDoc().component_refs
+
+  it('findComponentRef returns the pinned ref by its node-local id', () => {
+    expect(findComponentRef(REFS, 'r1')).toEqual({
+      id: 'r1',
+      component_id: DEF.component_id,
+      version: DEF.version,
+    })
+  })
+
+  it('findComponentRef returns undefined for an unknown ref id or absent refs', () => {
+    expect(findComponentRef(REFS, 'nope')).toBeUndefined()
+    expect(findComponentRef(undefined, 'r1')).toBeUndefined()
+  })
+
+  it('resolveComponentDef resolves ref → cache key → definition', () => {
+    const components = new Map([[componentCacheKey(DEF.component_id, DEF.version), DEF]])
+    expect(resolveComponentDef(REFS, 'r1', components)).toBe(DEF)
+  })
+
+  it('resolveComponentDef returns undefined on an unknown ref', () => {
+    const components = new Map([[componentCacheKey(DEF.component_id, DEF.version), DEF]])
+    expect(resolveComponentDef(REFS, 'nope', components)).toBeUndefined()
+  })
+
+  it('resolveComponentDef returns undefined on a cache miss (map present, key absent)', () => {
+    expect(resolveComponentDef(REFS, 'r1', new Map())).toBeUndefined()
+    expect(resolveComponentDef(REFS, 'r1', undefined)).toBeUndefined()
+  })
+
+  it('is the SAME resolution the render path (toFlow) uses for the same node', () => {
+    // Whatever definition toFlow enriches a ComponentRefNode from must be exactly what the shared
+    // helper returns — one resolution path for render and (via the helper) connect + inspect.
+    const components = new Map([[componentCacheKey(DEF.component_id, DEF.version), DEF]])
+    const def = resolveComponentDef(REFS, 'r1', components)
+    const { nodes } = toFlow(makeComponentDoc(), undefined, components)
+    const mom = nodes.find((n) => n.id === 'mom')
+    expect(mom?.data.displayName).toBe(def?.name)
   })
 })
 
