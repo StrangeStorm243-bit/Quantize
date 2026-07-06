@@ -129,6 +129,28 @@ body {
   background: #f0f4ff;
 }
 
+/* A component palette item — visually distinct from a registered-node item. */
+.palette-item--component {
+  border-style: dashed;
+  border-color: #b0a4e6;
+  background: #f7f5ff;
+}
+
+.palette-item--component:hover {
+  border-color: #6a4af7;
+  background: #efeaff;
+}
+
+.palette__hint {
+  font-size: 0.78rem;
+  color: #8a909c;
+  padding: 0.15rem 0.1rem 0.35rem;
+}
+
+.palette__hint--error {
+  color: #b4232a;
+}
+
 /* --- Canvas ----------------------------------------------------------------------------------- */
 
 .canvas {

@@ -11,7 +11,7 @@ import type {
   CatalogOutputPortDto,
   NodeCatalogResponse,
 } from '@quantize/quantize-api'
-import type { JsonValue, StrategyDocument } from '@quantize/quantize-ir'
+import type { ComponentDefinition, JsonValue, StrategyDocument } from '@quantize/quantize-ir'
 
 /**
  * The data an IR node contributes to its React Flow node. `typeId` is ALWAYS present. When `toFlow`
@@ -24,6 +24,34 @@ export type FlowNodeData = {
   displayName?: string
   inputs?: CatalogInputPortDto[]
   outputs?: CatalogOutputPortDto[]
+}
+
+/**
+ * The cache key for a component definition: `component_id@version`. A definition is immutable per
+ * version (the store returns 409 on a divergent re-save), so this key is stable forever — it is the
+ * single agreed key format shared by the {@link ComponentsProvider} cache and every consumer that
+ * resolves a `ComponentRef` (toFlow, decideConnection, the Inspector).
+ */
+export function componentCacheKey(componentId: string, version: string): string {
+  return `${componentId}@${version}`
+}
+
+/**
+ * The ONE definition→port mapping. A component's `exposed_inputs`/`exposed_outputs` project onto the
+ * EXACT catalog port DTO shapes so `FlowNodeData`/`StrategyNode`/the connection gate treat a component
+ * instance exactly like a registered node — no new port source, no divergent resolution path. Every
+ * exposed input is `required: true` (the run-faithful preflight requires every exposed input connected
+ * at the top level), and the port TYPE is copied verbatim (data, never compared here — invariant 5).
+ * This is the single resolution path used by toFlow AND decideConnection AND (later) the Inspector.
+ */
+export function componentPorts(def: ComponentDefinition): {
+  inputs: CatalogInputPortDto[]
+  outputs: CatalogOutputPortDto[]
+} {
+  return {
+    inputs: def.exposed_inputs.map((p) => ({ name: p.name, port_type: p.type, required: true })),
+    outputs: def.exposed_outputs.map((p) => ({ name: p.name, port_type: p.type })),
+  }
 }
 
 /** A React Flow node whose `data` carries the mapped IR fields. */
@@ -63,6 +91,7 @@ function gridPosition(index: number): { x: number; y: number } {
 export function toFlow(
   doc: StrategyDocument,
   catalog?: NodeCatalogResponse,
+  components?: ReadonlyMap<string, ComponentDefinition>,
 ): { nodes: StrategyFlowNode[]; edges: FlowEdge[] } {
   // Index node types by id ONCE (when a catalog is provided) so the enrichment is O(nodes).
   const byType =
@@ -72,13 +101,28 @@ export function toFlow(
 
   const nodes: StrategyFlowNode[] = doc.nodes.map((node, index) => {
     const data: FlowNodeData = { typeId: node.type_id }
-    const nodeType = byType?.get(node.type_id)
-    if (nodeType !== undefined) {
-      // Only add the enriched keys when the type resolves — an unknown/future type keeps the bare
-      // `{typeId}` shape (backward-compatible with M11.3 and with the extensible-block seam).
-      data.displayName = nodeType.display_name
-      data.inputs = nodeType.inputs
-      data.outputs = nodeType.outputs
+    if ('ref' in node) {
+      // A ComponentRefNode: resolve its pinned `(component_id, version)` and enrich from the cached
+      // definition. On a cache miss (definition not fetched yet) keep the bare `{typeId: 'component'}`
+      // shape — the SAME degradation an unknown/future registered type gets, never a crash.
+      const ref = doc.component_refs.find((r) => r.id === node.ref)
+      const def =
+        ref === undefined ? undefined : components?.get(componentCacheKey(ref.component_id, ref.version))
+      if (def !== undefined) {
+        const ports = componentPorts(def)
+        data.displayName = def.name
+        data.inputs = ports.inputs
+        data.outputs = ports.outputs
+      }
+    } else {
+      const nodeType = byType?.get(node.type_id)
+      if (nodeType !== undefined) {
+        // Only add the enriched keys when the type resolves — an unknown/future type keeps the bare
+        // `{typeId}` shape (backward-compatible with M11.3 and with the extensible-block seam).
+        data.displayName = nodeType.display_name
+        data.inputs = nodeType.inputs
+        data.outputs = nodeType.outputs
+      }
     }
     return {
       id: node.id,

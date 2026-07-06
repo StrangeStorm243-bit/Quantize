@@ -23,6 +23,8 @@ vi.mock('./api/client', async (importOriginal) => {
       node_types: [],
     }),
     listStrategies: vi.fn().mockResolvedValue({ strategies: [] }),
+    // The real Palette now fetches the saved-component list (M12.3) — resolve it empty (no network).
+    listComponents: vi.fn().mockResolvedValue({ components: [] }),
     // Per-test controllable: the App's lifted record fetch (M11.9 F7) is driven through this.
     getRun: vi.fn(),
   }

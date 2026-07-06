@@ -1,6 +1,42 @@
 import { describe, expect, it } from 'vitest'
-import type { StrategyDocument } from '@quantize/quantize-ir'
-import { toFlow } from './flow'
+import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
+import { componentCacheKey, toFlow } from './flow'
+
+// A minimal component definition used to exercise the ComponentRefNode enrichment path.
+const DEF: ComponentDefinition = {
+  schema_version: '0.1.0',
+  component_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  version: '1.0.0',
+  name: 'Momentum Selector',
+  description: null,
+  component_refs: [],
+  implementation: { kind: 'graph', graph: { nodes: [], edges: [] } },
+  exposed_inputs: [
+    { name: 'series', type: { kind: 'TimeSeries', dtype: 'Number' }, maps_to: ['ret', 'series'] },
+    { name: 'universe', type: { kind: 'AssetSet' }, maps_to: ['sel', 'universe'] },
+  ],
+  exposed_outputs: [{ name: 'assets', type: { kind: 'AssetSet' }, maps_to: ['sel', 'assets'] }],
+  exposed_params: [],
+  provenance: {
+    owner: '22222222-2222-2222-2222-222222222222',
+    creator: '22222222-2222-2222-2222-222222222222',
+    contributors: [],
+    visibility: 'private',
+    duplicable: false,
+    created_at: '2026-06-23T00:00:00Z',
+    forked_from: null,
+  },
+}
+
+// A document carrying a pinned component ref + a ComponentRefNode instance of it.
+function makeComponentDoc(): StrategyDocument {
+  const base = makeDoc()
+  return {
+    ...base,
+    nodes: [...base.nodes, { id: 'mom', type_id: 'component', ref: 'r1', params: {} }],
+    component_refs: [{ id: 'r1', component_id: DEF.component_id, version: DEF.version }],
+  }
+}
 
 function makeDoc(): StrategyDocument {
   return {
@@ -85,5 +121,33 @@ describe('toFlow', () => {
     const before = JSON.parse(JSON.stringify(doc))
     toFlow(doc)
     expect(JSON.parse(JSON.stringify(doc))).toEqual(before)
+  })
+})
+
+describe('toFlow component enrichment', () => {
+  it('resolves a ComponentRefNode via the components map → name + exposed ports', () => {
+    const components = new Map([[componentCacheKey(DEF.component_id, DEF.version), DEF]])
+    const { nodes } = toFlow(makeComponentDoc(), undefined, components)
+    const mom = nodes.find((n) => n.id === 'mom')
+    expect(mom).toBeDefined()
+    expect(mom?.data.displayName).toBe('Momentum Selector')
+    // Every exposed input is required (the top-level preflight requires all of them connected).
+    expect(mom?.data.inputs).toEqual([
+      { name: 'series', port_type: { kind: 'TimeSeries', dtype: 'Number' }, required: true },
+      { name: 'universe', port_type: { kind: 'AssetSet' }, required: true },
+    ])
+    expect(mom?.data.outputs).toEqual([{ name: 'assets', port_type: { kind: 'AssetSet' } }])
+  })
+
+  it('degrades to a bare {typeId:"component"} node WITHOUT a components map', () => {
+    const { nodes } = toFlow(makeComponentDoc())
+    const mom = nodes.find((n) => n.id === 'mom')
+    expect(mom?.data).toEqual({ typeId: 'component' })
+  })
+
+  it('degrades to a bare node on a cache MISS (map present but key absent)', () => {
+    const { nodes } = toFlow(makeComponentDoc(), undefined, new Map())
+    const mom = nodes.find((n) => n.id === 'mom')
+    expect(mom?.data).toEqual({ typeId: 'component' })
   })
 })

@@ -11,6 +11,7 @@ import type { ReactElement } from 'react'
 import type { RunRecordResponse } from '@quantize/quantize-api'
 import { errorMessage, getRun } from './api/client'
 import { CatalogProvider } from './catalog'
+import { ComponentsProvider } from './components-cache'
 import { Canvas } from './components/Canvas'
 import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
 import { Inspector } from './components/Inspector'
@@ -119,87 +120,89 @@ export function App(): ReactElement {
 
   return (
     <CatalogProvider>
-      <div className="app">
-        <header className="app-header">
-          <h1>Quantize</h1>
-          <span className="app-header__name">
-            {doc.strategy.name} · v{doc.strategy.version}
-          </span>
-        </header>
-        <main className="app-body">
-          <aside className="app-region app-region--left" aria-label="palette">
-            <Palette />
-          </aside>
-          <section className="app-region app-region--center" aria-label="canvas">
-            <Canvas
-              doc={doc}
-              actions={actions}
-              onNodeClick={(id) => setSelectedNodeId(id)}
-              selectedNodeId={selectedNodeId}
-              highlightedEdgeIndex={highlightedEdgeIndex}
-            />
-          </section>
-          <aside className="app-region app-region--right" aria-label="inspector">
-            <Inspector doc={doc} selectedNodeId={selectedNodeId} actions={actions} />
-            <ValidatePanel doc={doc} onHighlight={onHighlight} />
-          </aside>
-        </main>
-        <footer className="app-region app-region--bottom" aria-label="panel">
-          <nav className="tabbar" aria-label="panel tabs">
-            {(['strategies', 'datasets', 'runs', 'results', 'trace'] as const).map((t) => {
-              // Trace inspects a selected run — disabled until one is chosen (like results, it is
-              // meaningless without a run; the button gates on the App's `selectedRunId`).
-              const needsRun = t === 'trace'
-              const disabled = needsRun && selectedRunId === undefined
-              return (
-                <button
-                  key={t}
-                  type="button"
-                  className={`tabbar__tab ${tab === t ? 'is-active' : ''}`}
-                  aria-pressed={tab === t}
-                  disabled={disabled}
-                  onClick={() => setTab(t)}
-                >
-                  {t}
-                </button>
-              )
-            })}
-          </nav>
-          <div className="tabpanel">
-            {tab === 'strategies' ? <StrategyPanel doc={doc} actions={actions} /> : null}
-            {tab === 'datasets' ? (
-              <DatasetPanel activeDatasetId={datasetId} onSelectDataset={setDatasetId} />
-            ) : null}
-            {tab === 'runs' ? (
-              <RunPanel
+      <ComponentsProvider>
+        <div className="app">
+          <header className="app-header">
+            <h1>Quantize</h1>
+            <span className="app-header__name">
+              {doc.strategy.name} · v{doc.strategy.version}
+            </span>
+          </header>
+          <main className="app-body">
+            <aside className="app-region app-region--left" aria-label="palette">
+              <Palette />
+            </aside>
+            <section className="app-region app-region--center" aria-label="canvas">
+              <Canvas
                 doc={doc}
-                datasetId={datasetId}
-                selectedRunId={selectedRunId}
-                onSelectRun={(runId) => {
-                  setSelectedRunId(runId)
-                  setTab('results')
-                }}
+                actions={actions}
+                onNodeClick={(id) => setSelectedNodeId(id)}
+                selectedNodeId={selectedNodeId}
+                highlightedEdgeIndex={highlightedEdgeIndex}
               />
-            ) : null}
-            {tab === 'results' ? (
-              <ResultsView
-                runId={selectedRunId}
-                record={runRecord}
-                loading={runRecordLoading}
-                error={runRecordError}
-              />
-            ) : null}
-            {tab === 'trace' ? (
-              <TraceView
-                runId={selectedRunId}
-                record={runRecord}
-                recordLoading={runRecordLoading}
-                recordError={runRecordError}
-              />
-            ) : null}
-          </div>
-        </footer>
-      </div>
+            </section>
+            <aside className="app-region app-region--right" aria-label="inspector">
+              <Inspector doc={doc} selectedNodeId={selectedNodeId} actions={actions} />
+              <ValidatePanel doc={doc} onHighlight={onHighlight} />
+            </aside>
+          </main>
+          <footer className="app-region app-region--bottom" aria-label="panel">
+            <nav className="tabbar" aria-label="panel tabs">
+              {(['strategies', 'datasets', 'runs', 'results', 'trace'] as const).map((t) => {
+                // Trace inspects a selected run — disabled until one is chosen (like results, it is
+                // meaningless without a run; the button gates on the App's `selectedRunId`).
+                const needsRun = t === 'trace'
+                const disabled = needsRun && selectedRunId === undefined
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    className={`tabbar__tab ${tab === t ? 'is-active' : ''}`}
+                    aria-pressed={tab === t}
+                    disabled={disabled}
+                    onClick={() => setTab(t)}
+                  >
+                    {t}
+                  </button>
+                )
+              })}
+            </nav>
+            <div className="tabpanel">
+              {tab === 'strategies' ? <StrategyPanel doc={doc} actions={actions} /> : null}
+              {tab === 'datasets' ? (
+                <DatasetPanel activeDatasetId={datasetId} onSelectDataset={setDatasetId} />
+              ) : null}
+              {tab === 'runs' ? (
+                <RunPanel
+                  doc={doc}
+                  datasetId={datasetId}
+                  selectedRunId={selectedRunId}
+                  onSelectRun={(runId) => {
+                    setSelectedRunId(runId)
+                    setTab('results')
+                  }}
+                />
+              ) : null}
+              {tab === 'results' ? (
+                <ResultsView
+                  runId={selectedRunId}
+                  record={runRecord}
+                  loading={runRecordLoading}
+                  error={runRecordError}
+                />
+              ) : null}
+              {tab === 'trace' ? (
+                <TraceView
+                  runId={selectedRunId}
+                  record={runRecord}
+                  recordLoading={runRecordLoading}
+                  recordError={runRecordError}
+                />
+              ) : null}
+            </div>
+          </footer>
+        </div>
+      </ComponentsProvider>
     </CatalogProvider>
   )
 }
