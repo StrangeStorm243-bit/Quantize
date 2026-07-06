@@ -676,3 +676,162 @@ by observed demand, not roadmap momentum.
   dataset reload flash cosmetic). Fix-in-M12 required list: EMPTY. → E13.
 - Rejected scope creep: auth, Docker, deployment, web/dist serving, CORS, HTTPS, multi-user,
   Playwright, docs site.
+
+## Closeout (M12.6b — 2026-07-06)
+
+All seven M12 slices are merged on `feat/m12-components` (HEAD after M12.5b = `e9c9c62`). Final
+test counts from a real gate run: **887 Python (pytest) + 200 web (vitest)**. Both gates green
+end-to-end (`./scripts/gate.ps1` AND `bash scripts/gate.sh`: pytest → ruff check → ruff format
+→ mypy → node24 → codegen check → tsc → web typecheck → web test — ALL STAGES PASSED on both).
+`npm run build` (production bundle) succeeds. No DTO/codegen/migration change landed in M12 (E14
+held; the IR + API bundles are byte-unchanged — `codegen check` reports "up to date").
+
+### Cross-cutting acceptance audit (MVP_PLAN.md:282-290 — item by item)
+
+The list is one sentence in `PRODUCT.md`/`MVP_PLAN.md`; decomposed into its ten clauses, each with
+the artifact that PROVES it. **Verdict: 10/10 covered.**
+
+1. **Both reference strategies composed from general-purpose nodes.** `tests/fixtures/strategy_a.json`
+   + `strategy_b.json` use only registry-registered node types (no bespoke nodes); proven runnable by
+   `tests/test_reference_strategies_eval.py` and `tests/test_reference_backtests.py`. The engine
+   never special-cases a strategy by name (CLAUDE.md scope discipline; grep of `quantize/engine`
+   finds no strategy-id/name literals). ✅
+2. **The versioned JSON IR is the source of truth.** `quantize/schema/document.py` (the IR model),
+   canonical serialization + round-trip proven by `tests/test_roundtrip.py` and
+   `tests/test_serialization.py`; `ui.*`-excluded semantic equality by `tests/test_semantic_projection.py`.
+   Frontend honours it: `web/src/document/store.ts` holds the document as the single store and derives
+   React-Flow views (`web/src/document/flow.ts`) — never a parallel truth (M11 D4; LEARNING_LOG M11).
+   Two version axes (`schema_version` vs `strategy.version`) gated at load. ✅
+3. **Invalid graphs/ports rejected clearly (structural + semantic).** `quantize/validation/{structural,
+   semantic}.py` + the single shared `quantize/compatibility.py`; served run-faithfully by
+   `quantize/api/routes/validate.py` (the SAME `run_document_preflight` the evaluator runs). The 3-way
+   parity (endpoint == preflight == real-run rejection) is `tests/api/test_validate_endpoint.py`; the
+   editor renders diagnostics by structured `loc`/`node_path`, never by parsing messages
+   (`web/src/components/ValidatePanel.tsx`; `ValidatePanel.test.tsx`). Live-verified at journey steps
+   c1 (flat `ok:true`) and d3 (componentized `ok:true`, 0 runtime diagnostics). ✅
+4. **One set of semantics for historical & forward replay.** One `SessionEngine.step`
+   (`quantize/engine/backtest.py`) driven two ways (`quantize/engine/forward.py`); the field-for-field
+   backtest↔forward consistency battery is `tests/test_forward_replay.py` (M8; LEARNING_LOG M8). The
+   API exposes both via one service path (`quantize/api/routes/runs.py`). ✅
+5. **Deterministic backtest reproduces goldens.** `tests/goldens/strategy_a_backtest.json` +
+   `strategy_b_backtest.json` (+ the trace goldens), byte-compared by `tests/test_reference_backtests.py`
+   under `--update-goldens` discipline, with the `.gitattributes` LF pin. ✅
+6. **User inspects value/trades/returns/drawdown + structured decision reasons.**
+   `web/src/components/ResultsView.tsx` (valuations chart via `SvgLineChart.tsx`, `total_return`,
+   `max_drawdown`, `final_cash`, fills + evaluations tables — EVERY number read verbatim from the
+   record) and `web/src/components/TraceView.tsx` + `web/src/trace/group.ts` (per-instant trees, nested
+   by component, mirroring `quantize/tracing/tree.py`). Tests `ResultsView.test.tsx`,
+   `TraceView.test.tsx`, `trace/group.test.ts`. Live-verified at journey steps c3/c4 (flat record +
+   10-event trace) and d6 (componentized trace with `component_path == ["mom"]`). ✅
+7. **A subgraph saved as a reusable component (real compositional object).** THE M12 core, delivered
+   across the slices: **M12.2** extraction as a pure transform (`web/src/document/extract.ts`) proven
+   by the oracle `web/src/document/extract.test.ts` (extracting `{ret, rk, sel}` reproduces
+   `component_momentum.json` + `strategy_a_component.json` modulo minted ids); **M12.1** HTTP
+   reachability (`quantize/api/service.py::load_component_catalog` + `routes/validate.py`;
+   `tests/api/test_component_execution.py` — validate/backtest/forward/trace of componentized ≡ flat
+   over HTTP); **M12.3** rendering/placement/connection (`web/src/components-cache/index.tsx`,
+   `Palette.tsx`, `Canvas.tsx`); **M12.4** read-only inspection (`Inspector.tsx` exposed-param form,
+   `ComponentDrawer.tsx` internal-graph drawer); **M12.5** the extraction UI + two-phase commit
+   (`ExtractDialog.tsx`, `App.tsx::commitExtraction`). Runtime is M3
+   (`quantize/components/resolve.py`); component immutability is `quantize/persistence/documents.py`
+   (409 on divergence). Live-verified end to end at journey steps d1–d6 (extraction path built by hand
+   over HTTP: component saved 201, componentized strategy saved 201 + validated `ok:true` + backtested
+   with facts EQUAL to the flat run). ✅
+8. **Strategy modified & saved as a new version.** Pure reducers (`web/src/document/store.ts`) + save
+   (`web/src/api/client.ts::saveStrategy`, `web/src/components/StrategyPanel.tsx`) against
+   `quantize/api/routes/strategies.py` (monotone version, immutable per version, 409 on divergent
+   re-save); `tests/api/test_strategy_component_endpoints.py`, `web/src/components/StrategyPanel.test.tsx`.
+   Extraction itself produces a rewritten strategy saved as a new version (journey step d2). ✅
+9. **Unit / integration / e2e tests pass.** 887 pytest + 200 web, both gates green (above). Per policy
+   (CLAUDE.md:128) e2e = headless pytest: `tests/test_reference_backtests.py`,
+   `tests/test_forward_replay.py`, and the `tests/api/*` suite drive full strategies through the real
+   boundary. Additionally the §3 journey (incl. the componentized path) was executed LIVE over HTTP
+   against a uvicorn instance in M12.6b (transcript below) — a stronger discharge than a mocked walk. ✅
+10. **A documented path to custom math/Python components — without pretending it is built.**
+    `docs/ARCHITECTURE.md` §7 ("Future boundaries") and `docs/STRATEGY_LANGUAGE.md` §7/§10 name the
+    future `implementation.kind` values (`sandboxed`/`model`/`external`) in the IR spec; the README's
+    "Scope & caveats" section surfaces the pointer and states plainly they are a preserved seam, not a
+    feature. v0 ships a fixed node set only. ✅
+
+### Live journey verification (§3, over HTTP — no browser)
+
+Browser automation is out of policy (CLAUDE.md:128; M11 D11), so the "manual walkthrough" was
+discharged as a LIVE HTTP script against a real uvicorn (`--port 8137`, throwaway DB, since deleted).
+No mocks; every step hit the wire. All 11 steps passed:
+
+| Step | Action | Outcome |
+|------|--------|---------|
+| b | `seed_demo.seed(...)` | dataset `84de0d8b…`, strategies `1111…`(A)/`3333…`(B), window 2025-07-31..2025-08-29 |
+| c1 | validate `strategy_a` | `ok:true`, warmup 126 |
+| c2 | backtest flat A | 201, run_id minted |
+| c3 | GET flat run record | `ok:true`, `total_return` 0.025015130971708377, `final_cash` 0.0 |
+| c4 | GET flat trace (2025-07-31) | 200, 10 events |
+| d1 | POST `component_momentum.json` | 201, `aaaaaaaa…@1.0.0` |
+| d2 | POST `strategy_a_component.json` | 201, `bbbbbbbb…` v1 |
+| d3 | validate componentized (exercises M12.1 wiring) | `ok:true`, 0 runtime diagnostics, warmup 126 |
+| d4 | backtest componentized | 201, run_id minted |
+| d5 | componentized record vs flat | `ok`/`total_return`/`final_cash`/`valuations`/`fills` all EQUAL; the two records differ ONLY in `run_id` + `strategy_id` |
+| d6 | GET componentized trace (2025-07-31) | 200, 10 events, 5 carry `component_path == ["mom"]` |
+
+The frontend **production build** (`npm --prefix web run build`) succeeded (211 modules, `tsc --noEmit`
++ `vite build` clean). The visual GUI click-through remains a **founder step** (browser automation is
+out of policy); every editor interaction in §3 is covered headlessly by the 200 web tests — Canvas
+(`Canvas.test.tsx`, `Canvas.selection.test.tsx`, `Canvas.drop.test.tsx`, `Canvas.extraction.test.tsx`),
+ExtractDialog (`ExtractDialog.test.tsx`), Inspector (`Inspector.test.tsx`), ComponentDrawer
+(`ComponentDrawer.test.tsx`), Palette (`Palette.test.tsx`), flow/store/extract
+(`flow.test.ts`/`store.test.ts`/`extract.test.ts`), and App extraction wiring
+(`App.test.tsx`/`App.extraction.test.tsx`). No browser was driven and none is claimed.
+
+### Invariant sweeps (web/src)
+
+- **Hand-declared domain types: NONE.** `ComponentDefinition`/`ExposedPort`/`ExposedParam`/
+  `ComponentRef`/`ComponentRefNode` are imported from generated `@quantize/quantize-ir` everywhere
+  (`extract.ts`, `components-cache/index.tsx`, `flow.ts`). The only local declarations are `type
+  PortType = ExposedPort['type']` (a derived ALIAS of the generated field) and `ExposedParamRequest`
+  (a UI-input options shape `{nodeId, paramKey, exposedName}`, NOT the domain `ExposedParam`).
+- **Type-compatibility logic: NONE beyond the M11 allow-set.** The only `.kind`/`.dtype` touch is
+  `catalog/index.ts::portTypeKey` (builds a lookup KEY for the server-provided allow-list; decides
+  nothing). No `is_compatible`/`dtype ===` in any `.tsx`.
+- **Client-side metric math: NONE.** `ResultsView`/`SvgLineChart`/`RunPanel`/`TraceView` read
+  `total_return`/`max_drawdown`/`final_cash`/`valuations`/`portfolio_value` VERBATIM from the record
+  and only format/scale-to-pixels for display (invariant 5 upheld; file headers assert it).
+
+### Honest-claims verification (§2.9)
+
+Each of the five claims is test- or artifact-backed: (1) one IR runs identically in backtest & forward
+replay → `tests/test_forward_replay.py`; (2) every decision explainable via hierarchical traces →
+trace goldens + `TraceView`/`trace/group.ts`, live-verified `component_path` nesting at d6; (3)
+backtests deterministic + golden-pinned → `tests/goldens/*` + `.gitattributes` LF pin; (4)
+strategies/components are real versioned objects (compositional, not visual groups) → the extraction
+oracle + `test_component_execution.py` (componentized ≡ flat) + 409-immutability; (5) invalid
+strategies fail loudly with structured, UI-highlighted diagnostics → `test_validate_endpoint.py` +
+`ValidatePanel`. The avoid-list (§2.10) is honoured by the README "Scope & caveats" section.
+
+### Debt posture (E13)
+
+The four M11-review PLAUSIBLE items (blunt highlight-clear, useFetch skip-mode, `parseFiniteNumber`
+home, dataset-list reload flash) remain ACCEPTED MVP debt — all audited safe/cosmetic; none was
+touched pre-emptively (no slice needed that exact code). Fix-in-M12 required list: EMPTY, as planned.
+
+### Flip-point outcomes (§13)
+
+- **E4 (nested ComponentRefNodes inside a selection): KEPT (supported).** Implementation revealed no
+  edge-case blowup; `extractComponent` copies nested refs into the definition and drops them from the
+  strategy only when unused outside, covered by the nested-ref case in `extract.test.ts`. Extraction
+  never needs a "no components in selection" error path.
+- **E12 (seed form): KEPT as the script `scripts/seed_demo.py`** (derives the dataset from
+  `tests/market_fixture.build_market_fixture()`), NOT swapped for a committed static
+  `examples/demo_dataset.json`. Proven by `tests/test_seed_demo.py` (in-process TestClient) and
+  re-exercised live at journey step b.
+
+### Post-MVP handoff
+
+Per §13, after this closeout the branch awaits founder review and the product enters **founder-led
+validation**: 3–5 quantitatively-literate testers walk the README journey on their own machines;
+signal = (a) they reach a successful backtest unassisted, (b) they can explain WHY their strategy
+traded from traces alone, (c) they attempt a component extraction unprompted. Feedback lands as
+issues; the next engineering phase is chosen from the globally-deferred list by observed demand, not
+roadmap momentum.
+
+**STOP boundary honoured:** no merge, PR, or push beyond the single M12.6b closeout commit. The MVP is
+complete.

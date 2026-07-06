@@ -1034,3 +1034,121 @@ predict where it lands (a separate engine root, after all node roots) before re-
 (`GET /v1/datasets`, D12) landed in M11.1; everything else is the `web/` Vite React editor. A
 live-browser end-to-end pass of the full §3 journey (Build → Test → Run → Inspect → Modify) remains
 for the founder to walk through manually.
+
+---
+
+## M12 — Component authoring/extraction UI + MVP closeout (2026-07-06)
+
+The FINAL milestone: turning a connected subgraph into a real, versioned, reusable component in the
+editor — and closing out the MVP. Plan-of-record:
+`docs/plans/2026-07-05-m12-implementation-plan.md` (decisions E1–E14, adversarially audited before
+code). Seven slices (M12.1 backend catalog wiring → M12.2 extraction transform → M12.3 rendering/
+placement/connection → M12.4 inspection + drawer → M12.5 extraction UI + two-phase commit →
+M12.6a seed + README → M12.6b this closeout), all merged on `feat/m12-components`.
+
+**Concepts introduced:**
+
+- **Extraction as a PURE document transformation.** "Extract a component" is not a visual grouping —
+  it is a total function `extractComponent(doc, selectedNodeIds, …) → {definition, strategy}` that
+  takes the strategy IR and returns a *new* `ComponentDefinition` plus a *new* `StrategyDocument`
+  that references it via a pinned `ComponentRef`. It is a member of the reducer family (pure,
+  `structuredClone`-based, verbatim-preserving — moved nodes keep their `ui`/`extensions`/unknown
+  keys byte-for-byte). The heart of it is **boundary-edge classification**: over the induced subgraph,
+  an edge with both endpoints inside becomes an internal component edge; an outside→inside edge
+  becomes an **exposed input** (deduped by the inner `(node, port)` it targets); an inside→outside
+  edge becomes **one exposed output** per inner source (outer fan-out stays as rewired edges). The
+  exposed port's *type* is a verbatim DATA COPY from the catalog descriptor — never a comparison, so
+  invariant 5 (no type logic in the frontend) holds even here. Everything semantic (is there a
+  terminal? are all inputs covered? recursion?) is deliberately left to the server.
+  *Where:* `web/src/document/extract.ts` (read the module header, then `classifyEdges`/the exposed-
+  port assembly). The correctness proof is the **oracle test** `web/src/document/extract.test.ts` —
+  extracting `{ret, rk, sel}` from `strategy_a.json` reproduces `component_momentum.json` +
+  `strategy_a_component.json` modulo minted ids.
+
+- **The two-phase commit against server authority + the live-doc identity guard.** The editor has no
+  undo, and extraction is its first *destructive multi-entity* rewrite (it deletes nodes, mints a
+  component, and rewires edges at once). A naive "transform then replace the doc" would corrupt the
+  document if the server later rejected the rewrite. Instead the commit is **two-phase**: run the
+  transform in memory → `POST /v1/components` (phase 2) → `POST /v1/strategies/validate` the rewritten
+  strategy (phase 3) → and ONLY on `ok:true` does phase 4 replace the live document and seed the
+  cache. Any earlier failure is a **no-op** — the document is never touched; the diagnostics render in
+  the dialog. A subtler hazard: the three network round-trips open a time window in which the user
+  could load/replace the document underneath the in-flight commit. The **live-doc identity guard**
+  closes it: the dialog captures the source document's *object identity* when the commit begins, and
+  App's `commitExtraction` applies the rewrite only if `docRef.current` is still that exact object
+  (every store reducer returns a NEW object, so identity is an exact staleness signal). A stale
+  `ok:true` returning after the user navigated away is refused without mutating anything.
+  *Where:* `web/src/components/ExtractDialog.tsx` (the phase sequence + the three clobber guards in
+  its header) and `web/src/App.tsx:114-129` (`commitExtraction` + the `docRef` comment at :53).
+
+- **Cache-forever immutable component definitions.** A `ComponentDefinition` is immutable per version
+  by the persistence contract (the store returns 409 on a divergent re-save under the same
+  `component_id@version`). That immutability licenses a **cache that never invalidates**: once a
+  definition is fetched (or seeded post-extraction), its `id@version` key maps to it forever. The
+  `ComponentsProvider` mirrors the `CatalogProvider` pattern — `ensure(id, version)` fetches once,
+  `seed(def)` inserts without a fetch (so a just-extracted component needs no round-trip to render),
+  `get`/`isLoading`/`errorOf` expose the per-key state. Definition→port mapping lives in ONE shared
+  helper (`componentPorts` in `flow.ts`), used by `toFlow`, `decideConnection`, and the Inspector, so
+  the three never resolve a component's ports differently. *Where:*
+  `web/src/components-cache/index.tsx` (read the header; note it re-declares NO domain type and holds
+  NO numeric/compat logic) + `web/src/document/flow.ts` (`componentPorts`, `componentCacheKey`).
+
+- **The library-vs-HTTP completeness gap (a lesson).** M3 shipped a *complete* component runtime:
+  the evaluator resolved pinned closures, rejected recursion, and nested traces — all proven by
+  library-level tests. Yet the feature was **not reachable over HTTP**: `api/routes/validate.py` and
+  both run paths in `api/service.py` passed *no* `ComponentCatalog`, so every componentized strategy
+  submitted through the API dead-ended at `component_definition_unavailable`. The lesson: "the runtime
+  works" (library tests green) is NOT "the feature works" (reachable through the real boundary a user
+  hits). M12.1 closed it with ONE service-layer helper — `load_component_catalog` BFS-fetches the
+  pinned closure from `ComponentRepository` and threads it into preflight + both engine paths — with
+  a fast path that skips the DB entirely when `component_refs` is empty (the common case keeps its
+  no-DB purity). No new endpoint, no DTO, no migration; capability strictly widened. This is why the
+  §3 journey's live HTTP verification (below) matters more than any unit test: it exercises the actual
+  wire path. *Where:* `quantize/api/service.py` (`load_component_catalog`),
+  `quantize/api/routes/validate.py:38-43` (the empty-refs fast path),
+  `tests/api/test_component_execution.py` (the six over-HTTP groups).
+
+**Files studied / created:** `web/src/document/extract.ts` (+ `extract.test.ts`, the oracle);
+`web/src/components-cache/index.tsx` (+ `index.test.tsx`); `web/src/document/flow.ts`
+(`componentPorts`); `web/src/components/{ExtractDialog,ComponentDrawer,Inspector,Palette,Canvas}.tsx`
+(+ their tests); `web/src/App.tsx` (`commitExtraction`, extraction-mode state, `docRef`);
+`quantize/api/service.py` + `quantize/api/routes/validate.py`;
+`tests/api/test_component_execution.py`; `scripts/seed_demo.py`.
+
+**Reading path (one extraction, end to end):** start at `web/src/document/extract.ts` and read the
+edge classification, then `web/src/document/extract.test.ts` to see the oracle's normalization rules
+(minted ids, provenance, ref-node params→`{}`). Next `web/src/components/ExtractDialog.tsx` — follow
+the confirm handler through the E5 phase sequence — and `web/src/App.tsx`'s `commitExtraction` to see
+the identity guard as the last line of defense. Then `quantize/api/service.py`'s
+`load_component_catalog` beside `quantize/api/routes/validate.py` to see the wiring that makes the
+rewritten strategy validate over HTTP. Finally read `tests/api/test_component_execution.py` group (d)
+— the componentized backtest whose facts EQUAL the flat run.
+
+**Exercise (implement by hand, scratch branch):** in `extractComponent`, an exposed INPUT is deduped
+by the inner `(node, port)` it targets — two outside edges into the same inner port collapse to ONE
+exposed input. Add a fixture in `web/src/document/extract.test.ts` where two DIFFERENT outside nodes
+both feed the SAME inner input port, extract, and assert the definition has exactly one exposed input
+and the rewritten strategy has two edges into the new component node. *Prediction to make first:* how
+many exposed OUTPUTS does a single inner source feeding two DIFFERENT outer consumers produce, and how
+many edges survive in the rewritten strategy? (answer: ONE exposed output, TWO rewired outer edges —
+the mirror asymmetry of the input-dedupe rule; check yourself against the fan-out test already in the
+suite.)
+
+**Live journey verification (M12.6b, honest + policy-compliant).** Browser automation is out of
+policy (CLAUDE.md:128 — e2e = headless pytest), so the §3 journey was discharged over **HTTP against
+a live uvicorn** on a throwaway DB (no browser): seed → validate `strategy_a` (`ok:true`, warmup 126)
+→ backtest (window 2025-07-31..2025-08-29, `total_return` 0.02502, `final_cash` 0.0) → fetch record +
+a trace session (10 events) → POST `component_momentum.json` (201) + `strategy_a_component.json` (201)
+→ validate the componentized strategy (`ok:true`, 0 runtime diagnostics — exercising the M12.1 catalog
+wiring) → backtest it → its record's `ok`/`total_return`/`final_cash`/`valuations`/`fills` are EQUAL
+to the flat run (the two records differ ONLY in `run_id` and `strategy_id`) → its trace carries
+`component_path == ["mom"]` on the nested events. All 11 steps passed live. The frontend production
+build (`npm run build`) succeeds. The visual GUI click-through remains a **founder step**; every
+editor interaction in §3 is covered headlessly by the 200 web tests (Canvas/ExtractDialog/Inspector/
+ComponentDrawer/Palette/flow/extraction suites).
+
+**Status:** M12 implemented on `feat/m12-components` across packets M12.1–M12.6b; both gates green
+(PowerShell + POSIX), **887 Python tests + 200 web (vitest) tests**. No new DTOs, codegen artifacts,
+or migrations (E14) — the IR/API bundles are byte-unchanged. This is the LAST milestone: the MVP is
+complete (cross-cutting acceptance audited in the plan's `## Closeout`). The branch awaits founder
+review; the product then enters founder-led validation (plan §13).
