@@ -84,10 +84,13 @@ _INSERT_STRATEGY = (
 )
 
 
-def test_failed_commit_does_not_poison_the_database(tmp_path: Path) -> None:
-    """A COMMIT rejected by SQLite (reader holding a shared lock) surfaces as structured
-    ``database_locked`` — never a raw sqlite3 error — and must leave the Database usable:
-    the transaction rolls back, no partial row is visible, and a later transaction succeeds."""
+def test_writer_commit_is_not_blocked_by_a_concurrent_reader(tmp_path: Path) -> None:
+    """WAL rewrite (M12.9): BEFORE WAL a reader holding a shared lock forced the writer's COMMIT
+    to fail as structured ``database_locked`` (this test previously asserted that surface). That
+    was the 503 pathology at the validate endpoint. Under WAL the reader reads its own committed
+    snapshot and the writer commits WITHOUT blocking — assert the commit now succeeds, the row is
+    durable, and the handle stays usable. (The commit-failure recovery in ``transaction()`` remains;
+    writer-vs-writer contention below still exercises the structured-lock path.)"""
     import sqlite3
 
     path = tmp_path / "q.db"
@@ -96,18 +99,40 @@ def test_failed_commit_does_not_poison_the_database(tmp_path: Path) -> None:
         try:
             reader.execute("BEGIN")
             reader.execute("SELECT COUNT(*) FROM schema_migrations").fetchall()
-            with pytest.raises(PersistenceError) as caught:
-                with db.transaction() as connection:
-                    connection.execute(_INSERT_STRATEGY)
-            assert caught.value.code == DATABASE_LOCKED
+            with db.transaction() as connection:  # no longer raises under WAL
+                connection.execute(_INSERT_STRATEGY)
+            # The writer's commit succeeded despite the reader's open transaction.
+            assert db.query("SELECT COUNT(*) FROM strategies")[0][0] == 1
         finally:
             reader.close()
-        # No partial artifact after the failure, and the SAME instance accepts a new
-        # transaction (the failed commit did not leave the driver mid-transaction).
-        assert db.query("SELECT COUNT(*) FROM strategies")[0][0] == 0
+        # The instance remains usable for a subsequent transaction.
         with db.transaction() as connection:
-            connection.execute(_INSERT_STRATEGY)
-        assert db.query("SELECT COUNT(*) FROM strategies")[0][0] == 1
+            connection.execute("DELETE FROM strategies")
+        assert db.query("SELECT COUNT(*) FROM strategies")[0][0] == 0
+
+
+def test_connection_uses_wal_journal_mode(tmp_path: Path) -> None:
+    """WAL is enabled at open (M12.9): the finding is that the rollback-journal default lets a
+    writer's commit block a concurrent reader's SHARED lock, surfacing as ``database_locked`` (a
+    503) at the validate endpoint. WAL readers never block on writers — assert the mode directly."""
+    with Database(tmp_path / "q.db") as db:
+        mode = db.query("PRAGMA journal_mode")[0][0]
+        assert str(mode).lower() == "wal"
+
+
+def test_reader_proceeds_during_an_open_write_transaction(tmp_path: Path) -> None:
+    """Under WAL a second connection reads the last committed snapshot while a writer holds an
+    open write transaction — no ``database_locked``. (Under the old rollback default this same
+    read races the writer's commit and can surface as a 503 at validate.) No threads: the write
+    transaction is held open across the concurrent read."""
+    path = tmp_path / "q.db"
+    with Database(path, busy_timeout_ms=20) as writer, Database(path, busy_timeout_ms=20) as reader:
+        with writer.transaction() as connection:
+            connection.execute(_INSERT_STRATEGY)  # uncommitted write held open
+            # The reader sees the last committed snapshot (0 rows) without blocking or locking.
+            assert reader.query("SELECT COUNT(*) FROM strategies")[0][0] == 0
+        # After commit the reader observes the new row on its next read.
+        assert reader.query("SELECT COUNT(*) FROM strategies")[0][0] == 1
 
 
 def test_writer_contention_on_begin_is_structured(tmp_path: Path) -> None:
