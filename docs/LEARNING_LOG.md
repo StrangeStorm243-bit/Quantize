@@ -1075,11 +1075,15 @@ M12.6a seed + README → M12.6b this closeout), all merged on `feat/m12-componen
   the dialog. A subtler hazard: the three network round-trips open a time window in which the user
   could load/replace the document underneath the in-flight commit. The **live-doc identity guard**
   closes it: the dialog captures the source document's *object identity* when the commit begins, and
-  App's `commitExtraction` applies the rewrite only if `docRef.current` is still that exact object
-  (every store reducer returns a NEW object, so identity is an exact staleness signal). A stale
-  `ok:true` returning after the user navigated away is refused without mutating anything.
+  App's `commitExtraction` applies the rewrite via the store's `replaceIf(capturedDoc, next)`
+  compare-and-swap — the replace happens only if the live document is still that exact object (every
+  store reducer returns a NEW object, so identity is an exact staleness signal). A stale `ok:true`
+  returning after the user navigated away is refused without mutating anything. `replaceIf` lives in
+  the STORE (not App) precisely so every async document writer shares one guard — StrategyPanel's
+  load uses the same mechanism (M12.9 generalized what began as an App-local ref).
   *Where:* `web/src/components/ExtractDialog.tsx` (the phase sequence + the three clobber guards in
-  its header) and `web/src/App.tsx:114-129` (`commitExtraction` + the `docRef` comment at :53).
+  its header), `web/src/document/store.ts` (`replaceIf` and its `latest` ref), and `web/src/App.tsx`
+  (`commitExtraction`).
 
 - **Cache-forever immutable component definitions.** A `ComponentDefinition` is immutable per version
   by the persistence contract (the store returns 409 on a divergent re-save under the same
@@ -1111,7 +1115,7 @@ M12.6a seed + README → M12.6b this closeout), all merged on `feat/m12-componen
 **Files studied / created:** `web/src/document/extract.ts` (+ `extract.test.ts`, the oracle);
 `web/src/components-cache/index.tsx` (+ `index.test.tsx`); `web/src/document/flow.ts`
 (`componentPorts`); `web/src/components/{ExtractDialog,ComponentDrawer,Inspector,Palette,Canvas}.tsx`
-(+ their tests); `web/src/App.tsx` (`commitExtraction`, extraction-mode state, `docRef`);
+(+ their tests); `web/src/App.tsx` (`commitExtraction`, extraction-mode state) + `web/src/document/store.ts` (`replaceIf`);
 `quantize/api/service.py` + `quantize/api/routes/validate.py`;
 `tests/api/test_component_execution.py`; `scripts/seed_demo.py`.
 
