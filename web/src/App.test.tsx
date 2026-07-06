@@ -23,6 +23,8 @@ vi.mock('./api/client', async (importOriginal) => {
       node_types: [],
     }),
     listStrategies: vi.fn().mockResolvedValue({ strategies: [] }),
+    // Per-test controllable: the App's lifted record fetch (M11.9 F7) is driven through this.
+    getRun: vi.fn(),
   }
 })
 
@@ -60,8 +62,36 @@ vi.mock('./components/ValidatePanel', () => ({
   ),
 }))
 
+// Mock RunPanel: a button that selects a run (drives the App's lifted record fetch, F7).
+vi.mock('./components/RunPanel', () => ({
+  RunPanel: (props: { onSelectRun: (runId: string) => void }) => (
+    <button type="button" onClick={() => props.onSelectRun('run-1')}>
+      select-run
+    </button>
+  ),
+}))
+
+// Mock ResultsView: expose the App-owned record props so the fetch orchestration is observable.
+vi.mock('./components/ResultsView', () => ({
+  ResultsView: (props: {
+    runId?: string
+    record?: { record: { run_id: string } }
+    loading: boolean
+    error?: string
+  }) => (
+    <div>
+      <span data-testid="rv-run">{String(props.runId)}</span>
+      <span data-testid="rv-loading">{String(props.loading)}</span>
+      <span data-testid="rv-record">{String(props.record?.record.run_id)}</span>
+      <span data-testid="rv-error">{String(props.error)}</span>
+    </div>
+  ),
+}))
+
 // eslint-disable-next-line import/first
 import { App } from './App'
+// eslint-disable-next-line import/first
+import { getRun } from './api/client'
 
 describe('App edge-highlight lifecycle', () => {
   it('clears a stale positional edge highlight when the document changes', async () => {
@@ -80,5 +110,50 @@ describe('App edge-highlight lifecycle', () => {
     await act(async () => {
       await Promise.resolve()
     })
+  })
+})
+
+describe('App run-record fetch (the F7 lift)', () => {
+  // Selecting a run switches to the results tab; the App fetches the record ONCE and passes it to
+  // ResultsView (mocked here to expose the props). These pin the loading → record and error paths
+  // of the orchestration that moved out of the panels in M11.9.
+  async function selectRun(): Promise<void> {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'runs' }))
+    fireEvent.click(screen.getByText('select-run'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
+  it('fetches the record on run selection: loading, then the record, for the selected run', async () => {
+    type GetRunResult = Awaited<ReturnType<typeof getRun>>
+    let resolveGetRun: (value: GetRunResult) => void = () => {}
+    vi.mocked(getRun).mockReturnValue(
+      new Promise<GetRunResult>((resolve) => {
+        resolveGetRun = resolve
+      }),
+    )
+    await selectRun()
+    expect(screen.getByTestId('rv-run')).toHaveTextContent('run-1')
+    expect(screen.getByTestId('rv-loading')).toHaveTextContent('true')
+    expect(screen.getByTestId('rv-record')).toHaveTextContent('undefined')
+
+    await act(async () => {
+      // A minimal record shape — the mocked ResultsView reads only record.run_id (test fixture cast).
+      resolveGetRun({ record: { run_id: 'run-1' }, replay_verifiable: true } as GetRunResult)
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('rv-loading')).toHaveTextContent('false')
+    expect(screen.getByTestId('rv-record')).toHaveTextContent('run-1')
+    expect(vi.mocked(getRun)).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces a record-fetch failure as the error prop (loading cleared)', async () => {
+    vi.mocked(getRun).mockRejectedValue(new Error('record unavailable'))
+    await selectRun()
+    expect(screen.getByTestId('rv-error')).toHaveTextContent('record unavailable')
+    expect(screen.getByTestId('rv-loading')).toHaveTextContent('false')
+    expect(screen.getByTestId('rv-record')).toHaveTextContent('undefined')
   })
 })

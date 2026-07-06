@@ -269,6 +269,10 @@ export function TraceView({ runId, record, recordLoading, recordError }: TraceVi
     setLoadedRunId(runId)
     setSelected('')
     setEvents(undefined)
+    // Also drop the previous run's trace error: the fetch effect early-returns while selected is ''
+    // and would otherwise never clear it, leaving a stale error shown for the whole window the new
+    // run's record loads (instead of the loading state).
+    setTraceError(undefined)
   }
 
   // Auto-select the first session once the matching record's dates are known so a trace shows. `''`

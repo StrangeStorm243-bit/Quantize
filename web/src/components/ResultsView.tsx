@@ -27,7 +27,10 @@ export function ResultsView({ runId, record: data, loading, error }: ResultsView
   if (runId === undefined) {
     return <div className="results results--empty">Select a run to view its results.</div>
   }
-  if (loading) {
+  // During a run switch the App briefly still holds the PREVIOUS run's record (its reset effect
+  // runs only after paint), so also gate on the record's own run_id — never paint another run's
+  // numbers under this runId. Mirrors TraceView's sessions guard.
+  if (loading || (data !== undefined && data.record.run_id !== runId)) {
     return <div className="results results--empty">Loading run…</div>
   }
   if (error !== undefined) {

@@ -85,9 +85,10 @@ describe('ResultsView', () => {
   })
 
   it('renders an ok:false record as a valid run (not an error)', () => {
+    // runId must match the record's run_id — a mismatch renders as loading (the identity guard).
     render(
       <ResultsView
-        runId="run-x"
+        runId="run-1"
         record={response(record({ ok: false, fills: [], evaluations: [] }), false)}
         loading={false}
         error={undefined}
@@ -102,6 +103,16 @@ describe('ResultsView', () => {
   it('shows the loading state while the App fetches the record', () => {
     render(<ResultsView runId="run-1" record={undefined} loading={true} error={undefined} />)
     expect(screen.getByText(/loading run/i)).toBeInTheDocument()
+  })
+
+  it("never paints another run's record: a run_id mismatch renders as loading", () => {
+    // During a run switch the App briefly still holds the previous run's record (its reset effect
+    // runs after paint). The view must not show run A's numbers under run B's selection.
+    render(
+      <ResultsView runId="run-B" record={response(record())} loading={false} error={undefined} />,
+    )
+    expect(screen.getByText(/loading run/i)).toBeInTheDocument()
+    expect(screen.queryByText('backtest')).not.toBeInTheDocument()
   })
 
   it('surfaces a record-fetch error passed from the App', () => {
