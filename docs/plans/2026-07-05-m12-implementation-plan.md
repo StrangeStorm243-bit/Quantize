@@ -686,6 +686,32 @@ end-to-end (`./scripts/gate.ps1` AND `bash scripts/gate.sh`: pytest → ruff che
 `npm run build` (production bundle) succeeds. No DTO/codegen/migration change landed in M12 (E14
 held; the IR + API bundles are byte-unchanged — `codegen check` reports "up to date").
 
+### Post-review fixes (M12.7, M12.8 — founder review, 2026-07-06)
+
+Two Important findings from founder review, each fixed on branch (both two-stage reviewed →
+APPROVED); the plan's own E5/E9 premises ("a dangling ref is harmless" / "a stray saved
+component is harmless") were too optimistic and are corrected:
+- **M12.7 (`6e0651d`) — prune unused `component_refs` on node removal.** `removeNode` (store.ts)
+  now drops pins no longer referenced by any remaining node (shared refs kept). Server resolution
+  loads EVERY declared ref (resolve.py:556), so a stale pin is live, executable content — not
+  inert. +4 web tests.
+- **M12.8 (`bfef55f`) — semantically validate a `ComponentDefinition` before persistence.** POST
+  /v1/components now runs `diagnose_component_definition` (structural + recursion + registry-
+  semantic, reusing `resolve`'s own stack) before the immutable `repo.save`; an invalid definition
+  → 422 `component_definition_invalid`, never stored. This is intentionally STRICTER than strategy
+  save (strategies are mutable + explicitly validated; components are immutable per version, so a
+  bad one can never be fixed/deleted). Review verified NO false-rejection of valid extracted
+  components (`_check_definition` counts exposed-input mappings as satisfying internal required
+  inputs — `component_momentum` → 201 proves it). The M12.1 self-recursion API test was replaced
+  by a save-time-rejection test (recursion still covered at the resolve/library layer). +8 py
+  tests (one prior test replaced).
+
+**Revised final counts: 895 Python (pytest) + 204 web (vitest), both gates green** (branch tip
+`bfef55f`). Non-blocking follow-up: M12.8's 422 collapses the specific fault to prose in the
+message (single `component_definition_invalid` envelope code) — fine for v0's sole consumer
+(ExtractDialog displays the string); a future client branching on fault kind would want a granular
+code.
+
 ### Cross-cutting acceptance audit (MVP_PLAN.md:282-290 — item by item)
 
 The list is one sentence in `PRODUCT.md`/`MVP_PLAN.md`; decomposed into its ten clauses, each with
