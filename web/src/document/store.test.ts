@@ -1,3 +1,4 @@
+import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { RegisteredNode, StrategyDocument } from '@quantize/quantize-ir'
 import { PLACEHOLDER_USER_ID, SCHEMA_VERSION } from '../config'
@@ -11,6 +12,7 @@ import {
   removeNode,
   setNodeUi,
   setParams,
+  useStrategyDocument,
 } from './store'
 
 // A typed fixture built in-code (NOT imported from tests/fixtures — cross-root import fragility).
@@ -375,6 +377,35 @@ describe('removeNode prunes unused component_refs (M12.7)', () => {
 
     // A's pin is pruned; B's pin (still used) is kept.
     expect(result.component_refs.map((r) => r.component_id)).toEqual([CID_B])
+  })
+})
+
+describe('useStrategyDocument.replaceIf (compare-and-swap)', () => {
+  // The single guard every async document writer shares: apply `next` iff the live doc is still the
+  // `expected` object the writer captured. Identity is exact because reducers return fresh objects.
+  it('applies and returns true when expected === the current document', () => {
+    const initial = newStrategyDocument('a')
+    const { result } = renderHook(() => useStrategyDocument(initial))
+    const next = newStrategyDocument('b')
+    let applied: boolean | undefined
+    act(() => {
+      applied = result.current[1].replaceIf(initial, next)
+    })
+    expect(applied).toBe(true)
+    expect(result.current[0]).toBe(next)
+  })
+
+  it('refuses and returns false when expected !== the current document, leaving it untouched', () => {
+    const initial = newStrategyDocument('a')
+    const { result } = renderHook(() => useStrategyDocument(initial))
+    const stale = newStrategyDocument('stale') // a DIFFERENT object than the live doc
+    const next = newStrategyDocument('b')
+    let applied: boolean | undefined
+    act(() => {
+      applied = result.current[1].replaceIf(stale, next)
+    })
+    expect(applied).toBe(false)
+    expect(result.current[0]).toBe(initial)
   })
 })
 

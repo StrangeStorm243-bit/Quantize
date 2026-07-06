@@ -6,7 +6,7 @@
 // The App holds the two pieces of view state the panels coordinate over: `selectedNodeId` (set on a
 // canvas node click OR by a validate highlight) and `highlightedEdgeIndex` (set by a validate edge
 // highlight). Both are DERIVED view state, never a second source of truth — the document is canonical.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { RunRecordResponse } from '@quantize/quantize-api'
 import type { StrategyDocument } from '@quantize/quantize-ir'
@@ -50,13 +50,6 @@ export function App(): ReactElement {
   useSchemaVersionCheck()
 
   const [doc, actions] = useStrategyDocument(newStrategyDocument('Untitled'))
-  // A ref that always points at the LIVE document object. The extraction commit (M12.5b) captures the
-  // doc identity when it begins and hands it back at apply time; comparing against `docRef.current`
-  // (updated every render) detects a doc that was loaded/created/edited during the async save→validate
-  // window, so a stale extraction result can never clobber a document the user has since navigated away
-  // from. Object identity is exact here because every store reducer returns a NEW document object.
-  const docRef = useRef(doc)
-  docRef.current = doc
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [highlightedEdgeIndex, setHighlightedEdgeIndex] = useState<number | null>(null)
   const [tab, setTab] = useState<PanelTab>('strategies')
@@ -112,18 +105,18 @@ export function App(): ReactElement {
     setSelectedNodeId(newNodeId === '' ? null : newNodeId)
   }
   // The App-owned commit gate (M12.5b): the dialog server-validated the rewrite and now asks us to apply
-  // it. We refuse — WITHOUT mutating anything — if the live document is no longer the object the commit
-  // captured (a mid-flight load/new/edit, e.g. from the StrategyPanel the modal does not cover). This is
-  // the last line closing the stale-clobber hole; the dialog surfaces a non-destructive message on false.
+  // it. The store's `replaceIf` compare-and-swap refuses — WITHOUT mutating anything — if the live
+  // document is no longer the object the commit captured (a mid-flight load/new/edit, e.g. from the
+  // StrategyPanel the modal does not cover). This is the last line closing the stale-clobber hole; the
+  // dialog surfaces a non-destructive message on false.
   const commitExtraction = (
     capturedDoc: StrategyDocument,
     strategy: StrategyDocument,
     newNodeId: string,
   ): boolean => {
-    if (docRef.current !== capturedDoc) {
+    if (!actions.replaceIf(capturedDoc, strategy)) {
       return false
     }
-    actions.replace(strategy)
     onExtracted(newNodeId)
     return true
   }

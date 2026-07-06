@@ -38,6 +38,8 @@ function stubActions(): StrategyDocumentActions {
     setParams: vi.fn(),
     setNodeUi: vi.fn(),
     replace: vi.fn(),
+    // Default to applied (true); refusal-path tests override per case.
+    replaceIf: vi.fn().mockReturnValue(true),
   }
 }
 
@@ -120,7 +122,7 @@ describe('StrategyPanel', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled())
   })
 
-  it('loads the latest version and replaces the store doc verbatim', async () => {
+  it('loads the latest version and replaces the store doc via replaceIf (unchanged doc)', async () => {
     const doc = newStrategyDocument('t')
     const actions = stubActions()
     const loaded = { ...newStrategyDocument('Loaded'), extensions: { x: 1 } } as StrategyDocument
@@ -132,8 +134,29 @@ describe('StrategyPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Load' }))
 
-    // Latest version (2) is requested, and the loaded doc replaces the store doc verbatim.
+    // Latest version (2) is requested; the compare-and-swap applies with the click-time doc as `expected`.
     await waitFor(() => expect(mockLoad).toHaveBeenCalledWith('s1', 2))
-    await waitFor(() => expect(actions.replace).toHaveBeenCalledWith(loaded))
+    await waitFor(() => expect(actions.replaceIf).toHaveBeenCalledWith(doc, loaded))
+    // The clean-load path reports success.
+    expect(await screen.findByText(/Loaded s1 v2\./)).toBeInTheDocument()
+  })
+
+  it('refuses the load and shows a non-destructive message when the doc changed while loading', async () => {
+    const doc = newStrategyDocument('t')
+    const actions = stubActions()
+    // Simulate a concurrent doc change during the load window: the compare-and-swap refuses.
+    ;(actions.replaceIf as unknown as ReturnType<typeof vi.fn>).mockReturnValue(false)
+    const loaded = newStrategyDocument('Loaded')
+    mockVersions.mockResolvedValue({ versions: [1] })
+    mockLoad.mockResolvedValue(loaded)
+    render(<StrategyPanel doc={doc} actions={actions} />)
+    await screen.findByText('Momentum')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load' }))
+
+    await waitFor(() => expect(actions.replaceIf).toHaveBeenCalledWith(doc, loaded))
+    // Refused: a non-destructive status is shown, and the success message never appears.
+    expect(await screen.findByText(/Document changed while loading/)).toBeInTheDocument()
+    expect(screen.queryByText(/Loaded s1 v1\./)).not.toBeInTheDocument()
   })
 })

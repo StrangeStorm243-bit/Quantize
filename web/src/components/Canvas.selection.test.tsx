@@ -54,6 +54,7 @@ function stubActions(): StrategyDocumentActions {
     setParams: vi.fn(),
     setNodeUi: vi.fn(),
     replace: vi.fn(),
+    replaceIf: vi.fn().mockReturnValue(true),
   }
 }
 

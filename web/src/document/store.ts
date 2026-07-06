@@ -13,7 +13,7 @@
 //
 // No numerical, portfolio, or compatibility logic lives here (invariant 5); connection VALIDITY is
 // the canvas's job (D5, M11.4), so `connect` just appends.
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   ComponentRef,
   ComponentRefNode,
@@ -248,6 +248,13 @@ export interface StrategyDocumentActions {
   setParams: (nodeId: string, params: NodeParams) => void
   setNodeUi: (nodeId: string, ui: NodeUi) => void
   replace: (doc: StrategyDocument) => void
+  /**
+   * Compare-and-swap: replace the document with `next` ONLY if the live document is still `expected`
+   * (the object an async writer captured before its awaits), returning whether it applied. The ONE
+   * guard every async document writer shares — a stale write (the doc changed during the await window)
+   * is refused without mutating anything. Synchronous writers use plain {@link replace}.
+   */
+  replaceIf: (expected: StrategyDocument, next: StrategyDocument) => boolean
 }
 
 /**
@@ -259,6 +266,13 @@ export function useStrategyDocument(
   initial: StrategyDocument,
 ): [StrategyDocument, StrategyDocumentActions] {
   const [doc, setDoc] = useState<StrategyDocument>(initial)
+  // A ref that always points at the LIVE document object, updated each render. `replaceIf` compares an
+  // async writer's captured `expected` doc against `latest.current`: identity is EXACT because every
+  // reducer returns a NEW object, so a mismatch means the doc was replaced/edited during the writer's
+  // await window and the stale write must be refused. This is the single compare-and-swap that closes
+  // the late-write clobber hole for ALL async writers (extraction commit + StrategyPanel load, …).
+  const latest = useRef(doc)
+  latest.current = doc
   // Every updater is a FUNCTIONAL setDoc (`d => reducer(d, …)`), so the empty deps are safe — no
   // callback closes over a changing value. Keep them functional: a future edit that captures a prop
   // directly would silently read a stale value.
@@ -275,6 +289,16 @@ export function useStrategyDocument(
     [],
   )
   const replaceCb = useCallback((next: StrategyDocument) => setDoc(next), [])
+  const replaceIfCb = useCallback(
+    (expected: StrategyDocument, next: StrategyDocument): boolean => {
+      if (latest.current !== expected) {
+        return false
+      }
+      setDoc(next)
+      return true
+    },
+    [],
+  )
   // Memoize the actions object so its identity is stable across renders (a consumer may put it in
   // an effect/memo dependency list; a fresh literal each render would re-run those needlessly).
   const actions = useMemo<StrategyDocumentActions>(
@@ -286,8 +310,9 @@ export function useStrategyDocument(
       setParams: setParamsCb,
       setNodeUi: setNodeUiCb,
       replace: replaceCb,
+      replaceIf: replaceIfCb,
     }),
-    [addNodeCb, removeNodeCb, connectCb, disconnectCb, setParamsCb, setNodeUiCb, replaceCb],
+    [addNodeCb, removeNodeCb, connectCb, disconnectCb, setParamsCb, setNodeUiCb, replaceCb, replaceIfCb],
   )
   return [doc, actions]
 }
