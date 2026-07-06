@@ -193,36 +193,30 @@ export function extractComponent(
       return structuredClone(match.port_type)
     }
 
-    // --- Exposed-name assignment: default = inner port name; collision → `_2`, `_3`, ...; overridable.
-    // ONE shared namespace across inputs+outputs guarantees globally-unique instance port names, so the
-    // override map (keyed by the default name) is unambiguous.
-    const usedNames = new Set<string>()
-    const assignName = (base: string): string => {
+    // --- Exposed-name assignment is TWO-PASS and deterministic w.r.t. the dialog preview -----------
+    // PASS 1 (assignDefault) computes DEFAULT names exactly as an override-free run would: default =
+    // inner port name; collision → `_2`, `_3`, ... over ONE shared namespace across inputs+outputs. This
+    // is PRECISELY what the preview shows (the dialog previews with no `portNames`). PASS 2 (below) then
+    // maps each default to `portNames.get(default) ?? default` — so overrides are keyed by the exact
+    // names the preview displayed and a rename can NEVER be silently dropped by a shifted suffix. The
+    // no-override path is byte-identical to before (defaults ARE the finals), so the E7 oracle is intact.
+    const usedDefaults = new Set<string>()
+    const assignDefault = (base: string): string => {
       let candidate = base
       let suffix = 2
-      while (usedNames.has(candidate)) {
+      while (usedDefaults.has(candidate)) {
         candidate = base + '_' + suffix
         suffix += 1
       }
-      usedNames.add(candidate)
-      const override = opts.portNames?.get(candidate)
-      if (override !== undefined) {
-        if (!IDENTIFIER.test(override)) {
-          throw new ExtractionError(`Exposed port name "${override}" is not a valid identifier.`)
-        }
-        if (usedNames.has(override)) {
-          throw new ExtractionError(`Exposed port name "${override}" is used more than once.`)
-        }
-        usedNames.add(override)
-        return override
-      }
+      usedDefaults.add(candidate)
       return candidate
     }
 
     // --- Edge classification IN DOCUMENT ORDER (E3) ------------------------------------------------
     // inside→inside: component-internal edge. outside→inside: boundary IN → one exposed input per unique
     // inner (node,port). inside→outside: boundary OUT → one exposed output per unique inner (node,port).
-    // Exposed input/output ITERATION ORDER = document edge order (the oracle depends on this).
+    // Exposed input/output ITERATION ORDER = document edge order (the oracle depends on this). Names here
+    // are PASS-1 DEFAULTS; PASS 2 finalizes them (and rebuilds the key→name maps) once all are known.
     const componentEdges: Edge[] = []
     const exposedInputs: ExposedPort[] = []
     const exposedOutputs: ExposedPort[] = []
@@ -239,7 +233,7 @@ export function extractComponent(
         if (!inputNameByKey.has(key)) {
           const node = byId.get(edge.to[0]) as GraphNode
           const type = innerPortType(node, edge.to[1], 'in')
-          const name = assignName(edge.to[1])
+          const name = assignDefault(edge.to[1])
           inputNameByKey.set(key, name)
           exposedInputs.push({ name, type, maps_to: [edge.to[0], edge.to[1]] })
         }
@@ -248,12 +242,42 @@ export function extractComponent(
         if (!outputNameByKey.has(key)) {
           const node = byId.get(edge.from[0]) as GraphNode
           const type = innerPortType(node, edge.from[1], 'out')
-          const name = assignName(edge.from[1])
+          const name = assignDefault(edge.from[1])
           outputNameByKey.set(key, name)
           exposedOutputs.push({ name, type, maps_to: [edge.from[0], edge.from[1]] })
         }
       }
       // outside→outside: not part of the component; left for the strategy rewrite below.
+    }
+
+    // --- PASS 2: apply overrides keyed by the pass-1 DEFAULT (== the preview name) ------------------
+    // `final = portNames.get(default) ?? default`; each override must be a valid identifier, and the
+    // FINAL set (across inputs+outputs) must be unique — a duplicate (e.g. a rename that collides with a
+    // sibling's default) throws the same 'used more than once' error the dialog surfaces. We finalize
+    // inputs then outputs (matching their shared-namespace iteration order) and rewrite BOTH the port's
+    // own `name` and its key→name map, which the edge rewiring below reads. No override → final = default.
+    const finalNames = new Set<string>()
+    const finalizePort = (port: ExposedPort, keyByName: Map<string, string>): void => {
+      let final = port.name
+      const override = opts.portNames?.get(port.name)
+      if (override !== undefined) {
+        if (!IDENTIFIER.test(override)) {
+          throw new ExtractionError(`Exposed port name "${override}" is not a valid identifier.`)
+        }
+        final = override
+      }
+      if (finalNames.has(final)) {
+        throw new ExtractionError(`Exposed port name "${final}" is used more than once.`)
+      }
+      finalNames.add(final)
+      keyByName.set(endpointKey(port.maps_to), final)
+      port.name = final
+    }
+    for (const port of exposedInputs) {
+      finalizePort(port, inputNameByKey)
+    }
+    for (const port of exposedOutputs) {
+      finalizePort(port, outputNameByKey)
     }
 
     // --- Exposed params (order = opts order) -------------------------------------------------------

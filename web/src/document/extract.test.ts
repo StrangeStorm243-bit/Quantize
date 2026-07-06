@@ -317,6 +317,73 @@ describe('extractComponent — edge classification', () => {
     expect('error' in result).toBe(true)
   })
 
+  it('honors overrides keyed by the PREVIEW defaults even when they shift collision suffixes (A4)', () => {
+    // Two boundary inputs both default to "a" → preview shows "a", "a_2". The user renames the FIRST
+    // to "a_2" and the SECOND to "q". Overrides are keyed by the preview defaults ("a", "a_2"), so a
+    // two-pass assignment must honor BOTH — never recompute "a_2" for the first override and silently
+    // drop the "q" rename (the streaming bug this fix closes).
+    const catalog = makeCatalog([
+      nodeType('box', [inPort('a', CS), inPort('link', CS)], [outPort('out', CS)]),
+      nodeType('src', [], [outPort('out', CS)]),
+    ])
+    const doc = makeDoc(
+      [reg('x', 'box'), reg('y', 'box'), reg('o1', 'src'), reg('o2', 'src')],
+      [
+        { from: ['x', 'out'], to: ['y', 'link'] }, // internal (connectivity)
+        { from: ['o1', 'out'], to: ['x', 'a'] }, // boundary in → default "a"
+        { from: ['o2', 'out'], to: ['y', 'a'] }, // boundary in → default "a_2"
+      ],
+    )
+    const { definition, strategy } = expectSuccess(
+      extractComponent(doc, new Set(['x', 'y']), catalog, new Map(), {
+        name: 'C',
+        exposedParams: [],
+        portNames: new Map([
+          ['a', 'a_2'],
+          ['a_2', 'q'],
+        ]),
+      }),
+    )
+    // Both renames are honored: the finals are exactly the user's choices, in preview (document) order.
+    expect(definition.exposed_inputs.map((p) => p.name)).toEqual(['a_2', 'q'])
+    expect(definition.exposed_inputs.map((p) => p.maps_to)).toEqual([
+      ['x', 'a'],
+      ['y', 'a'],
+    ])
+    // The rewired strategy edges reference the FINAL instance port names (not the shifted defaults).
+    const node = strategy.nodes.find((n) => n.type_id === 'component')!
+    expect(strategy.edges).toEqual([
+      { from: ['o1', 'out'], to: [node.id, 'a_2'] },
+      { from: ['o2', 'out'], to: [node.id, 'q'] },
+    ])
+  })
+
+  it('rejects overrides that collide in the FINAL set after a suffix shift (A4)', () => {
+    // Two boundary inputs default "a", "a_2". Renaming ONLY the second back to "a" collapses both finals
+    // onto "a" — a final-set duplicate that must be rejected (keyed by preview defaults, validated final).
+    const catalog = makeCatalog([
+      nodeType('box', [inPort('a', CS), inPort('link', CS)], [outPort('out', CS)]),
+      nodeType('src', [], [outPort('out', CS)]),
+    ])
+    const doc = makeDoc(
+      [reg('x', 'box'), reg('y', 'box'), reg('o1', 'src'), reg('o2', 'src')],
+      [
+        { from: ['x', 'out'], to: ['y', 'link'] },
+        { from: ['o1', 'out'], to: ['x', 'a'] },
+        { from: ['o2', 'out'], to: ['y', 'a'] },
+      ],
+    )
+    const result = extractComponent(doc, new Set(['x', 'y']), catalog, new Map(), {
+      name: 'C',
+      exposedParams: [],
+      portNames: new Map([['a_2', 'a']]),
+    })
+    expect('error' in result).toBe(true)
+    if ('error' in result) {
+      expect(result.error).toContain('used more than once')
+    }
+  })
+
   it('rejects two portNames overrides that collapse two exposed ports onto one name', () => {
     const catalog = makeCatalog([
       nodeType('dual', [inPort('values', CS), inPort('link', CS)], [outPort('out', CS)]),
