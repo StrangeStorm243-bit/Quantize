@@ -23,7 +23,6 @@ _JSON = {"content-type": "application/json"}
 _FIRST = "2025-07-31"
 _LAST = "2025-08-29"
 _SELF_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-_RECURSIVE_STRATEGY_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 
 # The record fields compared for composed-vs-flat equality (run_id/timestamps excluded).
 _COMPARED = ("ok", "total_return", "valuations", "fills", "final_cash")
@@ -46,8 +45,8 @@ def _seed_component_and_strategy(client: TestClient) -> str:
 
 
 def _self_recursive_component() -> dict[str, Any]:
-    """A ComponentDefinition whose own ``component_refs`` pins itself — a direct cycle. The
-    repository saves it (no structural validation on save); resolution rejects it at run time."""
+    """A ComponentDefinition whose own ``component_refs`` pins itself — a direct cycle. Save-time
+    validation (M12.8) rejects it at the boundary, before the immutable store ever sees it."""
     provenance = load_fixture("component_momentum")["provenance"]
     return {
         "component_id": _SELF_ID,
@@ -66,20 +65,6 @@ def _self_recursive_component() -> dict[str, Any]:
         "exposed_outputs": [],
         "exposed_params": [],
         "provenance": provenance,
-    }
-
-
-def _strategy_referencing(component_id: str, strategy_id: str) -> dict[str, Any]:
-    """A minimal, structurally valid strategy: one component node pinned to *component_id*."""
-    base = load_fixture("strategy_a")
-    return {
-        "schema_version": "0.1.0",
-        "strategy": {**base["strategy"], "id": strategy_id, "version": 1},
-        "execution_policy": base["execution_policy"],
-        "schedule": base["schedule"],
-        "nodes": [{"id": "c", "type_id": "component", "ref": "r", "params": {}}],
-        "edges": [],
-        "component_refs": [{"id": "r", "component_id": component_id, "version": "1.0.0"}],
     }
 
 
@@ -114,20 +99,56 @@ def test_componentized_strategy_missing_component_is_unavailable(
     assert "component_definition_unavailable" in _runtime_codes(body)
 
 
-# --- (c) a stored self-recursive definition is rejected at resolution -------------------------
+# --- (c) an invalid definition is rejected AT SAVE (M12.8) — never persisted -------------------
 
 
-def test_self_recursive_component_surfaces_direct_recursion(
-    client: TestClient, db: ApiSettings
-) -> None:
+def _component_ids(client: TestClient) -> set[str]:
+    """The component ids currently in the store (via the list endpoint)."""
+    listing = client.get("/v1/components")
+    assert listing.status_code == 200
+    return {row["component_id"] for row in listing.json()["components"]}
+
+
+def test_self_recursive_component_rejected_at_save(client: TestClient, db: ApiSettings) -> None:
+    """A self-recursive definition is caught at the save boundary (strictly earlier than the old
+    resolve-time surfacing): POST → 422 ``component_definition_invalid``, and NOT persisted."""
     saved = _post(client, "/v1/components", _self_recursive_component())
-    assert saved.status_code == 201  # repository saves without structural validation
-    strategy = _strategy_referencing(_SELF_ID, _RECURSIVE_STRATEGY_ID)
-    body = _validate(client, strategy).json()
-    assert body["ok"] is False
-    # resolve down-converts set-level structural errors to runtime diagnostics; assert MEMBERSHIP
-    # (a wrapping component_definition_invalid may accompany it).
-    assert "component_direct_recursion" in _runtime_codes(body)
+    assert saved.status_code == 422, saved.text
+    assert saved.json()["code"] == "component_definition_invalid"
+    assert _SELF_ID not in _component_ids(client)  # the immutable store never saw it
+
+
+def test_unknown_internal_node_type_rejected_at_save(client: TestClient, db: ApiSettings) -> None:
+    """A structurally valid definition whose internal graph pins an unregistered node ``type_id``
+    is rejected at save (M2's rule applied to the internal graph, at the save boundary)."""
+    bad = load_fixture("component_momentum")
+    bad["component_id"] = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+    bad["implementation"]["graph"]["nodes"][0]["type_id"] = "transform.does_not_exist"
+    response = _post(client, "/v1/components", bad)
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "component_definition_invalid"
+    assert bad["component_id"] not in _component_ids(client)
+
+
+def test_dangling_nested_ref_rejected_at_save(client: TestClient, db: ApiSettings) -> None:
+    """A definition that pins a nested component absent from the store is rejected at save
+    (``component_definition_unavailable`` closure fault), and not persisted."""
+    dangling = load_fixture("component_momentum")
+    dangling["component_id"] = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    dangling["component_refs"] = [{"id": "missing", "component_id": _SELF_ID, "version": "9.9.9"}]
+    response = _post(client, "/v1/components", dangling)
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "component_definition_invalid"
+    assert dangling["component_id"] not in _component_ids(client)
+
+
+def test_valid_component_still_saves_and_is_idempotent(client: TestClient, db: ApiSettings) -> None:
+    """Regression: a VALID definition still passes the new save-time validation → 201, and a
+    byte-identical re-POST is idempotent → 200."""
+    first = _post(client, "/v1/components", load_fixture("component_momentum"))
+    assert first.status_code == 201, first.text
+    again = _post(client, "/v1/components", load_fixture("component_momentum"))
+    assert again.status_code == 200, again.text
 
 
 # --- (d) a componentized run equals its flat twin, byte-for-byte on the compared facts --------

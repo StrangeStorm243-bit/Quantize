@@ -126,7 +126,7 @@ def test_structurally_wrong_body_is_400(client: TestClient, db: ApiSettings) -> 
 
 
 def test_save_and_load_component_semver_roundtrip(client: TestClient, db: ApiSettings) -> None:
-    comp = load_fixture("component_a")
+    comp = load_fixture("component_momentum")
     saved = _post(client, "/v1/components", comp)
     assert saved.status_code == 201
     assert saved.json() == {"component_id": comp["component_id"], "version": comp["version"]}
@@ -138,13 +138,13 @@ def test_save_and_load_component_semver_roundtrip(client: TestClient, db: ApiSet
 
 
 def test_component_idempotent_resave_is_200(client: TestClient, db: ApiSettings) -> None:
-    comp = load_fixture("component_a")
+    comp = load_fixture("component_momentum")
     assert _post(client, "/v1/components", comp).status_code == 201
     assert _post(client, "/v1/components", comp).status_code == 200
 
 
 def test_component_list_and_404(client: TestClient, db: ApiSettings) -> None:
-    comp = load_fixture("component_a")
+    comp = load_fixture("component_momentum")
     _post(client, "/v1/components", comp)
     listing = client.get("/v1/components")
     assert any(r["component_id"] == comp["component_id"] for r in listing.json()["components"])

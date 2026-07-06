@@ -7,11 +7,12 @@ import pytest
 from quantize.components.resolve import (
     ComponentCatalog,
     ResolvedStrategy,
+    diagnose_component_definition,
     resolve_strategy_components,
 )
 from quantize.schema.components import ComponentRef, ExposedParam, ExposedPort
 from quantize.schema.document import StrategyDocument
-from quantize.schema.nodes import ComponentRefNode, NodeInstance
+from quantize.schema.nodes import ComponentRefNode, NodeInstance, RegisteredNode
 from quantize.schema.primitives import JsonValue
 from quantize.schema.types import AssetSetType, ScalarType
 from tests.component_fixtures import (
@@ -355,3 +356,67 @@ def test_effective_params_are_validated_against_node_schemas() -> None:
 def test_catalog_rejects_duplicate_identities() -> None:
     with pytest.raises(ValueError, match="more than once"):
         ComponentCatalog([scaler_definition(), scaler_definition()])
+
+
+# --- M12.8: diagnose a single definition at the save boundary ---------------------------------
+
+
+def _diagnose_codes(definition_under_test: object, catalog: ComponentCatalog) -> list[str]:
+    diagnostics = diagnose_component_definition(
+        definition_under_test,  # type: ignore[arg-type]
+        catalog,
+        build_synthetic_catalog().descriptor_registry,
+    )
+    return [d.code for d in diagnostics]
+
+
+def test_diagnose_valid_leaf_definition_is_empty() -> None:
+    # A leaf (no nested refs) whose internal graph + exposed ports are all sound → safe to persist.
+    assert (
+        diagnose_component_definition(
+            scaler_definition(),
+            ComponentCatalog(),
+            build_synthetic_catalog().descriptor_registry,
+        )
+        == []
+    )
+
+
+def test_diagnose_valid_nested_closure_is_empty() -> None:
+    # Outer nests Scaler; with the closure available, the whole definition is valid.
+    assert (
+        diagnose_component_definition(
+            outer_definition(),
+            ComponentCatalog([scaler_definition()]),
+            build_synthetic_catalog().descriptor_registry,
+        )
+        == []
+    )
+
+
+def test_diagnose_self_recursive_definition_is_rejected() -> None:
+    selfref = definition(
+        SCALER_ID,
+        "SelfRef",
+        [ComponentRefNode(id="me", type_id="component", ref="self", params={})],
+        [],
+        component_refs=[ComponentRef(id="self", component_id=SCALER_ID, version="1.0.0")],
+    )
+    assert "component_direct_recursion" in _diagnose_codes(selfref, ComponentCatalog())
+
+
+def test_diagnose_unknown_internal_node_type_is_rejected() -> None:
+    unknown = definition(
+        SCALER_ID,
+        "UnknownType",
+        [RegisteredNode(id="x", type_id="test.not_registered", type_version="1.0.0", params={})],
+        [],
+    )
+    assert "unknown_node_type" in _diagnose_codes(unknown, ComponentCatalog())
+
+
+def test_diagnose_dangling_nested_ref_is_unavailable() -> None:
+    # Outer nests Scaler, but the closure is empty → the nested pin is unavailable.
+    assert "component_definition_unavailable" in _diagnose_codes(
+        outer_definition(), ComponentCatalog()
+    )

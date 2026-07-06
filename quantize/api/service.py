@@ -32,11 +32,16 @@ from quantize.schema.document import StrategyDocument
 INVALID_INITIAL_STATE = "invalid_initial_state"
 
 
-def load_component_catalog(db: Database, document: StrategyDocument) -> ComponentCatalog:
-    """Fetch the strategy's pinned component closure from the store into a ``ComponentCatalog``.
+def load_component_catalog(
+    db: Database, document: StrategyDocument | ComponentDefinition
+) -> ComponentCatalog:
+    """Fetch a document's pinned component closure from the store into a ``ComponentCatalog``.
 
     Mirrors the closure walk ``resolve_strategy_components`` performs internally: breadth-first over
     ``document.component_refs`` and, transitively, each fetched definition's own ``component_refs``.
+    *document* is anything holding ``component_refs`` — a ``StrategyDocument`` (the run/validate
+    callers) or a ``ComponentDefinition`` (the save-boundary validation), whose OWN nested closure
+    is fetched so its definition can be diagnosed before it is persisted.
     A ``(component_id, version)`` that is not stored is left ABSENT — never an HTTP error — so
     resolution emits ``component_definition_unavailable`` (fail-loud preserved at the run layer).
     Visited keys are tracked so a shared or self-referential pin is fetched once (no refetch, and no

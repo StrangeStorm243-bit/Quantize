@@ -624,3 +624,82 @@ def resolve_strategy_components(
 
     ordered = sort_runtime_diagnostics(diagnostics)
     return ResolvedStrategy(ok=not ordered, diagnostics=ordered, instances=instances)
+
+
+def diagnose_component_definition(
+    definition: ComponentDefinition,
+    catalog: ComponentCatalog,
+    registry: NodeRegistryView,
+) -> list[RuntimeDiagnostic]:
+    """Validate a SINGLE component definition exactly as ``resolve_strategy_components`` validates
+    each fetched definition — but seeded from the definition itself rather than a strategy.
+
+    Fetches the definition's own transitive nested closure from *catalog* (breadth-first over its
+    ``component_refs``; an absent nested pin is diagnosed ``component_definition_unavailable``),
+    then over ``[definition] + closure`` runs the same three definition-level gates resolution
+    runs: recursion rejection (``validate_component_set``), structural validity per definition
+    (``COMPONENT_DEFINITION_INVALID``), and — only if still clean — the registry-semantic check
+    (``_check_definition``: internal node types, exposed-port mappings/types, param bindings).
+
+    Returns the sorted diagnostics; an EMPTY list means the definition is safe to persist. This is
+    the save-boundary counterpart to resolution's run-time check, so an invalid definition fails
+    loud BEFORE it can reach the immutable store (never a best-effort save of a broken component).
+    """
+    diagnostics: list[RuntimeDiagnostic] = []
+
+    # Seed the closure with the definition itself under its own key so a self- or transitive
+    # reference resolves to it (mirroring resolution, where the definition is part of the fetched
+    # closure) rather than being mis-reported as "unavailable".
+    own_key = _definition_key(definition)
+    fetched: dict[ComponentKey, ComponentDefinition] = {own_key: definition}
+    missing: set[ComponentKey] = set()
+    queue: list[ComponentKey] = sorted(
+        ComponentKey(ref.component_id, ref.version) for ref in definition.component_refs
+    )
+    while queue:
+        key = queue.pop(0)
+        if key in fetched or key in missing:
+            continue
+        nested = catalog.get(key)
+        if nested is None:
+            missing.add(key)
+            diagnostics.append(
+                RuntimeDiagnostic(
+                    COMPONENT_DEFINITION_UNAVAILABLE,
+                    f"component definition {key} is not available",
+                    subject=str(key),
+                )
+            )
+            continue
+        fetched[key] = nested
+        queue.extend(
+            sorted(ComponentKey(ref.component_id, ref.version) for ref in nested.component_refs)
+        )
+
+    # The definition under scrutiny first, then the rest of the closure (deterministic order).
+    ordered_definitions = [definition] + [fetched[key] for key in sorted(fetched) if key != own_key]
+
+    # Recursion rejection over the closure (direct + transitive).
+    set_validation = validate_component_set(ordered_definitions)
+    for error in set_validation.errors:
+        diagnostics.append(RuntimeDiagnostic(error.code, error.message, subject=error.subject))
+
+    # Each definition must be structurally valid.
+    for candidate in ordered_definitions:
+        structural = validate_component_definition(candidate)
+        for error in structural.errors:
+            diagnostics.append(
+                RuntimeDiagnostic(
+                    COMPONENT_DEFINITION_INVALID,
+                    f"component {_definition_key(candidate)}: {error.code}: {error.message}",
+                    subject=str(_definition_key(candidate)),
+                )
+            )
+
+    # Registry-semantic checks only once every definition is structurally sound (layered like the
+    # strategy path so instance-level noise never precedes a definition-level fault).
+    if not diagnostics:
+        for candidate in ordered_definitions:
+            diagnostics += _check_definition(candidate, registry, fetched)
+
+    return list(sort_runtime_diagnostics(diagnostics))
