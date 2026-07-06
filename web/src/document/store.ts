@@ -49,13 +49,15 @@ export interface EdgeSpec {
 }
 
 // Mint a NODE id. IR NodeId is `^[A-Za-z0-9_]+$` (identifier-like, NO hyphens) — a raw hyphenated
-// uuid would FAIL server validation. So we strip the hyphens and prefix a letter.
-function mintNodeId(): string {
+// uuid would FAIL server validation. So we strip the hyphens and prefix a letter. Exported so the
+// extraction reducer (extract.ts) mints ids by the SAME grammar rather than re-encoding it.
+export function mintNodeId(): string {
   return 'n' + crypto.randomUUID().replaceAll('-', '')
 }
 
-// Mint a component-ref id. IR RefId shares NodeId's `^[A-Za-z0-9_]+$` grammar — no hyphens.
-function mintRefId(): string {
+// Mint a component-ref id. IR RefId shares NodeId's `^[A-Za-z0-9_]+$` grammar — no hyphens. Exported
+// alongside mintNodeId (single owner of the id grammar).
+export function mintRefId(): string {
   return 'r' + crypto.randomUUID().replaceAll('-', '')
 }
 

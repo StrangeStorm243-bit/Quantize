@@ -24,6 +24,7 @@ import type {
 } from '@quantize/quantize-ir'
 import { nodeTypeById } from '../catalog'
 import { PLACEHOLDER_USER_ID, SCHEMA_VERSION } from '../config'
+import { mintNodeId, mintRefId } from './store'
 
 /** A graph node as the IR types it (an ordinary registered node OR a nested component instance). */
 type GraphNode = RegisteredNode | ComponentRefNode
@@ -56,12 +57,6 @@ export type ExtractResult = ExtractSuccess | { error: string }
 class ExtractionError extends Error {}
 
 const IDENTIFIER = /^[A-Za-z0-9_]+$/
-
-// Mint an identifier-like id (IR NodeId/RefId are `^[A-Za-z0-9_]+$` — a hyphenated uuid would FAIL
-// server validation), mirroring store.ts `mintNodeId`: strip hyphens, prefix a letter.
-function mintId(prefix: string): string {
-  return prefix + crypto.randomUUID().replaceAll('-', '')
-}
 
 // A stable string key for a `[nodeId, port]` endpoint (space-separated). NodeId/PortName both obey the
 // grammar `^[A-Za-z0-9_]+$`, which forbids spaces, so the first space unambiguously delimits node from
@@ -311,8 +306,8 @@ export function extractComponent(
 
     // --- Mint ids and build the definition ---------------------------------------------------------
     const componentId = crypto.randomUUID()
-    const refId = mintId('r')
-    const nodeId = mintId('n')
+    const refId = mintRefId()
+    const nodeId = mintNodeId()
 
     const definition: ComponentDefinition = {
       schema_version: SCHEMA_VERSION,
