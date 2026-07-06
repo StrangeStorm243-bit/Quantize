@@ -18,14 +18,22 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from quantize.components.resolve import ComponentCatalog
+import pytest
+
+from quantize.components.resolve import (
+    COMPONENT_DEFINITION_UNAVAILABLE,
+    ComponentCatalog,
+)
 from quantize.evaluator.evaluate import evaluate_strategy
 from quantize.evaluator.preflight import PreflightResult, run_document_preflight
 from quantize.market.data import MarketDataSet
 from quantize.nodes import build_core_catalog
 from quantize.runtime.binding import ImplementationCatalog
 from quantize.runtime.diagnostics import RuntimeDiagnostic, sort_runtime_diagnostics
+from quantize.schema.components import ComponentRef
 from quantize.schema.document import StrategyDocument
+from quantize.schema.nodes import ComponentRefNode, NodeInstance
+from tests.component_fixtures import SCALER_ID, scaler_definition
 from tests.helpers import load_fixture, load_invalid_fixture
 from tests.market_fixture import build_market_fixture
 from tests.runtime_fixtures import (
@@ -37,6 +45,19 @@ from tests.runtime_fixtures import (
     synthetic_document,
     two_session_dataset,
 )
+
+
+def _componentized_document() -> StrategyDocument:
+    """A strategy that PINS a scaler component (``component_refs`` non-empty)."""
+    nodes: list[NodeInstance] = [
+        node("src", "test.const", {"value": 10}),
+        ComponentRefNode(id="sc", type_id="component", ref="r1", params={"offset": 3.0}),
+    ]
+    edges = [edge(("src", "out"), ("sc", "value"))]
+    return synthetic_document(
+        nodes, edges, [ComponentRef(id="r1", component_id=SCALER_ID, version="1.0.0")]
+    )
+
 
 _INVALID_FIXTURES = (
     "cycle_disconnected",
@@ -192,4 +213,49 @@ def test_resolution_is_reusable_downstream() -> None:
     catalog = build_synthetic_catalog()
     preflight = run_document_preflight(document, registry=catalog.descriptor_registry)
     assert preflight.resolution.ok
+    assert preflight.resolution_ok
+
+
+# --- fail-loud on the components= seam (M12.9, GAP-1) -----------------------------------------
+
+
+def test_componentized_document_without_catalog_fails_loud() -> None:
+    """A document that PINS components run with ``components=None`` is a caller bug (the exact
+    GAP-1 shape); pre-flight raises rather than silently substituting an empty catalog and
+    reporting every pinned component unavailable."""
+    document = _componentized_document()
+    catalog = build_synthetic_catalog()
+    with pytest.raises(ValueError, match="document pins components"):
+        run_document_preflight(document, registry=catalog.descriptor_registry)
+
+
+def test_componentized_document_with_explicit_empty_catalog_reports_unavailable() -> None:
+    """An EXPLICIT empty catalog is the deliberate case (kept working): resolution reports the
+    pinned component as ``component_definition_unavailable`` instead of raising."""
+    document = _componentized_document()
+    catalog = build_synthetic_catalog()
+    preflight = run_document_preflight(
+        document, registry=catalog.descriptor_registry, components=ComponentCatalog()
+    )
+    assert not preflight.ok
+    assert any(d.code == COMPONENT_DEFINITION_UNAVAILABLE for d in preflight.runtime)
+
+
+def test_componentized_document_with_populated_catalog_resolves() -> None:
+    """The populated-catalog case still resolves cleanly (the guard only fires on ``None``)."""
+    document = _componentized_document()
+    catalog = build_synthetic_catalog()
+    preflight = run_document_preflight(
+        document,
+        registry=catalog.descriptor_registry,
+        components=ComponentCatalog([scaler_definition()]),
+    )
+    assert preflight.resolution_ok
+
+
+def test_no_refs_document_without_catalog_is_unchanged() -> None:
+    """A no-refs document with ``components=None`` is unaffected — nothing to resolve."""
+    document = synthetic_document([node("c", "test.const", {"value": 1})], [])
+    catalog = build_synthetic_catalog()
+    preflight = run_document_preflight(document, registry=catalog.descriptor_registry)
     assert preflight.resolution_ok

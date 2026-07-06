@@ -31,6 +31,7 @@ from quantize.components.resolve import (
     ResolvedStrategy,
     build_port_tables,
     duplicate_input_edges,
+    require_component_catalog,
     resolve_strategy_components,
 )
 from quantize.evaluator.errors import MISSING_TERMINAL_NODE, MULTIPLE_TERMINAL_NODES
@@ -198,9 +199,12 @@ def run_document_preflight(
         semantic_result = validate_strategy_semantics(document, registry)
         semantic = semantic_result.diagnostics
         semantic_ok = semantic_result.ok
-        resolution = resolve_strategy_components(
-            document, components or ComponentCatalog(), registry
-        )
+        # Fail loud if the document pins components but no catalog was threaded through (GAP-1): an
+        # empty default would report every pinned component as unavailable. This sits inside the
+        # structural gate so a structurally-invalid componentized document still surfaces its
+        # structural faults first (resolution never runs on it). Explicit empty stays valid.
+        catalog = require_component_catalog(components, document.component_refs)
+        resolution = resolve_strategy_components(document, catalog, registry)
         resolution_ok = resolution.ok
         runtime.extend(resolution.diagnostics)
 

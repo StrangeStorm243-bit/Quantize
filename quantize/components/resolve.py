@@ -68,6 +68,28 @@ class ComponentCatalog:
         return self._by_key.get(key)
 
 
+def require_component_catalog(
+    components: ComponentCatalog | None, component_refs: Sequence[ComponentRef]
+) -> ComponentCatalog:
+    """Resolve the catalog to use, failing LOUD at the seam instead of silently substituting an
+    empty catalog (M12.9, GAP-1).
+
+    A ``None`` catalog for a document that PINS components is a caller bug — the exact GAP-1 shape
+    where a document-taking entry point forgets ``components=`` and every pinned component then
+    reports ``component_definition_unavailable``. Reject it here rather than proceed on an empty
+    catalog. An EXPLICIT ``ComponentCatalog()`` stays valid: passing empty on purpose (e.g. to
+    obtain the unavailable-diagnostics) is a deliberate, supported case; only ``None`` is rejected.
+    A ``None`` catalog for a no-refs document is fine — nothing to resolve — and maps to empty.
+    """
+    if components is not None:
+        return components
+    if component_refs:
+        raise ValueError(
+            "document pins components; pass an explicit ComponentCatalog (empty is allowed)"
+        )
+    return ComponentCatalog()
+
+
 @dataclass(frozen=True)
 class ResolvedComponentInstance:
     """One component-instance node, fully resolved: its definition, effective internal params
