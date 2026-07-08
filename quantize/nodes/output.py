@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from quantize.registry.descriptor import InputPortSpec, NodeDescriptor, NodeMetadata
+from quantize.registry.descriptor import (
+    InputPortSpec,
+    NodeDescriptor,
+    NodeDoc,
+    NodeMetadata,
+)
 from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.runtime.binding import NodeImplementation, NodeInvocation
 from quantize.runtime.values import PortfolioTargetsValue, RuntimeValue
@@ -53,6 +58,19 @@ TARGET_PORTFOLIO = NodeImplementation(
             description=(
                 "The graph terminal: receives the final PortfolioTargets. The engine — not the "
                 "graph — reconciles targets into orders."
+            ),
+            category="output",
+            doc=NodeDoc(
+                summary=(
+                    "The machine's output — the final PortfolioTargets the strategy graph "
+                    "produces. The engine (not the graph) reconciles these targets into orders "
+                    "and fills."
+                ),
+                semantics=(
+                    "The single graph terminal; consumes the final PortfolioTargets and emits no "
+                    "value. Turning targets into orders is engine territory (there is no "
+                    "order-generation node)."
+                ),
             ),
         ),
         parameter_schema=JsonSchemaSpec({"type": "object", "additionalProperties": False}),

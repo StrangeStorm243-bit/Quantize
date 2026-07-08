@@ -18,8 +18,10 @@ from quantize.nodes._params import get_bool, require_int
 from quantize.registry.descriptor import (
     InputPortSpec,
     NodeDescriptor,
+    NodeDoc,
     NodeMetadata,
     OutputPortSpec,
+    ParamDoc,
 )
 from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.runtime.binding import NodeImplementation, NodeInvocation
@@ -114,6 +116,26 @@ TRAILING_RETURN = NodeImplementation(
                 "Return over the trailing lookback_sessions calendar sessions: "
                 "close(D)/close(D-L) - 1. Assets missing either close are excluded."
             ),
+            category="transform",
+            doc=NodeDoc(
+                summary=(
+                    "Measures each asset's momentum as its return over the trailing lookback "
+                    "window — the raw signal this strategy ranks on."
+                ),
+                formula="r_D = close(D) / close(D - L) - 1   (L = lookback_sessions)",
+                semantics=(
+                    "D is the latest visible session; D-L is exactly lookback_sessions calendar "
+                    "sessions earlier. An asset missing either close, or with a zero anchor close, "
+                    "is excluded (traced) — never forward-filled. Warm-up: lookback_sessions "
+                    "prior sessions."
+                ),
+                parameters={
+                    "lookback_sessions": ParamDoc(
+                        label="Lookback sessions",
+                        help="Calendar sessions back to the anchor close (the momentum window).",
+                    ),
+                },
+            ),
         ),
         parameter_schema=JsonSchemaSpec(
             {
@@ -199,6 +221,25 @@ MOVING_AVERAGE = NodeImplementation(
                 "Simple moving average over the trailing window sessions; sessions missing any "
                 "window observation get no point (never forward-filled)."
             ),
+            category="transform",
+            doc=NodeDoc(
+                summary=(
+                    "Smooths each asset's price into a trailing moving average — the trend line a "
+                    "strategy compares the current price against."
+                ),
+                formula="MA(D) = mean(close(D - W + 1), …, close(D))   (W = window)",
+                semantics=(
+                    "Simple average over the trailing window sessions ending at each session. A "
+                    "session missing any observation in its window produces no point (never "
+                    "forward-filled). Warm-up: window - 1 prior sessions."
+                ),
+                parameters={
+                    "window": ParamDoc(
+                        label="Window",
+                        help="Trailing sessions averaged into each moving-average point.",
+                    ),
+                },
+            ),
         ),
         parameter_schema=JsonSchemaSpec(
             {
@@ -253,6 +294,20 @@ LATEST = NodeImplementation(
             description=(
                 "The value at the latest visible session, per asset; assets without an "
                 "observation at that session are excluded."
+            ),
+            category="transform",
+            doc=NodeDoc(
+                summary=(
+                    "Collapses a per-asset history into a single current value per asset — the "
+                    "explicit 'take the latest point' step (e.g. latest price or latest moving "
+                    "average) that feeds cross-sectional logic."
+                ),
+                formula="value(asset) = series(asset) at the latest visible session",
+                semantics=(
+                    "Takes each asset's value AT the latest visible session only; an asset "
+                    "without an observation at that exact session is excluded (no stale "
+                    "substitution). Warm-up: 0 — needs only the current session."
+                ),
             ),
         ),
         parameter_schema=_EMPTY_PARAMS,
@@ -310,6 +365,24 @@ RANK = NodeImplementation(
             description=(
                 "Ordinal ranks over the present values (1 = best; descending by default); "
                 "ties broken by ascending canonical ticker."
+            ),
+            category="selection",
+            doc=NodeDoc(
+                summary=(
+                    "Orders the universe by a score — assigns ordinal ranks (1 = best) so a "
+                    "downstream selection stage can pick the top names. The machine's ranking step."
+                ),
+                formula="rank(asset) ∈ {1..k}, 1 = best (descending score by default)",
+                semantics=(
+                    "Ranks only the assets with a present score (excluded assets are not ranked); "
+                    "ties are broken by ascending canonical ticker, deterministically."
+                ),
+                parameters={
+                    "descending": ParamDoc(
+                        label="Descending",
+                        help="When true (default), the highest score gets rank 1.",
+                    ),
+                },
             ),
         ),
         parameter_schema=JsonSchemaSpec(

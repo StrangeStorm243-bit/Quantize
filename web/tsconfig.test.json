@@ -1,0 +1,6 @@
+{
+  "//": "Type-checks the test files (excluded from the app config tsconfig.json). Includes all of src plus the test-only Node ambient shim (src/test-node.d.ts) so tests may read stylesheet source at runtime. App code is ALSO covered by the stricter app config, which forbids the Node globals — so a browser-code leak still fails `npm run typecheck`.",
+  "extends": "./tsconfig.json",
+  "include": ["src"],
+  "exclude": []
+}

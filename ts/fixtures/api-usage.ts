@@ -23,6 +23,7 @@ const rank: NodeTypeDto = {
   type_version: "1.0.0",
   display_name: "Rank",
   description: "Cross-sectional rank.",
+  category: "selection",
   inputs: [
     {
       name: "values",
@@ -32,6 +33,11 @@ const rank: NodeTypeDto = {
   ],
   outputs: [{ name: "values", port_type: { kind: "CrossSection", dtype: "Number" } }],
   parameter_schema: rankSchema,
+  doc: {
+    summary: "Orders the universe by a score.",
+    formula: "rank(asset) in {1..k}, 1 = best",
+    parameters: { descending: { label: "Descending", help: "Highest score gets rank 1." } },
+  },
 };
 
 // A node whose `parameter_schema` is the honest `null` branch (node declares none).
@@ -40,6 +46,7 @@ const sink: NodeTypeDto = {
   type_version: "1.0.0",
   display_name: "Portfolio Targets",
   description: "Terminal portfolio-targets sink.",
+  category: "output",
   inputs: [
     { name: "targets", port_type: { kind: "PortfolioTargets" }, required: true },
   ],

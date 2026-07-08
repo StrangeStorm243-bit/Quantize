@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from quantize.registry.descriptor import (
     InputPortSpec,
     NodeDescriptor,
+    NodeDoc,
     NodeMetadata,
     OutputPortSpec,
 )
@@ -92,6 +93,20 @@ GREATER_THAN = NodeImplementation(
             description=(
                 "Per-asset left > right over the full bound domain; a missing operand yields "
                 "false (never omission), with a missing-data trace event."
+            ),
+            category="signal",
+            doc=NodeDoc(
+                summary=(
+                    "Turns two cross-sections into a per-asset yes/no signal — asks 'is left "
+                    "greater than right?' for every asset (e.g. price above its moving average). "
+                    "This is the machine's condition/gate stage."
+                ),
+                formula="mask(asset) = left(asset) > right(asset)",
+                semantics=(
+                    "Preserves the full bound domain: every asset appears in the output mask. If "
+                    "either operand is missing for an asset, its result is false (never omitted), "
+                    "with a missing-operand trace event."
+                ),
             ),
         ),
         parameter_schema=JsonSchemaSpec({"type": "object", "additionalProperties": False}),

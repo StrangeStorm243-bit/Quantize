@@ -25,7 +25,9 @@ def _descriptor(type_id: str = "test.const", version: str = "1.0.0") -> NodeDesc
         type_version=version,
         inputs=(),
         outputs=(OutputPortSpec(name="out", port_type=ScalarType(kind="Scalar", dtype="Number")),),
-        metadata=NodeMetadata(display_name="Const", description="Synthetic constant."),
+        metadata=NodeMetadata(
+            display_name="Const", description="Synthetic constant.", category="transform"
+        ),
     )
 
 

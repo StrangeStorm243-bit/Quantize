@@ -1,6 +1,6 @@
 {
   "api_version": "v1",
-  "catalog_digest": "5950ace1ca3e74ea32eea9d85efd962b2272510bcdc1de6d8cc32889ffb0577d",
+  "catalog_digest": "5946b8514e79093ad08712a9045f9d70d4b021f29f874ed02a2e6eeccd967314",
   "compatibility": [
     {
       "destination": {
@@ -91,8 +91,16 @@
   ],
   "node_types": [
     {
+      "category": "data",
       "description": "Per-asset close-price history visible at the evaluation instant (availability-gated; assets without data keep an empty history).",
       "display_name": "Price History",
+      "doc": {
+        "formula": null,
+        "latex": null,
+        "parameters": {},
+        "semantics": "Availability-gated: only observations knowable at or before the evaluation instant are visible (no look-ahead). An asset with no visible observations keeps an empty history rather than being dropped; nothing is forward-filled.",
+        "summary": "The machine's data entry point — loads each universe asset's close-price history as it was known at the evaluation instant. Everything the strategy computes flows from here."
+      },
       "inputs": [
         {
           "name": "assets",
@@ -119,8 +127,16 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "signal",
       "description": "Per-asset left > right over the full bound domain; a missing operand yields false (never omission), with a missing-data trace event.",
       "display_name": "Greater Than",
+      "doc": {
+        "formula": "mask(asset) = left(asset) > right(asset)",
+        "latex": null,
+        "parameters": {},
+        "semantics": "Preserves the full bound domain: every asset appears in the output mask. If either operand is missing for an asset, its result is false (never omitted), with a missing-operand trace event.",
+        "summary": "Turns two cross-sections into a per-asset yes/no signal — asks 'is left greater than right?' for every asset (e.g. price above its moving average). This is the machine's condition/gate stage."
+      },
       "inputs": [
         {
           "name": "left",
@@ -156,8 +172,16 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "output",
       "description": "The graph terminal: receives the final PortfolioTargets. The engine — not the graph — reconciles targets into orders.",
       "display_name": "Target Portfolio",
+      "doc": {
+        "formula": null,
+        "latex": null,
+        "parameters": {},
+        "semantics": "The single graph terminal; consumes the final PortfolioTargets and emits no value. Turning targets into orders is engine territory (there is no order-generation node).",
+        "summary": "The machine's output — the final PortfolioTargets the strategy graph produces. The engine (not the graph) reconciles these targets into orders and fills."
+      },
       "inputs": [
         {
           "name": "targets",
@@ -176,8 +200,16 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "weighting",
       "description": "Zeroes weights where the mask is false or missing (traced); survivors keep their sleeves — no renormalization, zeroed weight becomes cash.",
       "display_name": "Apply Mask",
+      "doc": {
+        "formula": "w'(asset) = w(asset) if mask(asset) else 0",
+        "latex": null,
+        "parameters": {},
+        "semantics": "Zeroes weights where the mask is false OR missing (traced); survivors keep their sleeves — no renormalization, so the zeroed weight becomes cash.",
+        "summary": "Gates an allocation by a boolean signal — zeroes the weight of any asset the mask rejects. This is where a signal stage actually removes names from the book."
+      },
       "inputs": [
         {
           "name": "targets",
@@ -211,8 +243,16 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "weighting",
       "description": "1/|selected| per selected asset (renormalized across the selection); an empty selection is all cash.",
       "display_name": "Equal Weight",
+      "doc": {
+        "formula": "w = 1 / |selected|   for each selected asset",
+        "latex": null,
+        "parameters": {},
+        "semantics": "Renormalizes across the selected set. An empty selection yields all cash. Cash = 1 - Σw.",
+        "summary": "Weights the selected assets equally — the machine's simplest allocation stage, splitting the portfolio evenly across whatever was selected."
+      },
       "inputs": [
         {
           "name": "assets",
@@ -238,8 +278,21 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "weighting",
       "description": "A fixed sleeve per universe asset (a number, or 'equal' for 1/|universe|); no renormalization — unallocated weight is cash.",
       "display_name": "Fixed Weight",
+      "doc": {
+        "formula": "w = weight_per_asset (or 1 / |universe| when 'equal') per universe asset",
+        "latex": null,
+        "parameters": {
+          "weight_per_asset": {
+            "help": "A fixed fraction per asset, or 'equal' for 1/|universe|.",
+            "label": "Weight per asset"
+          }
+        },
+        "semantics": "Never renormalizes; unallocated weight is cash. A numeric weight whose total across the universe exceeds 1 fails loudly. An empty universe yields all cash.",
+        "summary": "Assigns each universe asset a fixed sleeve — the machine's allocation stage for a static, non-renormalized book (used with a downstream mask)."
+      },
       "inputs": [
         {
           "name": "assets",
@@ -282,8 +335,21 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "selection",
       "description": "The n best-ranked universe assets (smallest score wins; ties by canonical ticker); unscored assets are excluded, and fewer than n may qualify.",
       "display_name": "Select Top N",
+      "doc": {
+        "formula": null,
+        "latex": null,
+        "parameters": {
+          "n": {
+            "help": "How many top-ranked assets to hold (fewer if fewer qualify).",
+            "label": "Number to select"
+          }
+        },
+        "semantics": "Consumes rank/score values (smallest score = best, designed for transform.rank output); ties resolve by ascending canonical ticker. Universe assets without a score are excluded (traced); if fewer than n qualify, all qualifying assets are selected.",
+        "summary": "Selects the n best-ranked assets from the universe — the machine's shortlist step that narrows a scored cross-section down to the names actually held."
+      },
       "inputs": [
         {
           "name": "scores",
@@ -326,8 +392,21 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "risk",
       "description": "Caps each weight at max and redistributes the excess via the deterministic proportional waterfall; an unresolvable remainder stays in cash.",
       "display_name": "Max Weight Cap",
+      "doc": {
+        "formula": "w(asset) ≤ max;  excess redistributed proportionally to uncapped assets",
+        "latex": null,
+        "parameters": {
+          "max": {
+            "help": "Ceiling on any single asset's weight (0–1); excess is redistributed.",
+            "label": "Max weight"
+          }
+        },
+        "semantics": "Deterministic waterfall: cap every over-limit asset at max, redistribute the excess proportionally across eligible uncapped assets, repeat until no asset exceeds the cap. If no eligible capacity remains, the remainder stays in cash — the cap is never violated to force full investment.",
+        "summary": "Caps concentration — limits any single asset's weight to max and redistributes the excess across the others. The machine's risk-control stage."
+      },
       "inputs": [
         {
           "name": "targets",
@@ -363,8 +442,16 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "transform",
       "description": "The value at the latest visible session, per asset; assets without an observation at that session are excluded.",
       "display_name": "Latest Value",
+      "doc": {
+        "formula": "value(asset) = series(asset) at the latest visible session",
+        "latex": null,
+        "parameters": {},
+        "semantics": "Takes each asset's value AT the latest visible session only; an asset without an observation at that exact session is excluded (no stale substitution). Warm-up: 0 — needs only the current session.",
+        "summary": "Collapses a per-asset history into a single current value per asset — the explicit 'take the latest point' step (e.g. latest price or latest moving average) that feeds cross-sectional logic."
+      },
       "inputs": [
         {
           "name": "series",
@@ -392,8 +479,21 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "transform",
       "description": "Simple moving average over the trailing window sessions; sessions missing any window observation get no point (never forward-filled).",
       "display_name": "Moving Average",
+      "doc": {
+        "formula": "MA(D) = mean(close(D - W + 1), …, close(D))   (W = window)",
+        "latex": null,
+        "parameters": {
+          "window": {
+            "help": "Trailing sessions averaged into each moving-average point.",
+            "label": "Window"
+          }
+        },
+        "semantics": "Simple average over the trailing window sessions ending at each session. A session missing any observation in its window produces no point (never forward-filled). Warm-up: window - 1 prior sessions.",
+        "summary": "Smooths each asset's price into a trailing moving average — the trend line a strategy compares the current price against."
+      },
       "inputs": [
         {
           "name": "series",
@@ -430,8 +530,21 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "selection",
       "description": "Ordinal ranks over the present values (1 = best; descending by default); ties broken by ascending canonical ticker.",
       "display_name": "Rank",
+      "doc": {
+        "formula": "rank(asset) ∈ {1..k}, 1 = best (descending score by default)",
+        "latex": null,
+        "parameters": {
+          "descending": {
+            "help": "When true (default), the highest score gets rank 1.",
+            "label": "Descending"
+          }
+        },
+        "semantics": "Ranks only the assets with a present score (excluded assets are not ranked); ties are broken by ascending canonical ticker, deterministically.",
+        "summary": "Orders the universe by a score — assigns ordinal ranks (1 = best) so a downstream selection stage can pick the top names. The machine's ranking step."
+      },
       "inputs": [
         {
           "name": "values",
@@ -465,8 +578,21 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "transform",
       "description": "Return over the trailing lookback_sessions calendar sessions: close(D)/close(D-L) - 1. Assets missing either close are excluded.",
       "display_name": "Trailing Return",
+      "doc": {
+        "formula": "r_D = close(D) / close(D - L) - 1   (L = lookback_sessions)",
+        "latex": null,
+        "parameters": {
+          "lookback_sessions": {
+            "help": "Calendar sessions back to the anchor close (the momentum window).",
+            "label": "Lookback sessions"
+          }
+        },
+        "semantics": "D is the latest visible session; D-L is exactly lookback_sessions calendar sessions earlier. An asset missing either close, or with a zero anchor close, is excluded (traced) — never forward-filled. Warm-up: lookback_sessions prior sessions.",
+        "summary": "Measures each asset's momentum as its return over the trailing lookback window — the raw signal this strategy ranks on."
+      },
       "inputs": [
         {
           "name": "series",
@@ -503,8 +629,21 @@
       "type_version": "1.0.0"
     },
     {
+      "category": "universe",
       "description": "A fixed list of asset tickers, emitted in canonical (ascending) order.",
       "display_name": "Fixed Universe",
+      "doc": {
+        "formula": null,
+        "latex": null,
+        "parameters": {
+          "tickers": {
+            "help": "Asset symbols in the universe (e.g. SPY, QQQ); emitted ascending.",
+            "label": "Tickers"
+          }
+        },
+        "semantics": "Emits the tickers in canonical (ascending) order. Reads no market data; the list is taken verbatim from the tickers parameter.",
+        "summary": "Defines the machine's investable universe — the fixed set of asset tickers every downstream stage is allowed to consider. This is where the strategy declares what it can trade."
+      },
       "inputs": [],
       "outputs": [
         {

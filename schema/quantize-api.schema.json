@@ -404,8 +404,14 @@
     },
     "DatasetStored": {
       "additionalProperties": false,
-      "description": "Metadata for a stored dataset — the content-addressed id plus both provenance fingerprints\nand simple counts. NEVER carries the payload (fetch-metadata returns this, not the data).",
+      "description": "Metadata for a stored dataset — the content-addressed id plus both provenance fingerprints,\nsimple counts, and a read-only introspection projection (calendar bounds + canonical asset\ntickers, M13.1) computed from the stored payload. NEVER carries the payload itself. The same\nDTO serves both the upload response and describe — do not fork it.",
       "properties": {
+        "asset_tickers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "assets": {
           "type": "integer"
         },
@@ -418,6 +424,14 @@
         "dataset_id": {
           "type": "string"
         },
+        "first_session": {
+          "format": "date",
+          "type": "string"
+        },
+        "last_session": {
+          "format": "date",
+          "type": "string"
+        },
         "sessions": {
           "type": "integer"
         }
@@ -427,7 +441,10 @@
         "dataset_fingerprint",
         "calendar_fingerprint",
         "sessions",
-        "assets"
+        "assets",
+        "first_session",
+        "last_session",
+        "asset_tickers"
       ],
       "title": "DatasetStored",
       "type": "object"
@@ -607,15 +624,82 @@
       "title": "NodeCatalogResponse",
       "type": "object"
     },
+    "NodeDocDto": {
+      "additionalProperties": false,
+      "description": "Wire mirror of ``registry.descriptor.NodeDoc`` — the node's role-first meaning for the\neditor (``summary`` prose, plain-text ``formula``, reserved ``latex``, ``semantics``, and\nper-parameter docs).",
+      "properties": {
+        "formula": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "latex": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ParamDocDto"
+          },
+          "type": "object"
+        },
+        "semantics": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "title": "NodeDocDto",
+      "type": "object"
+    },
     "NodeTypeDto": {
       "additionalProperties": false,
-      "description": "One registered node type: identity, typed ports, and its parameter JSON Schema (if any).",
+      "description": "One registered node type: identity, machine-stage ``category``, typed ports, its parameter\nJSON Schema (if any), and the structured ``doc`` block the inspector renders (M13.1).",
       "properties": {
+        "category": {
+          "type": "string"
+        },
         "description": {
           "type": "string"
         },
         "display_name": {
           "type": "string"
+        },
+        "doc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeDocDto"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "inputs": {
           "items": {
@@ -654,6 +738,7 @@
         "type_version",
         "display_name",
         "description",
+        "category",
         "inputs",
         "outputs",
         "parameter_schema"
@@ -692,6 +777,31 @@
         "close_available_at"
       ],
       "title": "ObservationDto",
+      "type": "object"
+    },
+    "ParamDocDto": {
+      "additionalProperties": false,
+      "description": "Wire mirror of ``registry.descriptor.ParamDoc`` — a parameter's display label + help.",
+      "properties": {
+        "help": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "ParamDocDto",
       "type": "object"
     },
     "PersistedDiagnostic": {
@@ -1804,11 +1914,17 @@
     "NodeCatalogResponse": {
       "$ref": "#/$defs/NodeCatalogResponse"
     },
+    "NodeDocDto": {
+      "$ref": "#/$defs/NodeDocDto"
+    },
     "NodeTypeDto": {
       "$ref": "#/$defs/NodeTypeDto"
     },
     "ObservationDto": {
       "$ref": "#/$defs/ObservationDto"
+    },
+    "ParamDocDto": {
+      "$ref": "#/$defs/ParamDocDto"
     },
     "PersistedDiagnostic": {
       "$ref": "#/$defs/PersistedDiagnostic"

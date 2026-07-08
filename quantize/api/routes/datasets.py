@@ -60,6 +60,9 @@ def _stored(info: StoredDatasetInfo) -> DatasetStored:
         calendar_fingerprint=info.calendar_fingerprint,
         sessions=info.sessions,
         assets=info.assets,
+        first_session=info.first_session,
+        last_session=info.last_session,
+        asset_tickers=info.asset_tickers,
     )
 
 

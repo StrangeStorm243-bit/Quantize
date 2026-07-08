@@ -57,20 +57,45 @@ describe('isAllowed / buildCompatibilitySet', () => {
 })
 
 describe('paletteGroups', () => {
-  it('yields the expected namespace groups covering all 13 node types', () => {
+  it('groups by served category in pipeline-stage order (not type_id namespace)', () => {
     const groups = paletteGroups(catalog)
+    // The eight live categories in stage-rollup order (design W2) — NOT alphabetical, NOT namespace.
     expect(groups.map((g) => g.group)).toEqual([
-      'data',
-      'logic',
-      'output',
-      'portfolio',
-      'risk',
-      'transform',
       'universe',
+      'data',
+      'transform',
+      'signal',
+      'selection',
+      'weighting',
+      'risk',
+      'output',
     ])
     const total = groups.reduce((n, g) => n + g.nodeTypes.length, 0)
     expect(total).toBe(13)
     expect(catalog.node_types).toHaveLength(13)
+  })
+
+  it('carries a human label per group and sorts node types by display name within a group', () => {
+    const groups = paletteGroups(catalog)
+    const selection = groups.find((g) => g.group === 'selection')
+    expect(selection?.label).toBe('Rank & Select')
+    // selection = {transform.rank "Rank", portfolio.select_top_n "Select Top N"} → sorted by name.
+    expect(selection?.nodeTypes.map((n) => n.display_name)).toEqual(['Rank', 'Select Top N'])
+  })
+
+  it('appends unknown/reserved categories after the live ones, sorted', () => {
+    const withUnknown: NodeCatalogResponse = {
+      ...catalog,
+      node_types: [
+        ...catalog.node_types,
+        { ...catalog.node_types[0], type_id: 'ml.classifier', category: 'ml' },
+        { ...catalog.node_types[0], type_id: 'x.custom', category: 'zzz_custom' },
+      ],
+    }
+    const order = paletteGroups(withUnknown).map((g) => g.group)
+    // Live categories keep stage order; unknown ones ('ml', 'zzz_custom') append in sorted order.
+    expect(order.slice(-2)).toEqual(['ml', 'zzz_custom'])
+    expect(order.indexOf('output')).toBeLessThan(order.indexOf('ml'))
   })
 })
 

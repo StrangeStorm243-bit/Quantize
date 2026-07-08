@@ -130,7 +130,12 @@ export function RunPanel({ doc, datasetId, selectedRunId, onSelectRun }: RunPane
             onChange={(e) => setMode(e.target.value as RunMode)}
           >
             <option value="backtest">Backtest</option>
-            <option value="forward">Forward replay</option>
+            <option value="forward">Paper replay</option>
+            {/* Live/broker execution is the machine's third operating mode — named honestly, marked
+               deferred, and never a working control (no order ever reaches a real broker in v0). */}
+            <option value="live" disabled>
+              Live — not available in this version (future)
+            </option>
           </select>
         </div>
 
@@ -182,9 +187,14 @@ export function RunPanel({ doc, datasetId, selectedRunId, onSelectRun }: RunPane
           disabled={disabled}
           onClick={() => void onSubmit()}
         >
-          {submitting ? 'Running…' : mode === 'forward' ? 'Run forward' : 'Run backtest'}
+          {submitting ? 'Running…' : mode === 'forward' ? 'Run paper replay' : 'Run backtest'}
         </button>
       </div>
+
+      <p className="rpanel__sim-notice" role="note">
+        All runs are simulations over local data — no live trading. Backtest and paper replay both
+        replay the same engine over the selected dataset.
+      </p>
 
       <p className="rpanel__hint">
         Runs target the SAVED strategy at <code>{abbrev(strategyId)}</code> v{strategyVersion}. Save

@@ -22,14 +22,14 @@
   },
   "schedule": { "kind": "monthly" },
   "nodes": [
-    { "id": "u", "type_id": "universe.fixed_list", "type_version": "1.0.0", "params": { "tickers": ["EFA", "GLD", "IWM", "QQQ", "SPY", "TLT"] } },
-    { "id": "px", "type_id": "data.price", "type_version": "1.0.0", "params": {} },
-    { "id": "ret", "type_id": "transform.trailing_return", "type_version": "1.0.0", "params": { "lookback_sessions": 126 } },
-    { "id": "rk", "type_id": "transform.rank", "type_version": "1.0.0", "params": { "descending": true } },
-    { "id": "sel", "type_id": "portfolio.select_top_n", "type_version": "1.0.0", "params": { "n": 3 } },
-    { "id": "ew", "type_id": "portfolio.equal_weight", "type_version": "1.0.0", "params": {} },
-    { "id": "cap", "type_id": "risk.max_weight", "type_version": "1.0.0", "params": { "max": 0.4 } },
-    { "id": "tp", "type_id": "output.target_portfolio", "type_version": "1.0.0", "params": {} }
+    { "id": "u", "type_id": "universe.fixed_list", "type_version": "1.0.0", "params": { "tickers": ["EFA", "GLD", "IWM", "QQQ", "SPY", "TLT"] }, "ui": { "position": { "x": 0, "y": 0 } } },
+    { "id": "px", "type_id": "data.price", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 420, "y": 200 } } },
+    { "id": "ret", "type_id": "transform.trailing_return", "type_version": "1.0.0", "params": { "lookback_sessions": 126 }, "ui": { "position": { "x": 840, "y": 200 } } },
+    { "id": "rk", "type_id": "transform.rank", "type_version": "1.0.0", "params": { "descending": true }, "ui": { "position": { "x": 1260, "y": 200 } } },
+    { "id": "sel", "type_id": "portfolio.select_top_n", "type_version": "1.0.0", "params": { "n": 3 }, "ui": { "position": { "x": 1680, "y": 200 } } },
+    { "id": "ew", "type_id": "portfolio.equal_weight", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 2100, "y": 200 } } },
+    { "id": "cap", "type_id": "risk.max_weight", "type_version": "1.0.0", "params": { "max": 0.4 }, "ui": { "position": { "x": 2520, "y": 200 } } },
+    { "id": "tp", "type_id": "output.target_portfolio", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 2940, "y": 200 } } }
   ],
   "edges": [
     { "from": ["u", "assets"], "to": ["px", "assets"] },

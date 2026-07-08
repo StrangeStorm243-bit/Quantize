@@ -84,16 +84,16 @@ describe('RunPanel', () => {
       <RunPanel doc={doc} datasetId={DATASET} selectedRunId={undefined} onSelectRun={vi.fn()} />,
     )
 
-    // Switch to forward mode.
+    // Switch to paper-replay mode (the existing forward endpoint, honestly renamed in M13.3).
     fireEvent.change(screen.getByLabelText(/run mode/i), { target: { value: 'forward' } })
     // Submit with a blank last_session is gated client-side — the request is NOT sent.
-    fireEvent.click(screen.getByRole('button', { name: /run forward/i }))
+    fireEvent.click(screen.getByRole('button', { name: /run paper replay/i }))
     expect(await screen.findByText(/last session is required/i)).toBeInTheDocument()
     expect(mockForward).not.toHaveBeenCalled()
 
     // Provide last_session → the forward request includes it.
     fireEvent.change(screen.getByLabelText(/last session/i), { target: { value: '2025-08-29' } })
-    fireEvent.click(screen.getByRole('button', { name: /run forward/i }))
+    fireEvent.click(screen.getByRole('button', { name: /run paper replay/i }))
     await waitFor(() =>
       expect(mockForward).toHaveBeenCalledWith({
         dataset_id: DATASET,
@@ -143,5 +143,26 @@ describe('RunPanel', () => {
     await waitFor(() => expect(mockBacktest).toHaveBeenCalled())
     await waitFor(() => expect(mockListRuns).toHaveBeenCalledTimes(2)) // refreshed
     expect(onSelect).toHaveBeenCalledWith('run-new')
+  })
+})
+
+describe('RunPanel execution-mode framing (M13.3)', () => {
+  it('shows a persistent simulation-only notice at the run-launch surface', async () => {
+    render(
+      <RunPanel doc={makeDoc()} datasetId={DATASET} selectedRunId={undefined} onSelectRun={vi.fn()} />,
+    )
+    expect(await screen.findByText(/simulations over local data/i)).toBeInTheDocument()
+    expect(screen.getByText(/no live trading/i)).toBeInTheDocument()
+  })
+
+  it('presents Backtest + Paper replay as available modes and Live as explicitly deferred', async () => {
+    render(
+      <RunPanel doc={makeDoc()} datasetId={DATASET} selectedRunId={undefined} onSelectRun={vi.fn()} />,
+    )
+    await screen.findByRole('option', { name: 'Backtest' })
+    expect(screen.getByRole('option', { name: 'Paper replay' })).toBeInTheDocument()
+    const live = screen.getByRole('option', { name: /Live/ })
+    expect(live).toBeDisabled()
+    expect(live.textContent).toMatch(/not available|future/i)
   })
 })

@@ -32,13 +32,18 @@ from quantize.persistence.serialize import canonical_json_bytes, content_hash, s
 
 @dataclass(frozen=True)
 class StoredDatasetInfo:
-    """Metadata for a stored dataset (never the payload): identity + provenance + simple counts."""
+    """Metadata for a stored dataset (never the payload): identity + provenance + simple counts,
+    plus the M13.1 introspection projection (calendar first/last session + canonical asset tickers)
+    computed from the payload at describe/upload time — no stored-format change, no migration."""
 
     dataset_id: str
     dataset_fingerprint: str
     calendar_fingerprint: str
     sessions: int
     assets: int
+    first_session: date
+    last_session: date
+    asset_tickers: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,16 @@ class DatasetSummary:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()  # row metadata only — never part of dataset identity
+
+
+def _introspection(market_data: MarketDataSet) -> tuple[date, date, tuple[str, ...]]:
+    """The Data Source card's read-only facts: calendar bounds + canonical asset tickers.
+
+    Pure projection of the reconstructed dataset — the calendar is strictly increasing (so
+    ``session_dates[0]``/``[-1]`` are the bounds) and ``assets`` is already canonical (ascending).
+    """
+    session_dates = market_data.calendar.session_dates
+    return session_dates[0], session_dates[-1], market_data.assets
 
 
 def _canonical_payload(market_data: MarketDataSet) -> dict[str, Any]:
@@ -135,12 +150,16 @@ class DatasetRepository:
         self._db = database
 
     def _info(self, market_data: MarketDataSet, dataset_id: str) -> StoredDatasetInfo:
+        first_session, last_session, asset_tickers = _introspection(market_data)
         return StoredDatasetInfo(
             dataset_id=dataset_id,
             dataset_fingerprint=dataset_fingerprint(market_data),
             calendar_fingerprint=calendar_fingerprint(market_data.calendar),
             sessions=len(market_data.calendar.sessions),
             assets=len(market_data.observations),
+            first_session=first_session,
+            last_session=last_session,
+            asset_tickers=asset_tickers,
         )
 
     def save(self, market_data: MarketDataSet) -> tuple[StoredDatasetInfo, bool]:
@@ -200,12 +219,16 @@ class DatasetRepository:
                 f"stored dataset {dataset_id} fingerprint columns do not match its payload",
                 {"dataset_id": dataset_id},
             )
+        first_session, last_session, asset_tickers = _introspection(market_data)
         return StoredDatasetInfo(
             dataset_id=dataset_id,
             dataset_fingerprint=recomputed_dataset,
             calendar_fingerprint=recomputed_calendar,
             sessions=len(market_data.calendar.sessions),
             assets=len(market_data.observations),
+            first_session=first_session,
+            last_session=last_session,
+            asset_tickers=asset_tickers,
         )
 
     def list_datasets(self) -> tuple[DatasetSummary, ...]:

@@ -113,10 +113,13 @@ describe('extractComponent — E7 oracle (momentum subgraph of Strategy A)', () 
     ])
   })
 
-  it('places the minted instance node at index 2 (the first removed node index) with no ui', () => {
+  it('places the minted instance node at index 2 (the first removed node index) at the selection centroid', () => {
     const node = success.strategy.nodes[2]
     expect(node.type_id).toBe('component')
-    expect(node.ui).toBeUndefined()
+    // The seeded strategy_a now positions its nodes, so the minted instance lands at the bounding-box
+    // centroid of the selected {ret, rk, sel} positions — (840,1260,1680)→1260, all y=200 (see the
+    // "minted node ui centroid" cases below for the general rule).
+    expect(node.ui).toEqual({ position: { x: 1260, y: 200 } })
     expect(node.params).toEqual({})
   })
 
@@ -162,6 +165,7 @@ function nodeType(
     type_version: '1.0.0',
     display_name: typeId,
     description: '',
+    category: 'transform',
     inputs,
     outputs,
     parameter_schema: null,

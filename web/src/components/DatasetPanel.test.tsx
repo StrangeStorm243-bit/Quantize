@@ -30,6 +30,9 @@ const STORED: DatasetStored = {
   calendar_fingerprint: 'c'.repeat(64),
   sessions: 21,
   assets: 3,
+  first_session: '2026-01-05',
+  last_session: '2026-02-04',
+  asset_tickers: ['AAA', 'BBB', 'CCC'],
 }
 
 const LIST: DatasetList = {

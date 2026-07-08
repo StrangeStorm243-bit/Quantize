@@ -97,29 +97,68 @@ export function defaultParamsFor(nodeType: NodeTypeDto): { [k: string]: JsonValu
   return params
 }
 
-/** One palette group: a `type_id` namespace prefix and the node types under it. */
+/** One palette group: a served machine-stage `category`, a human `label`, and its node types. */
 export interface PaletteGroup {
   group: string
+  label: string
   nodeTypes: NodeTypeDto[]
 }
 
 /**
- * Group node types by their `type_id` namespace (text before the first `.`), groups sorted and
- * node types sorted by display name within each. This is a display DERIVATION, not a contract.
+ * The eight live categories (M13.1 D-14) in pipeline-stage order (design W2) — this is the Library
+ * rail's spine: left-to-right it reads as the strategy machine (Data → Transforms → Signals →
+ * Rank & Select → Weighting → Risk → Targets). Categories NOT listed here (reserved/future/unknown)
+ * are appended after these, sorted, so a new node family always renders somewhere.
+ */
+export const CATEGORY_ORDER: readonly string[] = [
+  'universe',
+  'data',
+  'transform',
+  'signal',
+  'selection',
+  'weighting',
+  'risk',
+  'output',
+]
+
+/** Human labels for the known categories; an unknown category falls back to a title-cased key. */
+const CATEGORY_LABELS: Readonly<Record<string, string>> = {
+  universe: 'Universe',
+  data: 'Data',
+  transform: 'Transform',
+  signal: 'Signal',
+  selection: 'Rank & Select',
+  weighting: 'Weighting',
+  risk: 'Risk',
+  output: 'Targets',
+}
+
+function categoryLabel(category: string): string {
+  return CATEGORY_LABELS[category] ?? category.charAt(0).toUpperCase() + category.slice(1)
+}
+
+/**
+ * Group node types by their served `category`, ordered by {@link CATEGORY_ORDER} with unknown/reserved
+ * categories appended in sorted order; node types sorted by display name within each group. This is a
+ * display DERIVATION over server-supplied categories — never derived from the `type_id` namespace
+ * (which cannot express the machine stages) and never a contract.
  */
 export function paletteGroups(catalog: NodeCatalogResponse): PaletteGroup[] {
   const byGroup = new Map<string, NodeTypeDto[]>()
   for (const nt of catalog.node_types) {
-    const group = nt.type_id.split('.')[0]
-    const list = byGroup.get(group)
+    const list = byGroup.get(nt.category)
     if (list === undefined) {
-      byGroup.set(group, [nt])
+      byGroup.set(nt.category, [nt])
     } else {
       list.push(nt)
     }
   }
-  return [...byGroup.keys()].sort().map((group) => ({
+  const present = [...byGroup.keys()]
+  const known = CATEGORY_ORDER.filter((c) => byGroup.has(c))
+  const unknown = present.filter((c) => !CATEGORY_ORDER.includes(c)).sort()
+  return [...known, ...unknown].map((group) => ({
     group,
+    label: categoryLabel(group),
     nodeTypes: [...(byGroup.get(group) ?? [])].sort((a, b) =>
       a.display_name.localeCompare(b.display_name),
     ),

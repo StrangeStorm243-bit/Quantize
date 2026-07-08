@@ -143,7 +143,9 @@ def test_conflicting_redeclaration_fails_loud() -> None:
         type_version="1.0.0",
         inputs=(),
         outputs=(OutputPortSpec(name="out", port_type=ScalarType(kind="Scalar", dtype="Number")),),
-        metadata=NodeMetadata(display_name="X", description="conflicting spec fixture"),
+        metadata=NodeMetadata(
+            display_name="X", description="conflicting spec fixture", category="transform"
+        ),
         trace_events=(conflicting,),
     )
     catalog = ImplementationCatalog()

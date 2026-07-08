@@ -58,9 +58,77 @@ def test_upload_returns_201_with_identities(client: TestClient, db: ApiSettings)
         "calendar_fingerprint",
         "sessions",
         "assets",
+        "first_session",
+        "last_session",
+        "asset_tickers",
     }
     assert len(body["dataset_id"]) == 64
     assert body["sessions"] == 1 and body["assets"] == 1
+
+
+def _multi_session_payload() -> dict[str, Any]:
+    """Two sessions, two assets (deliberately declared out of ticker order) — exercises the
+    introspection projection's calendar bounds and canonical ticker ordering."""
+    return {
+        "calendar": {
+            "exchange": "QSE",
+            "timezone": "UTC-05:00",
+            "sessions": [
+                {
+                    "session_date": "2026-01-05",
+                    "open_at": "2026-01-05T14:30:00+00:00",
+                    "close_at": "2026-01-05T21:00:00+00:00",
+                },
+                {
+                    "session_date": "2026-01-06",
+                    "open_at": "2026-01-06T14:30:00+00:00",
+                    "close_at": "2026-01-06T21:00:00+00:00",
+                },
+            ],
+        },
+        "observations": {
+            "ZZZ": [
+                {
+                    "session_date": "2026-01-05",
+                    "open_price": 5.0,
+                    "close_price": 5.5,
+                    "open_available_at": "2026-01-05T14:30:00+00:00",
+                    "close_available_at": "2026-01-05T21:00:00+00:00",
+                },
+            ],
+            "AAA": [
+                {
+                    "session_date": "2026-01-06",
+                    "open_price": 10.0,
+                    "close_price": 10.5,
+                    "open_available_at": "2026-01-06T14:30:00+00:00",
+                    "close_available_at": "2026-01-06T21:00:00+00:00",
+                },
+            ],
+        },
+    }
+
+
+def test_empty_calendar_upload_is_422(client: TestClient, db: ApiSettings) -> None:
+    """An empty-calendar dataset has no sessions to introspect — rejected as invalid_dataset,
+    never a 500 (regression: the introspection projection must not index an empty calendar)."""
+    payload = {
+        "calendar": {"exchange": "QSE", "timezone": "UTC-05:00", "sessions": []},
+        "observations": {},
+    }
+    response = _post(client, payload)
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_dataset"
+
+
+def test_describe_returns_introspection_projection(client: TestClient, db: ApiSettings) -> None:
+    """M13.1: describe serves calendar bounds + canonical asset tickers (the Data Source card)."""
+    dataset_id = _post(client, _multi_session_payload()).json()["dataset_id"]
+    described = client.get(f"/v1/datasets/{dataset_id}").json()
+    assert described["first_session"] == "2026-01-05"
+    assert described["last_session"] == "2026-01-06"
+    assert described["first_session"] <= described["last_session"]
+    assert described["asset_tickers"] == ["AAA", "ZZZ"]  # ascending, not declaration order
 
 
 def test_identical_reupload_is_200_same_id(client: TestClient, db: ApiSettings) -> None:

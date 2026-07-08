@@ -26,7 +26,9 @@ def _descriptor(version: str = "1.0.0") -> NodeDescriptor:
         type_version=version,
         inputs=(),
         outputs=(OutputPortSpec(name="out", port_type=_CS_NUM),),
-        metadata=NodeMetadata(display_name="Source", description="Synthetic."),
+        metadata=NodeMetadata(
+            display_name="Source", description="Synthetic.", category="transform"
+        ),
     )
 
 
@@ -36,7 +38,7 @@ def _sink() -> NodeDescriptor:
         type_version="1.0.0",
         inputs=(InputPortSpec(name="in", port_type=_CS_NUM),),
         outputs=(),
-        metadata=NodeMetadata(display_name="Sink", description="Synthetic."),
+        metadata=NodeMetadata(display_name="Sink", description="Synthetic.", category="transform"),
     )
 
 

@@ -83,9 +83,22 @@ vi.mock('./components/Palette', () => ({
     <div data-testid="palette-refresh">{String(props.refreshKey)}</div>
   ),
 }))
+// The app opens on Home (M13.3); a Home stub enters the editor via onNew.
+vi.mock('./components/Home', () => ({
+  Home: (props: { onNew: (name: string) => void }) => (
+    <button type="button" onClick={() => props.onNew('Test')}>
+      home-new
+    </button>
+  ),
+}))
 
 // eslint-disable-next-line import/first
 import { App } from './App'
+
+function renderEditor(): void {
+  render(<App />)
+  fireEvent.click(screen.getByText('home-new'))
+}
 
 async function flush(): Promise<void> {
   await act(async () => {
@@ -95,7 +108,7 @@ async function flush(): Promise<void> {
 
 describe('App extraction mode', () => {
   it('enters mode, toggles node membership, and reflects the count', async () => {
-    render(<App />)
+    renderEditor()
     // Not in mode initially; the entry affordance is visible.
     expect(screen.getByTestId('ext-mode')).toHaveTextContent('false')
     fireEvent.click(screen.getByRole('button', { name: 'Extract component' }))
@@ -114,7 +127,7 @@ describe('App extraction mode', () => {
   })
 
   it('Cancel clears the set and exits the mode', async () => {
-    render(<App />)
+    renderEditor()
     fireEvent.click(screen.getByRole('button', { name: 'Extract component' }))
     fireEvent.click(screen.getByText('toggle-n1'))
     expect(screen.getByTestId('sel-ids')).toHaveTextContent('n1')
@@ -128,7 +141,7 @@ describe('App extraction mode', () => {
   })
 
   it('opens the dialog with the selection and, on success, exits the mode + bumps the palette', async () => {
-    render(<App />)
+    renderEditor()
     expect(screen.getByTestId('palette-refresh')).toHaveTextContent('0')
     fireEvent.click(screen.getByRole('button', { name: 'Extract component' }))
     fireEvent.click(screen.getByText('toggle-n1'))
@@ -148,7 +161,7 @@ describe('App extraction mode', () => {
   })
 
   it('"Create component…" is disabled with an empty selection', async () => {
-    render(<App />)
+    renderEditor()
     fireEvent.click(screen.getByRole('button', { name: 'Extract component' }))
     expect(screen.getByRole('button', { name: 'Create component…' })).toBeDisabled()
     await flush()

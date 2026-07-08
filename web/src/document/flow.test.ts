@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import type { NodeCatalogResponse } from '@quantize/quantize-api'
 import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
-import { componentCacheKey, findComponentRef, resolveComponentDef, toFlow } from './flow'
+import catalogJson from '../../../tests/goldens/node_catalog.json'
+import {
+  componentCacheKey,
+  findComponentRef,
+  resolveComponentDef,
+  resolveUniverseTickers,
+  toFlow,
+} from './flow'
+
+const catalog = catalogJson as unknown as NodeCatalogResponse
 
 // A minimal component definition used to exercise the ComponentRefNode enrichment path.
 const DEF: ComponentDefinition = {
@@ -183,15 +193,224 @@ describe('toFlow component enrichment', () => {
     expect(mom?.data.outputs).toEqual([{ name: 'assets', port_type: { kind: 'AssetSet' } }])
   })
 
-  it('degrades to a bare {typeId:"component"} node WITHOUT a components map', () => {
+  it('degrades to a bare component node WITHOUT a components map (still flagged a component)', () => {
     const { nodes } = toFlow(makeComponentDoc())
     const mom = nodes.find((n) => n.id === 'mom')
-    expect(mom?.data).toEqual({ typeId: 'component' })
+    // A ComponentRefNode is a component even before its definition loads: the variant flag + version
+    // chip come from the pinned REF (always present), not the fetched definition.
+    expect(mom?.data).toEqual({ typeId: 'component', isComponent: true, version: DEF.version })
   })
 
-  it('degrades to a bare node on a cache MISS (map present but key absent)', () => {
+  it('degrades to a bare component node on a cache MISS (map present but key absent)', () => {
     const { nodes } = toFlow(makeComponentDoc(), undefined, new Map())
     const mom = nodes.find((n) => n.id === 'mom')
-    expect(mom?.data).toEqual({ typeId: 'component' })
+    expect(mom?.data).toEqual({ typeId: 'component', isComponent: true, version: DEF.version })
+  })
+})
+
+// M13.4 legibility enrichment: served category, a param-summary line for the card face, the resolved
+// data-source universe, the component variant flag, and typed-edge coloring. All are DOC/CATALOG
+// projections (no App state) — the App overlays only run-derived validity onto the node data later.
+describe('toFlow M13.4 enrichment', () => {
+  it('carries the served category for a registered node (when a catalog is given)', () => {
+    const { nodes } = toFlow(makeDoc(), catalog)
+    const ret = nodes.find((n) => n.id === 'ret')
+    const rk = nodes.find((n) => n.id === 'rk')
+    expect(ret?.data.category).toBe('transform')
+    // transform.rank is authored `selection`, NOT its `transform.*` namespace (D-14).
+    expect(rk?.data.category).toBe('selection')
+  })
+
+  it('leaves category undefined for an unknown/future type (neutral fallback happens in the view)', () => {
+    const doc = makeDoc()
+    const withUnknown: StrategyDocument = {
+      ...doc,
+      nodes: [...doc.nodes, { id: 'x', type_id: 'future.node', type_version: '9.9.9', params: {} }],
+    }
+    const { nodes } = toFlow(withUnknown, catalog)
+    expect(nodes.find((n) => n.id === 'x')?.data.category).toBeUndefined()
+  })
+
+  it('formats a scalar param into a summary line', () => {
+    const doc = makeDoc()
+    const withParam: StrategyDocument = {
+      ...doc,
+      nodes: doc.nodes.map((n) =>
+        n.id === 'ret' ? { ...n, params: { lookback_sessions: 63 } } : n,
+      ),
+    }
+    const { nodes } = toFlow(withParam, catalog)
+    expect(nodes.find((n) => n.id === 'ret')?.data.paramSummary).toBe('lookback_sessions = 63')
+  })
+
+  it('summarizes a boolean param and truncates a long array param', () => {
+    let doc = makeDoc()
+    doc = {
+      ...doc,
+      nodes: [
+        ...doc.nodes,
+        {
+          id: 'u',
+          type_id: 'universe.fixed_list',
+          type_version: '1.0.0',
+          params: { tickers: ['EFA', 'GLD', 'IWM', 'QQQ', 'SPY', 'TLT'] },
+        },
+        { id: 'rk2', type_id: 'transform.rank', type_version: '1.0.0', params: { descending: true } },
+      ],
+    }
+    const { nodes } = toFlow(doc, catalog)
+    expect(nodes.find((n) => n.id === 'u')?.data.paramSummary).toBe('tickers = [EFA, GLD, IWM, +3]')
+    expect(nodes.find((n) => n.id === 'rk2')?.data.paramSummary).toBe('descending = true')
+  })
+
+  it('omits the param summary when a node has no params', () => {
+    const { nodes } = toFlow(makeDoc(), catalog) // makeDoc nodes carry params: {}
+    expect(nodes.find((n) => n.id === 'ret')?.data.paramSummary).toBeUndefined()
+  })
+
+  it('resolves a data node universe from the connected universe node params', () => {
+    // u(universe.fixed_list, tickers) → px(data.price).assets  — the demo wiring.
+    const doc: StrategyDocument = {
+      ...makeDoc(),
+      nodes: [
+        {
+          id: 'u',
+          type_id: 'universe.fixed_list',
+          type_version: '1.0.0',
+          params: { tickers: ['SPY', 'QQQ'] },
+        },
+        { id: 'px', type_id: 'data.price', type_version: '1.0.0', params: {} },
+      ],
+      edges: [{ from: ['u', 'assets'], to: ['px', 'assets'] }],
+    }
+    const { nodes } = toFlow(doc, catalog)
+    const px = nodes.find((n) => n.id === 'px')
+    expect(px?.data.category).toBe('data')
+    expect(px?.data.universeTickers).toEqual(['SPY', 'QQQ'])
+  })
+
+  it('does NOT resolve a data universe from a non-universe source carrying a tickers param (PX-5)', () => {
+    // transform.rank (category `selection`) carries a `tickers` param and feeds the data node. Duck-
+    // typing on the param name would wrongly resolve it; category-gating rejects it → null (unbound).
+    const doc: StrategyDocument = {
+      ...makeDoc(),
+      nodes: [
+        {
+          id: 'rk',
+          type_id: 'transform.rank',
+          type_version: '1.0.0',
+          params: { tickers: ['SPY', 'QQQ'] },
+        },
+        { id: 'px', type_id: 'data.price', type_version: '1.0.0', params: {} },
+      ],
+      edges: [{ from: ['rk', 'values'], to: ['px', 'assets'] }],
+    }
+    const { nodes } = toFlow(doc, catalog)
+    expect(nodes.find((n) => n.id === 'px')?.data.universeTickers).toBeNull()
+  })
+
+  it('marks a data node universe null when nothing feeds its asset input', () => {
+    const doc: StrategyDocument = {
+      ...makeDoc(),
+      nodes: [{ id: 'px', type_id: 'data.price', type_version: '1.0.0', params: {} }],
+      edges: [],
+    }
+    const { nodes } = toFlow(doc, catalog)
+    const px = nodes.find((n) => n.id === 'px')
+    expect(px?.data.universeTickers).toBeNull()
+  })
+
+  it('colors an edge by the port type it carries (className + stroke), given a catalog', () => {
+    // ret(out values: CrossSection[Number]) → rk(in values): the edge carries CrossSection[Number].
+    const { edges } = toFlow(makeDoc(), catalog)
+    const e = edges[0]
+    expect(e.className).toContain('sedge--cross-section-number')
+    expect((e.style as { stroke?: string } | undefined)?.stroke).toBe('var(--port-cross-section-number)')
+  })
+
+  it('leaves edges uncolored without a catalog (M11.3 posture preserved)', () => {
+    const { edges } = toFlow(makeDoc())
+    expect(edges[0].className).toBeUndefined()
+    expect(edges[0].style).toBeUndefined()
+  })
+})
+
+// PX-3: a node card's hover tooltip is the served description — from the catalog for a registered node,
+// from the resolved definition for a component (absent when the definition carries none).
+describe('toFlow PX-3 description enrichment', () => {
+  it('enriches a registered node with the catalog description', () => {
+    const { nodes } = toFlow(makeDoc(), catalog)
+    const retType = catalog.node_types.find((n) => n.type_id === 'transform.trailing_return')
+    expect(retType?.description).toBeTruthy() // guard: the fixture carries a real description
+    expect(nodes.find((n) => n.id === 'ret')?.data.description).toBe(retType?.description)
+  })
+
+  it('leaves description absent for an unknown/future type', () => {
+    const doc = makeDoc()
+    const withUnknown: StrategyDocument = {
+      ...doc,
+      nodes: [...doc.nodes, { id: 'x', type_id: 'future.node', type_version: '9.9.9', params: {} }],
+    }
+    const { nodes } = toFlow(withUnknown, catalog)
+    expect(nodes.find((n) => n.id === 'x')?.data.description).toBeUndefined()
+  })
+
+  it('leaves description absent without a catalog', () => {
+    const { nodes } = toFlow(makeDoc())
+    expect(nodes.find((n) => n.id === 'ret')?.data.description).toBeUndefined()
+  })
+
+  it('carries a component definition description when present', () => {
+    const withDesc: ComponentDefinition = { ...DEF, description: 'Ranks a series, picks the top slice.' }
+    const components = new Map([[componentCacheKey(DEF.component_id, DEF.version), withDesc]])
+    const { nodes } = toFlow(makeComponentDoc(), undefined, components)
+    expect(nodes.find((n) => n.id === 'mom')?.data.description).toBe('Ranks a series, picks the top slice.')
+  })
+
+  it('leaves description absent for a component whose definition has none (null)', () => {
+    // DEF.description is null → no tooltip for the component card.
+    const components = new Map([[componentCacheKey(DEF.component_id, DEF.version), DEF]])
+    const { nodes } = toFlow(makeComponentDoc(), undefined, components)
+    expect(nodes.find((n) => n.id === 'mom')?.data.description).toBeUndefined()
+  })
+})
+
+// PX-5: the universe a data node shows must come from a genuine `universe`-category source, not any
+// upstream node that happens to carry a `tickers` param. The gate is an injected predicate over the
+// SOURCE node's served category (a served-catalog string comparison — no client type logic).
+describe('resolveUniverseTickers (PX-5: category-gated source)', () => {
+  const isUniverse = (typeId: string): boolean => typeId === 'universe.fixed_list'
+
+  it('resolves tickers from a universe-category source feeding the data node', () => {
+    const doc = {
+      nodes: [
+        { id: 'u', type_id: 'universe.fixed_list', params: { tickers: ['SPY', 'QQQ'] } },
+        { id: 'px', type_id: 'data.price', params: {} },
+      ],
+      edges: [{ from: ['u', 'assets'], to: ['px', 'assets'] }],
+    } as unknown as Pick<StrategyDocument, 'nodes' | 'edges'>
+    expect(resolveUniverseTickers(doc, 'px', isUniverse)).toEqual(['SPY', 'QQQ'])
+  })
+
+  it('returns null for a non-universe source even when it carries a tickers param', () => {
+    const doc = {
+      nodes: [
+        { id: 'rk', type_id: 'transform.rank', params: { tickers: ['SPY', 'QQQ'] } },
+        { id: 'px', type_id: 'data.price', params: {} },
+      ],
+      edges: [{ from: ['rk', 'out'], to: ['px', 'assets'] }],
+    } as unknown as Pick<StrategyDocument, 'nodes' | 'edges'>
+    expect(resolveUniverseTickers(doc, 'px', isUniverse)).toBeNull()
+  })
+
+  it('returns null for a ComponentRef source (no catalog category)', () => {
+    const doc = {
+      nodes: [
+        { id: 'c', type_id: 'component', ref: 'r1', params: { tickers: ['SPY'] } },
+        { id: 'px', type_id: 'data.price', params: {} },
+      ],
+      edges: [{ from: ['c', 'assets'], to: ['px', 'assets'] }],
+    } as unknown as Pick<StrategyDocument, 'nodes' | 'edges'>
+    expect(resolveUniverseTickers(doc, 'px', isUniverse)).toBeNull()
   })
 })

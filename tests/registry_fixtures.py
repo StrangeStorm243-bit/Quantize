@@ -47,7 +47,9 @@ def _source(version: str) -> NodeDescriptor:
         type_version=version,
         inputs=(),
         outputs=(OutputPortSpec(name="out", port_type=_CS_NUM),),
-        metadata=NodeMetadata(display_name="Source", description="Synthetic source."),
+        metadata=NodeMetadata(
+            display_name="Source", description="Synthetic source.", category="transform"
+        ),
     )
 
 
@@ -60,7 +62,9 @@ def _sink() -> NodeDescriptor:
             InputPortSpec(name="opt", port_type=_SCALAR_NUM, required=False),
         ),
         outputs=(),
-        metadata=NodeMetadata(display_name="Sink", description="Synthetic sink."),
+        metadata=NodeMetadata(
+            display_name="Sink", description="Synthetic sink.", category="transform"
+        ),
     )
 
 
@@ -70,7 +74,11 @@ def _tsource() -> NodeDescriptor:
         type_version="1.0.0",
         inputs=(),
         outputs=(OutputPortSpec(name="out", port_type=_TS_NUM),),
-        metadata=NodeMetadata(display_name="TSource", description="Synthetic TimeSeries source."),
+        metadata=NodeMetadata(
+            display_name="TSource",
+            description="Synthetic TimeSeries source.",
+            category="transform",
+        ),
     )
 
 
@@ -90,7 +98,11 @@ def _param_node() -> NodeDescriptor:
         type_version="1.0.0",
         inputs=(),
         outputs=(OutputPortSpec(name="out", port_type=_CS_NUM),),
-        metadata=NodeMetadata(display_name="Param", description="Synthetic parameterized node."),
+        metadata=NodeMetadata(
+            display_name="Param",
+            description="Synthetic parameterized node.",
+            category="transform",
+        ),
         parameter_schema=_PARAM_SCHEMA,
     )
 
@@ -210,7 +222,7 @@ def _ref(type_id: str, inputs: _PortList, outputs: _PortList) -> NodeDescriptor:
         type_version="1.0.0",
         inputs=tuple(InputPortSpec(name=n, port_type=t) for n, t in inputs),
         outputs=tuple(OutputPortSpec(name=n, port_type=t) for n, t in outputs),
-        metadata=NodeMetadata(display_name=type_id, description=type_id),
+        metadata=NodeMetadata(display_name=type_id, description=type_id, category="transform"),
     )
 
 

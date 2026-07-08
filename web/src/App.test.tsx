@@ -101,6 +101,16 @@ vi.mock('./components/RunPanel', () => ({
   ),
 }))
 
+// Mock Home (M13.3): the app now opens on Home. A stub exposes a button that enters the editor via
+// onNew, so these editor-focused tests reach the editor without the real Home's dataset network.
+vi.mock('./components/Home', () => ({
+  Home: (props: { onNew: (name: string) => void }) => (
+    <button type="button" onClick={() => props.onNew('Test')}>
+      home-new
+    </button>
+  ),
+}))
+
 // Mock ResultsView: expose the App-owned record props so the fetch orchestration is observable.
 vi.mock('./components/ResultsView', () => ({
   ResultsView: (props: {
@@ -123,9 +133,16 @@ import { App } from './App'
 // eslint-disable-next-line import/first
 import { getRun } from './api/client'
 
+// Render the app and enter the editor (M13.3: the app opens on Home; the mocked Home's button opens
+// a fresh document named "Test").
+function renderEditor(): void {
+  render(<App />)
+  fireEvent.click(screen.getByText('home-new'))
+}
+
 describe('App edge-highlight lifecycle', () => {
   it('clears a stale positional edge highlight when the document changes', async () => {
-    render(<App />)
+    renderEditor()
     expect(screen.getByTestId('edge-highlight')).toHaveTextContent('null')
 
     // A validate edge highlight sets the positional index.
@@ -148,8 +165,8 @@ describe('App run-record fetch (the F7 lift)', () => {
   // ResultsView (mocked here to expose the props). These pin the loading → record and error paths
   // of the orchestration that moved out of the panels in M11.9.
   async function selectRun(): Promise<void> {
-    render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: 'runs' }))
+    renderEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Runs' }))
     fireEvent.click(screen.getByText('select-run'))
     await act(async () => {
       await Promise.resolve()
@@ -200,11 +217,12 @@ describe('App extraction commit guard (M12.5b)', () => {
   }
 
   it('applies the extraction when the live doc is unchanged since the commit started', async () => {
-    render(<App />)
+    renderEditor()
     await openExtractDialog()
     // captured === live → the App-owned guard passes → the doc is replaced with the extraction result.
     fireEvent.click(screen.getByText('commit-captured'))
-    expect(screen.getByText(/Extracted · v1/)).toBeInTheDocument()
+    // The strategy bar now shows the extracted document's name (M13.3: name/version are separate spans).
+    expect(screen.getByText('Extracted')).toBeInTheDocument()
     // The applied path closes the dialog (onExtracted).
     expect(screen.queryByText('commit-captured')).not.toBeInTheDocument()
     await act(async () => {
@@ -212,20 +230,18 @@ describe('App extraction commit guard (M12.5b)', () => {
     })
   })
 
-  it('refuses to clobber the live doc when it changed mid-flight (StrategyPanel New)', async () => {
-    render(<App />)
+  it('refuses to clobber the live doc when it changed mid-flight (an edit during the commit)', async () => {
+    renderEditor()
     await openExtractDialog()
-    // Navigate to a DIFFERENT document via the bottom StrategyPanel — the modal overlay does NOT cover
-    // it, so this is the real clobber vector. The store returns a NEW object, so the replaceIf
-    // compare-and-swap sees a different live doc than the one captured at Confirm and refuses.
-    fireEvent.change(screen.getByLabelText('new strategy name'), { target: { value: 'Navigated' } })
-    fireEvent.click(screen.getByRole('button', { name: 'New strategy' }))
-    expect(screen.getByText(/Navigated · v1/)).toBeInTheDocument()
+    // Mutate the live document via the canvas AFTER the dialog captured the doc — a real mid-flight
+    // change. The store returns a NEW object, so the replaceIf compare-and-swap sees a different live
+    // doc than the one captured at Confirm and refuses.
+    fireEvent.click(screen.getByText('mutate-doc'))
 
     // Commit the STALE captured doc → the identity guard must refuse; nothing is replaced.
     fireEvent.click(screen.getByText('commit-captured'))
-    expect(screen.getByText(/Navigated · v1/)).toBeInTheDocument()
-    expect(screen.queryByText(/Extracted · v1/)).not.toBeInTheDocument()
+    expect(screen.getByText('Test')).toBeInTheDocument() // still the original document
+    expect(screen.queryByText('Extracted')).not.toBeInTheDocument()
     // The dialog stays open (onExtracted never fired) — the commit was rejected, not applied.
     expect(screen.getByText('commit-captured')).toBeInTheDocument()
     await act(async () => {

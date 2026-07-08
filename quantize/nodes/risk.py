@@ -20,8 +20,10 @@ from quantize.nodes._params import require_number
 from quantize.registry.descriptor import (
     InputPortSpec,
     NodeDescriptor,
+    NodeDoc,
     NodeMetadata,
     OutputPortSpec,
+    ParamDoc,
 )
 from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.runtime.binding import NodeImplementation, NodeInvocation
@@ -131,6 +133,26 @@ MAX_WEIGHT = NodeImplementation(
             description=(
                 "Caps each weight at max and redistributes the excess via the deterministic "
                 "proportional waterfall; an unresolvable remainder stays in cash."
+            ),
+            category="risk",
+            doc=NodeDoc(
+                summary=(
+                    "Caps concentration — limits any single asset's weight to max and "
+                    "redistributes the excess across the others. The machine's risk-control stage."
+                ),
+                formula="w(asset) ≤ max;  excess redistributed proportionally to uncapped assets",
+                semantics=(
+                    "Deterministic waterfall: cap every over-limit asset at max, redistribute the "
+                    "excess proportionally across eligible uncapped assets, repeat until no asset "
+                    "exceeds the cap. If no eligible capacity remains, the remainder stays in cash "
+                    "— the cap is never violated to force full investment."
+                ),
+                parameters={
+                    "max": ParamDoc(
+                        label="Max weight",
+                        help="Ceiling on any single asset's weight (0–1); excess is redistributed.",
+                    ),
+                },
             ),
         ),
         parameter_schema=JsonSchemaSpec(

@@ -89,6 +89,7 @@ def build_accumulator_catalog() -> tuple[ImplementationCatalog, TrajectoryStore]
                 "TEST-ONLY stateful counter/accumulator (purity=stateful, "
                 "cadence=evaluation_only); exercises M8 timing equivalence."
             ),
+            category="transform",
         ),
         parameter_schema=JsonSchemaSpec({"type": "object", "additionalProperties": False}),
     )

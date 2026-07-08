@@ -22,15 +22,15 @@
   },
   "schedule": { "kind": "weekly" },
   "nodes": [
-    { "id": "u", "type_id": "universe.fixed_list", "type_version": "1.0.0", "params": { "tickers": ["AGG", "EFA", "SPY", "VNQ"] } },
-    { "id": "px", "type_id": "data.price", "type_version": "1.0.0", "params": {} },
-    { "id": "ma", "type_id": "transform.moving_average", "type_version": "1.0.0", "params": { "window": 200 } },
-    { "id": "maL", "type_id": "transform.latest", "type_version": "1.0.0", "params": {} },
-    { "id": "pxL", "type_id": "transform.latest", "type_version": "1.0.0", "params": {} },
-    { "id": "gt", "type_id": "logic.greater_than", "type_version": "1.0.0", "params": {} },
-    { "id": "fw", "type_id": "portfolio.fixed_weight", "type_version": "1.0.0", "params": { "weight_per_asset": "equal" } },
-    { "id": "mask", "type_id": "portfolio.apply_mask", "type_version": "1.0.0", "params": {} },
-    { "id": "tp", "type_id": "output.target_portfolio", "type_version": "1.0.0", "params": {} }
+    { "id": "u", "type_id": "universe.fixed_list", "type_version": "1.0.0", "params": { "tickers": ["AGG", "EFA", "SPY", "VNQ"] }, "ui": { "position": { "x": 0, "y": 240 } } },
+    { "id": "px", "type_id": "data.price", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 420, "y": 240 } } },
+    { "id": "ma", "type_id": "transform.moving_average", "type_version": "1.0.0", "params": { "window": 200 }, "ui": { "position": { "x": 840, "y": 0 } } },
+    { "id": "maL", "type_id": "transform.latest", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 1260, "y": 0 } } },
+    { "id": "pxL", "type_id": "transform.latest", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 840, "y": 240 } } },
+    { "id": "gt", "type_id": "logic.greater_than", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 1680, "y": 240 } } },
+    { "id": "fw", "type_id": "portfolio.fixed_weight", "type_version": "1.0.0", "params": { "weight_per_asset": "equal" }, "ui": { "position": { "x": 420, "y": 500 } } },
+    { "id": "mask", "type_id": "portfolio.apply_mask", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 2100, "y": 240 } } },
+    { "id": "tp", "type_id": "output.target_portfolio", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 2520, "y": 240 } } }
   ],
   "edges": [
     { "from": ["u", "assets"], "to": ["px", "assets"] },

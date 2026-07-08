@@ -14,6 +14,7 @@ from datetime import date
 from quantize.registry.descriptor import (
     InputPortSpec,
     NodeDescriptor,
+    NodeDoc,
     NodeMetadata,
     OutputPortSpec,
 )
@@ -90,6 +91,19 @@ PRICE = NodeImplementation(
             description=(
                 "Per-asset close-price history visible at the evaluation instant "
                 "(availability-gated; assets without data keep an empty history)."
+            ),
+            category="data",
+            doc=NodeDoc(
+                summary=(
+                    "The machine's data entry point — loads each universe asset's close-price "
+                    "history as it was known at the evaluation instant. Everything the strategy "
+                    "computes flows from here."
+                ),
+                semantics=(
+                    "Availability-gated: only observations knowable at or before the evaluation "
+                    "instant are visible (no look-ahead). An asset with no visible observations "
+                    "keeps an empty history rather than being dropped; nothing is forward-filled."
+                ),
             ),
         ),
         parameter_schema=JsonSchemaSpec({"type": "object", "additionalProperties": False}),

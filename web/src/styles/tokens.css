@@ -1,0 +1,235 @@
+/* Quantize design tokens (M13.2) — the single source of visual truth for the editor.
+ *
+ * `:root` holds the DEFAULT DARK theme (IDE convention — VS Code / Figma / Observable adjacent);
+ * `[data-theme="light"]` overrides only the theme-dependent tokens. Component styles (App.css and
+ * every later M13 slice) consume these variables and NEVER hard-code a color.
+ *
+ * Token families:
+ *   1. Layout/system (spacing · type scale · weights · radii · shadows · motion · focus) — theme
+ *      independent, defined once on `:root`.
+ *   2. Semantic UI roles (bg · surface · text · border · accent · danger/warning/success/info · …)
+ *      — themed: dark on `:root`, light override below.
+ *   3. Category colors (`--cat-*`) — one per authored machine-stage category (M13.1 D-14): eight
+ *      live + five reserved future categories + a neutral unknown fallback. Consumed by M13.4's
+ *      node cards / stage strip; defined here in both themes now so that slice needs no token work.
+ *   4. Port-type colors (`--port-*`) — one per v0 port type + neutral fallback. Consumed by M13.4's
+ *      typed handles/edges + legend; defined here now.
+ */
+
+:root {
+  /* ---- 1. Layout / system (theme-independent) ---------------------------------------------- */
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Spacing scale (rem) — matches the shell's existing rhythm. */
+  --space-1: 0.25rem;
+  --space-2: 0.4rem;
+  --space-3: 0.5rem;
+  --space-4: 0.75rem;
+  --space-5: 1rem;
+  --space-6: 1.5rem;
+
+  /* Type scale — a real ladder replacing the old uniform 0.72–0.85rem. */
+  --text-2xs: 0.66rem;
+  --text-xs: 0.72rem;
+  --text-sm: 0.8rem;
+  --text-base: 0.85rem;
+  --text-md: 0.9rem;
+  --text-lg: 1rem;
+  --text-xl: 1.1rem;
+
+  /* Font weights. */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Border radii. */
+  --radius-sm: 4px;
+  --radius-md: 5px;
+  --radius-lg: 7px;
+  --radius-xl: 8px;
+  --radius-pill: 12px;
+
+  /* Motion — subtle transitions on panel/selection state. */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- 2. Semantic UI roles (DARK — default) ----------------------------------------------- */
+
+  --bg: #0f1116;
+  --surface: #171a21;
+  --surface-elevated: #1c2029;
+  --border: #2b303b;
+  --border-muted: #242a34;
+  --border-faint: #1f242d;
+
+  --text: #e6e9ef;
+  --text-secondary: #aeb4c0;
+  --text-muted: #7a8290;
+  --text-faint: #5b6472;
+
+  --accent: #6b8cff;
+  --accent-hover: #8aa2ff;
+  --accent-strong: #a9bbff;
+  --accent-tint-bg: #1a2236;
+  --accent-tint-border: #33406e;
+  --on-accent: #ffffff;
+
+  --component-accent: #a98aff;
+  --component-border: #4a3f7a;
+  --component-tint-bg: #201b33;
+
+  --engine-accent: #b48aff;
+
+  --danger: #ff6b73;
+  --danger-strong: #ff8a90;
+  --danger-bg: #2a1618;
+  --danger-border: #5c2a2e;
+
+  --warning: #e0b25a;
+  --warning-bg: #251f13;
+  --warning-border: #5c4a29;
+
+  --success: #57c98a;
+  --success-bg: #13251b;
+  --success-border: #2b5a3b;
+
+  --info: #5b9dff;
+
+  --header-bg: #14171d;
+  --header-text: #e6e9ef;
+
+  --token-bg: #242a34;
+  --token-text: #aeb4c0;
+
+  --overlay: rgba(0, 0, 0, 0.55);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 6px 24px rgba(0, 0, 0, 0.55);
+
+  --focus-ring-color: var(--accent);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  /* ---- 3. Category colors (DARK) — 8 live + 5 reserved + neutral fallback ------------------- */
+
+  --cat-universe: #4bd6c4;
+  --cat-data: #5b9dff;
+  --cat-transform: #5ec97a;
+  --cat-signal: #e0b25a;
+  --cat-selection: #e08a4b;
+  --cat-weighting: #a98aff;
+  --cat-risk: #ff6b73;
+  --cat-output: #7c93ff;
+
+  /* Reserved future categories (M13.1 pressure tests) — pre-assigned identities. */
+  --cat-optimization: #ff7ac0;
+  --cat-stochastic: #b48aff;
+  --cat-statistics: #9ccc4b;
+  --cat-ml: #ff9a6b;
+  --cat-external: #c9a06b;
+
+  --cat-neutral: #8a92a3;
+
+  /* ---- 4. Port-type colors (DARK) — v0 lattice + neutral fallback --------------------------- */
+
+  --port-scalar-number: #5b9dff;
+  --port-scalar-integer: #7c93ff;
+  --port-scalar-boolean: #e0b25a;
+  --port-asset-set: #4bd6c4;
+  --port-cross-section-number: #5ec97a;
+  --port-cross-section-boolean: #9ccc4b;
+  --port-time-series-number: #a98aff;
+  --port-portfolio-targets: #ff9a6b;
+  --port-neutral: #8a92a3;
+}
+
+/* ---- Light theme — override only the theme-dependent tokens ------------------------------- */
+
+:root[data-theme='light'] {
+  /* Semantic UI roles (LIGHT — the pre-M13.2 look, preserved). */
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-elevated: #fbfbfc;
+  --border: #d8dbe0;
+  --border-muted: #e4e7ec;
+  --border-faint: #eceef2;
+
+  --text: #1f2430;
+  --text-secondary: #5a6070;
+  --text-muted: #8a909c;
+  --text-faint: #a2a8b4;
+
+  --accent: #4a6cf7;
+  --accent-hover: #3a5cf0;
+  --accent-strong: #33488f;
+  --accent-tint-bg: #f0f4ff;
+  --accent-tint-border: #b7c7f7;
+  --on-accent: #ffffff;
+
+  --component-accent: #6a4af7;
+  --component-border: #b0a4e6;
+  --component-tint-bg: #f7f5ff;
+
+  --engine-accent: #6a3fb5;
+
+  --danger: #b4232a;
+  --danger-strong: #8f1d22;
+  --danger-bg: #fdecec;
+  --danger-border: #e6a2a4;
+
+  --warning: #8f6a1d;
+  --warning-bg: #fdf6e7;
+  --warning-border: #e6c07a;
+
+  --success: #1f6b34;
+  --success-bg: #edf7ef;
+  --success-border: #a7d7b0;
+
+  --info: #4a6cf7;
+
+  --header-bg: #1f2430;
+  --header-text: #ffffff;
+
+  --token-bg: #f1f2f6;
+  --token-text: #55607a;
+
+  --overlay: rgba(31, 36, 48, 0.35);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 6px 24px rgba(0, 0, 0, 0.2);
+
+  /* Category colors (LIGHT) — deeper hues for contrast on the light surface. */
+  --cat-universe: #0d9488;
+  --cat-data: #2563eb;
+  --cat-transform: #16a34a;
+  --cat-signal: #b8860b;
+  --cat-selection: #c2570c;
+  --cat-weighting: #7c3aed;
+  --cat-risk: #b4232a;
+  --cat-output: #4453c7;
+
+  --cat-optimization: #c026a3;
+  --cat-stochastic: #6a3fb5;
+  --cat-statistics: #558b1f;
+  --cat-ml: #d2551f;
+  --cat-external: #96712f;
+
+  --cat-neutral: #6b7280;
+
+  /* Port-type colors (LIGHT). */
+  --port-scalar-number: #2563eb;
+  --port-scalar-integer: #4453c7;
+  --port-scalar-boolean: #b8860b;
+  --port-asset-set: #0d9488;
+  --port-cross-section-number: #16a34a;
+  --port-cross-section-boolean: #558b1f;
+  --port-time-series-number: #7c3aed;
+  --port-portfolio-targets: #d2551f;
+  --port-neutral: #6b7280;
+}
