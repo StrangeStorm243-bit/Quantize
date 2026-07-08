@@ -53,6 +53,33 @@ def test_fixed_weight_parameter_schema(client: TestClient) -> None:
     ]
 
 
+def test_node_entry_carries_category_and_doc(client: TestClient) -> None:
+    """M13.1: every node serves its machine-stage ``category`` and structured ``doc`` block."""
+    body = client.get("/v1/node-types").json()
+    rank = next(n for n in body["node_types"] if n["type_id"] == "transform.rank")
+    assert rank["category"] == "selection"
+    doc = rank["doc"]
+    assert doc["summary"].startswith("Orders the universe")
+    assert doc["formula"]  # mathematical node carries a formula
+    assert doc["parameters"]["descending"]["label"] == "Descending"
+    # data.price is the data-entry node — category + role summary, no parameters.
+    price = next(n for n in body["node_types"] if n["type_id"] == "data.price")
+    assert price["category"] == "data"
+    assert price["doc"]["parameters"] == {}
+
+
+def test_digest_covers_doc_fields(client: TestClient) -> None:
+    """Stripping the served ``doc`` blocks changes the recomputed digest — the docs are covered."""
+    served = client.get("/v1/node-types").json()
+    body = {k: v for k, v in served.items() if k not in CATALOG_IDENTITY_FIELDS}
+    assert catalog_digest(body) == served["catalog_digest"]
+    docless = {
+        **body,
+        "node_types": [{**n, "doc": None, "category": ""} for n in body["node_types"]],
+    }
+    assert catalog_digest(docless) != served["catalog_digest"]
+
+
 def test_compatibility_equals_is_compatible_enumeration(client: TestClient) -> None:
     body = client.get("/v1/node-types").json()
     expected = [

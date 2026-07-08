@@ -5,12 +5,14 @@
 // compatibility decision (may this edge be created?) is a DATA LOOKUP against the catalog's allow-set
 // via `isAllowed` (D5) — there is NO hand-written type rule here. Rejections surface as a composed
 // message built from the two port-type LABELS, never from a bespoke conditional.
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { DragEvent, ReactElement } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import type { DragEvent, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import {
   Background,
   Controls,
   Handle,
+  MiniMap,
+  Panel,
   Position,
   ReactFlow,
   useEdgesState,
@@ -23,7 +25,7 @@ import type {
   ReactFlowInstance,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import type { NodeCatalogResponse } from '@quantize/quantize-api'
+import type { DatasetStored, NodeCatalogResponse, NodeTypeDto } from '@quantize/quantize-api'
 import type {
   ComponentDefinition,
   ComponentRefNode,
@@ -39,33 +41,89 @@ import {
   useCatalog,
 } from '../catalog'
 import type { PortType } from '../catalog'
+import { categoryColor, portColor } from '../catalog/colors'
 import { addComponentRefNode } from '../document/store'
 import type { EdgeSpec, StrategyDocumentActions } from '../document/store'
 import { componentPorts, resolveComponentDef, toFlow } from '../document/flow'
-import type { StrategyFlowNode } from '../document/flow'
+import type { NodeValidity, StrategyFlowNode } from '../document/flow'
 import { useComponentDefs } from '../components-cache'
+import { CategoryIcon } from '../icons/categories'
 import { COMPONENT_DRAG_MIME, NODE_DRAG_MIME } from './Palette'
 import type { ComponentDragPayload, NodeDragPayload } from './Palette'
+import { DataSourceCard } from './DataSourceCard'
+import { Legend } from './Legend'
+import { QuickAdd } from './QuickAdd'
+import { StageStrip } from './StageStrip'
+import { ValidityBadge } from './ValidityBadge'
 
 /** The RF node key our single custom node registers under. */
 const STRATEGY_NODE_TYPE = 'strategyNode'
 
 /**
- * The single custom node: title (display name) with a `Handle` per input on the left and per output
- * on the right. Each handle's `id` is the PORT NAME so it matches `toFlow`'s
- * `sourceHandle`/`targetHandle`. Required inputs carry a small `*` badge.
+ * The dataset binding a `data`-category node's Data Source card needs, threaded through context so the
+ * RF-owned node component can read it WITHOUT it riding in the node `data` (which is a pure doc/catalog
+ * projection). `resolvable` is false in a read-only component view where the binding lives one level up.
  */
-function StrategyNode({ data }: NodeProps<StrategyFlowNode>): ReactElement {
+interface CanvasChrome {
+  datasetId: string | undefined
+  datasetMeta: DatasetStored | undefined
+  resolvable: boolean
+}
+const CanvasChromeContext = createContext<CanvasChrome>({
+  datasetId: undefined,
+  datasetMeta: undefined,
+  resolvable: true,
+})
+
+/**
+ * The single custom node — now a category-aware CARD (M13.4). Its accent color + icon come from the
+ * served `category`; the face shows the display name, a param-summary line and a validity badge. A
+ * `data`-category node renders the richer {@link DataSourceCard} body; a ComponentRef renders the
+ * composition variant with a version chip. Handles stay on the sides — `id` = PORT NAME (matching
+ * `toFlow`) — and are colored by the port type they carry. The card judges nothing (invariant 5).
+ */
+function StrategyNode({ data, selected }: NodeProps<StrategyFlowNode>): ReactElement {
+  const chrome = useContext(CanvasChromeContext)
+  // The served catalog resolves each port's human type LABEL for its hover tooltip (PX-3) — the same
+  // `labelOf` the Legend and rejection banners use, never a hardcoded string (invariant 5). Absent
+  // while the catalog is still loading → the tooltip degrades to just the port name.
+  const { catalog } = useCatalog()
+  const portTitle = (name: string, portType: PortType): string =>
+    catalog === undefined ? name : `${name} · ${labelOf(catalog, portType)}`
   const inputs = data.inputs ?? []
   const outputs = data.outputs ?? []
+  const category = data.category
+  const isData = category === 'data'
+  const accent = data.isComponent
+    ? 'var(--component-accent)'
+    : categoryColor(category ?? '__unknown__')
+
+  const classes = [
+    'snode',
+    category ? `snode--cat-${category}` : 'snode--cat-unknown',
+    data.isComponent ? 'snode--component' : '',
+    isData ? 'snode--data' : '',
+    selected ? 'snode--selected' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div className="snode">
-      <div className="snode__title">{data.displayName ?? data.typeId}</div>
-      <div className="snode__body">
+    <div className={classes} title={data.description} style={{ ['--node-accent' as string]: accent }}>
+      <div className="snode__frame">
         <div className="snode__col snode__col--in">
           {inputs.map((port) => (
-            <div key={port.name} className="snode__port snode__port--in">
-              <Handle type="target" position={Position.Left} id={port.name} />
+            <div
+              key={port.name}
+              className="snode__port snode__port--in"
+              title={portTitle(port.name, port.port_type)}
+            >
+              <Handle
+                type="target"
+                position={Position.Left}
+                id={port.name}
+                style={{ background: portColor(port.port_type) }}
+              />
               <span className="snode__portlabel">
                 {port.name}
                 {port.required ? (
@@ -77,11 +135,48 @@ function StrategyNode({ data }: NodeProps<StrategyFlowNode>): ReactElement {
             </div>
           ))}
         </div>
+
+        <div className="snode__main">
+          {isData ? (
+            <DataSourceCard
+              displayName={data.displayName ?? data.typeId}
+              datasetId={chrome.datasetId}
+              datasetMeta={chrome.datasetMeta}
+              universeTickers={data.universeTickers}
+              resolvable={chrome.resolvable}
+              validity={data.validity}
+            />
+          ) : (
+            <>
+              <div className="snode__title">
+                <CategoryIcon category={category ?? '__unknown__'} className="snode__icon" />
+                <span className="snode__name">{data.displayName ?? data.typeId}</span>
+                {data.isComponent && data.version !== undefined ? (
+                  <span className="snode__vchip">v{data.version}</span>
+                ) : null}
+                <ValidityBadge validity={data.validity} />
+              </div>
+              {data.paramSummary !== undefined ? (
+                <div className="snode__summary">{data.paramSummary}</div>
+              ) : null}
+            </>
+          )}
+        </div>
+
         <div className="snode__col snode__col--out">
           {outputs.map((port) => (
-            <div key={port.name} className="snode__port snode__port--out">
+            <div
+              key={port.name}
+              className="snode__port snode__port--out"
+              title={portTitle(port.name, port.port_type)}
+            >
               <span className="snode__portlabel">{port.name}</span>
-              <Handle type="source" position={Position.Right} id={port.name} />
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={port.name}
+                style={{ background: portColor(port.port_type) }}
+              />
             </div>
           ))}
         </div>
@@ -231,6 +326,21 @@ export interface CanvasProps {
   onToggleExtractionNode?: (nodeId: string) => void
   /** A validate-highlighted edge INDEX (into `doc.edges`); marks the matching RF edge `selected`. */
   highlightedEdgeIndex?: number | null
+  /** The active dataset binding (M13.4) — feeds the Data Source card via context. */
+  datasetId?: string | undefined
+  /** Served introspection for the active dataset — calendar bounds + fingerprint on the card. */
+  datasetMeta?: DatasetStored | undefined
+  /**
+   * Per-node validity from the LATEST validation (D-7), keyed by node id. Overlaid onto the projected
+   * node data so cards badge server diagnostics — the App clears it on any semantic doc mutation.
+   */
+  nodeValidity?: ReadonlyMap<string, NodeValidity> | undefined
+  /**
+   * Click on the stage strip's Engine chip (PX-2). The engine is drawn OUTSIDE the graph (invariant 2),
+   * so the canvas has no dock channel of its own — the App wires this to switch the bottom dock toward
+   * Results/Trace (or Runs when no run is selected). Optional so the canvas renders standalone.
+   */
+  onEngineClick?: () => void
 }
 
 export function Canvas({
@@ -242,6 +352,10 @@ export function Canvas({
   extractionMode,
   onToggleExtractionNode,
   highlightedEdgeIndex,
+  datasetId,
+  datasetMeta,
+  nodeValidity,
+  onEngineClick,
 }: CanvasProps): ReactElement {
   const { catalog, loading, error } = useCatalog()
   const { defs: componentDefs, ensure: ensureComponent } = useComponentDefs()
@@ -249,6 +363,11 @@ export function Canvas({
     null,
   )
   const [rejection, setRejection] = useState<string | undefined>(undefined)
+  // A stage-strip segment click highlights that segment's nodes on canvas (purely visual RF selection,
+  // cleared by any node click). Kept local — it selects among existing nodes, never mutates the doc.
+  const [stageHighlight, setStageHighlight] = useState<ReadonlySet<string> | null>(null)
+  // The double-click quick-add menu: its screen anchor while open, or null when closed.
+  const [quickAdd, setQuickAdd] = useState<{ x: number; y: number } | null>(null)
 
   // Fill the component-definition cache for every pinned ref in the document so a loaded componentized
   // strategy renders NAMED component nodes (`toFlow` degrades to a bare node until each arrives). `ensure`
@@ -267,16 +386,31 @@ export function Canvas({
     const flow = toFlow(doc, catalog, componentDefs)
     return {
       // Mark the selected node(s): the extraction SET (when present) marks every member; otherwise the
-      // single App-selected node. This is the ONE projection generalization E2 asks for.
-      nodes: flow.nodes.map((n) => ({
-        ...n,
-        type: STRATEGY_NODE_TYPE,
-        selected: selectedNodeIds ? selectedNodeIds.has(n.id) : n.id === selectedNodeId,
-      })),
+      // single App-selected node. A stage-strip highlight ADDS to whatever is selected. Overlay the
+      // latest validity (D-7) onto the node data so cards badge server diagnostics.
+      nodes: flow.nodes.map((n) => {
+        const baseSelected = selectedNodeIds ? selectedNodeIds.has(n.id) : n.id === selectedNodeId
+        const validity = nodeValidity?.get(n.id)
+        return {
+          ...n,
+          type: STRATEGY_NODE_TYPE,
+          selected: baseSelected || (stageHighlight?.has(n.id) ?? false),
+          data: validity === undefined ? n.data : { ...n.data, validity },
+        }
+      }),
       // `toFlow` maps `doc.edges` in order, so flow index === doc-edge index — the highlight target.
       edges: flow.edges.map((e, i) => (i === highlightedEdgeIndex ? { ...e, selected: true } : e)),
     }
-  }, [doc, catalog, componentDefs, selectedNodeId, selectedNodeIds, highlightedEdgeIndex])
+  }, [
+    doc,
+    catalog,
+    componentDefs,
+    selectedNodeId,
+    selectedNodeIds,
+    highlightedEdgeIndex,
+    stageHighlight,
+    nodeValidity,
+  ])
 
   // React Flow owns LOCAL node/edge state so it can move nodes and draw edges interactively; the
   // document remains the source of truth. We re-seed that local state from the document whenever the
@@ -294,6 +428,15 @@ export function Canvas({
   }, [project, setRfNodes, setRfEdges])
 
   const nodeTypes = useMemo(() => ({ [STRATEGY_NODE_TYPE]: StrategyNode }), [])
+
+  // The stage strip reads each node's served category (+ whether it is a component) from the projected
+  // RF nodes — the SAME category `toFlow` resolved, so the strip's rollup never re-derives stage
+  // semantics client-side. Recomputed only when the projected nodes change.
+  const stripNodes = useMemo(
+    () =>
+      rfNodes.map((n) => ({ id: n.id, category: n.data.category, isComponent: n.data.isComponent })),
+    [rfNodes],
+  )
 
   // Build the compatibility allow-set once per catalog (not per connection attempt). An empty set
   // while the catalog is still loading is harmless — `onConnect` bails out when `catalog` is absent.
@@ -350,6 +493,7 @@ export function Canvas({
 
   const onNodeClickHandler = useCallback(
     (_event: unknown, node: StrategyFlowNode) => {
+      setStageHighlight(null) // a node click supersedes a stage-strip highlight
       // In extraction mode a click TOGGLES set membership; otherwise it single-selects (unchanged).
       if (extractionMode) {
         onToggleExtractionNode?.(node.id)
@@ -358,6 +502,33 @@ export function Canvas({
       }
     },
     [extractionMode, onToggleExtractionNode, onNodeClick],
+  )
+
+  // A double-click on the empty pane opens the quick-add menu at the pointer. Guard on the pane class
+  // so double-clicking a node (or a control) never triggers it. The menu converts screen → flow
+  // coordinates through the RF instance on add, so the node lands where the user clicked.
+  const onCanvasDoubleClick = useCallback((event: ReactMouseEvent) => {
+    if ((event.target as HTMLElement).classList.contains('react-flow__pane')) {
+      setQuickAdd({ x: event.clientX, y: event.clientY })
+    }
+  }, [])
+
+  const onQuickAdd = useCallback(
+    (nodeType: NodeTypeDto) => {
+      const anchor = quickAdd
+      setQuickAdd(null)
+      if (rfInstance === null || anchor === null) {
+        return
+      }
+      const position = rfInstance.screenToFlowPosition({ x: anchor.x, y: anchor.y })
+      actions.addNode({
+        typeId: nodeType.type_id,
+        typeVersion: nodeType.type_version,
+        params: defaultParamsFor(nodeType),
+        position,
+      })
+    },
+    [quickAdd, rfInstance, actions],
   )
 
   const onDragOver = useCallback((event: DragEvent) => {
@@ -426,49 +597,86 @@ export function Canvas({
   if (error !== undefined) {
     return <div className="canvas canvas--error">Failed to load catalog: {error}</div>
   }
+  if (catalog === undefined) {
+    return <div className="canvas canvas--status">No catalog available.</div>
+  }
 
   return (
-    <div className="canvas" onDragOver={onDragOver} onDrop={onDrop}>
-      {rejection !== undefined ? (
-        <div className="canvas__banner" role="alert">
-          {rejection}
-          <button
-            type="button"
-            className="canvas__banner-dismiss"
-            onClick={() => setRejection(undefined)}
-            aria-label="dismiss"
-          >
-            ×
-          </button>
-        </div>
-      ) : null}
-      <ReactFlow<StrategyFlowNode, FlowEdge>
-        nodes={rfNodes}
-        edges={rfEdges}
-        nodeTypes={nodeTypes}
-        // The editor's selection model is SINGLE-element (App.selectedNodeId; one node/edge deleted at
-        // a time). RF's native multi-select (Shift box-select, Ctrl/Cmd multi-click — both on by
-        // default) would be collapsed by the doc-driven re-seed mid-interaction, so a later Delete
-        // could hit the wrong set. Disable both by nulling their key codes.
-        selectionKeyCode={null}
-        multiSelectionKeyCode={null}
-        // While extraction mode is active, disable Delete/Backspace: the App-owned selection set is
-        // highlighted via RF `selected`, and a stray keypress must NOT delete the picked subgraph.
-        // Off-mode the prop is OMITTED (spread), leaving RF's default delete keys in place.
-        {...(extractionMode ? { deleteKeyCode: null } : {})}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onInit={setRfInstance}
-        onConnect={onConnect}
-        onNodesDelete={onNodesDelete}
-        onEdgesDelete={onEdgesDelete}
-        onNodeDragStop={onNodeDragStop}
-        onNodeClick={onNodeClickHandler}
-        fitView
+    <CanvasChromeContext.Provider value={{ datasetId, datasetMeta, resolvable: true }}>
+      {/* Capture-phase double-click so it fires BEFORE React Flow's own pane dblclick (which zooms and
+          stops propagation); RF's zoom-on-double-click is disabled below so the two never fight. */}
+      <div
+        className="canvas"
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        onDoubleClickCapture={onCanvasDoubleClick}
       >
-        <Background />
-        <Controls />
-      </ReactFlow>
-    </div>
+        {/* The pipeline stage strip — the "you are looking at a strategy machine" device. Above the
+            canvas; a segment click highlights its nodes. */}
+        <StageStrip
+          nodes={stripNodes}
+          onSelectSegment={(ids) => setStageHighlight(new Set(ids))}
+          onEngineClick={onEngineClick}
+        />
+
+        {rejection !== undefined ? (
+          <div className="canvas__banner" role="alert">
+            {rejection}
+            <button
+              type="button"
+              className="canvas__banner-dismiss"
+              onClick={() => setRejection(undefined)}
+              aria-label="dismiss"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
+        <ReactFlow<StrategyFlowNode, FlowEdge>
+          nodes={rfNodes}
+          edges={rfEdges}
+          nodeTypes={nodeTypes}
+          // The editor's selection model is SINGLE-element (App.selectedNodeId; one node/edge deleted at
+          // a time). RF's native multi-select (Shift box-select, Ctrl/Cmd multi-click — both on by
+          // default) would be collapsed by the doc-driven re-seed mid-interaction, so a later Delete
+          // could hit the wrong set. Disable both by nulling their key codes.
+          selectionKeyCode={null}
+          multiSelectionKeyCode={null}
+          // While extraction mode is active, disable Delete/Backspace: the App-owned selection set is
+          // highlighted via RF `selected`, and a stray keypress must NOT delete the picked subgraph.
+          // Off-mode the prop is OMITTED (spread), leaving RF's default delete keys in place.
+          {...(extractionMode ? { deleteKeyCode: null } : {})}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onInit={setRfInstance}
+          onConnect={onConnect}
+          onNodesDelete={onNodesDelete}
+          onEdgesDelete={onEdgesDelete}
+          onNodeDragStop={onNodeDragStop}
+          onNodeClick={onNodeClickHandler}
+          zoomOnDoubleClick={false}
+          fitView
+        >
+          <Background />
+          <Controls />
+          <MiniMap />
+          {/* The on-canvas port-type legend — data-driven from the catalog's lattice. A RF Panel
+              places it top-right so it never collides with Controls (bottom-left) / MiniMap. */}
+          <Panel position="top-right">
+            <Legend catalog={catalog} />
+          </Panel>
+        </ReactFlow>
+
+        {/* The double-click quick-add menu (fuzzy catalog search), anchored at the click. */}
+        {quickAdd !== null ? (
+          <QuickAdd
+            catalog={catalog}
+            position={quickAdd}
+            onAdd={onQuickAdd}
+            onClose={() => setQuickAdd(null)}
+          />
+        ) : null}
+      </div>
+    </CanvasChromeContext.Provider>
   )
 }

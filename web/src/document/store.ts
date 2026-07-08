@@ -223,6 +223,31 @@ export function bumpStrategyVersion(doc: StrategyDocument): StrategyDocument {
 }
 
 /**
+ * A stable string identity of the document's SEMANTIC content, with the NODE-INSTANCE `ui.*` field
+ * excluded (invariant 1: `ui` round-trips but never affects semantics or equality). Two documents
+ * differing ONLY in a node's `ui.*` — e.g. a node dragged to a new position — produce the SAME key.
+ * This is the handle the validity lifecycle keys on (D-7): badges clear when the key changes (a real
+ * edit) but not on a pure move, and an in-flight validation is discarded if the key changed while it
+ * was in flight.
+ *
+ * The projection SCOPE mirrors the backend's `semantic_projection` (quantize/schema/semantics.py
+ * `_without_ui`): only the node-level `ui` key is stripped. `params` and `extensions` are open
+ * semantic JSON, so a `ui` key nested INSIDE them — `params.ui`, `extensions.ui`, or any deeper
+ * semantic object — is executable content and MUST affect the key. Recursively dropping every `ui`
+ * at any depth (the old replacer did) diverges from the backend and would leave a stale validity
+ * badge after a real semantic mutation. We strip on a `structuredClone` (deep copy, no shared
+ * references, unknown/future keys preserved) so the input is never touched and key order — inherited
+ * from the reducers' verbatim spreads — stays deterministic across mutations.
+ */
+export function semanticKey(doc: StrategyDocument): string {
+  const projected = structuredClone(doc)
+  for (const node of projected.nodes) {
+    delete node.ui
+  }
+  return JSON.stringify(projected)
+}
+
+/**
  * Merge into a node's `ui` (used for position updates). A shallow merge preserves other ui keys
  * (e.g. `collapsed`) so a position write never wipes them — `ui.*` is preserved round-trip.
  */

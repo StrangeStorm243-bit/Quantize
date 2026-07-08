@@ -76,7 +76,9 @@ def _descriptor(
         type_version=version,
         inputs=inputs,
         outputs=outputs,
-        metadata=NodeMetadata(display_name=type_id, description=f"Synthetic {type_id}."),
+        metadata=NodeMetadata(
+            display_name=type_id, description=f"Synthetic {type_id}.", category="transform"
+        ),
     )
 
 

@@ -114,6 +114,97 @@ def test_parameter_schemas(type_id: str, params: dict[str, JsonValue], rejected:
     assert _schema_errors(type_id, params) is rejected
 
 
+# --- M13.1: category + doc completeness over the real catalog ----------------------------------
+
+# The D-14 assignment table (design W2), asserted as a literal so any drift is a reviewed diff.
+_CATEGORY_BY_TYPE_ID = {
+    "universe.fixed_list": "universe",
+    "data.price": "data",
+    "transform.trailing_return": "transform",
+    "transform.moving_average": "transform",
+    "transform.latest": "transform",
+    "transform.rank": "selection",
+    "logic.greater_than": "signal",
+    "portfolio.select_top_n": "selection",
+    "portfolio.equal_weight": "weighting",
+    "portfolio.fixed_weight": "weighting",
+    "portfolio.apply_mask": "weighting",
+    "risk.max_weight": "risk",
+    "output.target_portfolio": "output",
+}
+
+# Nodes whose meaning is mathematical enough to owe a plain-text formula.
+_FORMULA_REQUIRED = {
+    "transform.trailing_return",
+    "transform.moving_average",
+    "transform.latest",
+    "transform.rank",
+    "risk.max_weight",
+    "portfolio.equal_weight",
+    "portfolio.fixed_weight",
+}
+
+# Nodes with an explicit missing-data rule that must be stated in doc.semantics.
+_SEMANTICS_REQUIRED = {
+    "logic.greater_than",
+    "transform.trailing_return",
+    "transform.moving_average",
+    "transform.latest",
+    "transform.rank",
+}
+
+
+def _schema_property_names(type_id: str) -> set[str]:
+    for implementation in core_node_implementations():
+        if implementation.type_id == type_id:
+            schema = implementation.descriptor.parameter_schema
+            if schema is None:
+                return set()
+            properties = schema.document.get("properties", {})
+            return set(properties) if isinstance(properties, dict) else set()
+    raise AssertionError(f"unknown type_id {type_id}")
+
+
+@pytest.mark.parametrize("implementation", core_node_implementations(), ids=lambda i: i.type_id)
+def test_every_node_declares_its_d14_category(implementation: object) -> None:
+    descriptor = implementation.descriptor  # type: ignore[attr-defined]
+    assert descriptor.metadata.category == _CATEGORY_BY_TYPE_ID[descriptor.type_id]
+
+
+@pytest.mark.parametrize("implementation", core_node_implementations(), ids=lambda i: i.type_id)
+def test_every_node_has_a_role_first_doc(implementation: object) -> None:
+    descriptor = implementation.descriptor  # type: ignore[attr-defined]
+    doc = descriptor.metadata.doc
+    assert doc is not None, f"{descriptor.type_id} must declare a doc block"
+    assert doc.summary.strip(), f"{descriptor.type_id} summary must be non-empty"
+
+
+@pytest.mark.parametrize("implementation", core_node_implementations(), ids=lambda i: i.type_id)
+def test_doc_parameters_cover_the_schema_exactly(implementation: object) -> None:
+    descriptor = implementation.descriptor  # type: ignore[attr-defined]
+    doc = descriptor.metadata.doc
+    assert doc is not None
+    assert set(doc.parameters) == _schema_property_names(descriptor.type_id), descriptor.type_id
+
+
+@pytest.mark.parametrize("type_id", sorted(_FORMULA_REQUIRED))
+def test_mathematical_nodes_have_a_formula(type_id: str) -> None:
+    catalog = build_core_catalog()
+    resolved = catalog.resolve(type_id, "1.0.0").implementation
+    assert resolved is not None
+    doc = resolved.descriptor.metadata.doc
+    assert doc is not None and doc.formula, f"{type_id} must document a formula"
+
+
+@pytest.mark.parametrize("type_id", sorted(_SEMANTICS_REQUIRED))
+def test_missing_data_nodes_have_semantics(type_id: str) -> None:
+    catalog = build_core_catalog()
+    resolved = catalog.resolve(type_id, "1.0.0").implementation
+    assert resolved is not None
+    doc = resolved.descriptor.metadata.doc
+    assert doc is not None and doc.semantics, f"{type_id} must document semantics"
+
+
 def test_declared_warmups() -> None:
     # Convention (STRATEGY_LANGUAGE §2): declared warm-up = sessions required STRICTLY BEFORE
     # the evaluation session. trailing_return needs L prior closes for its anchor; an MA of

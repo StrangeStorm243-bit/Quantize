@@ -9,9 +9,9 @@
     "kind": "graph",
     "graph": {
       "nodes": [
-        { "id": "ret", "type_id": "transform.trailing_return", "type_version": "1.0.0", "params": { "lookback_sessions": 126 } },
-        { "id": "rk", "type_id": "transform.rank", "type_version": "1.0.0", "params": { "descending": true } },
-        { "id": "sel", "type_id": "portfolio.select_top_n", "type_version": "1.0.0", "params": { "n": 3 } }
+        { "id": "ret", "type_id": "transform.trailing_return", "type_version": "1.0.0", "params": { "lookback_sessions": 126 }, "ui": { "position": { "x": 840, "y": 200 } } },
+        { "id": "rk", "type_id": "transform.rank", "type_version": "1.0.0", "params": { "descending": true }, "ui": { "position": { "x": 1260, "y": 200 } } },
+        { "id": "sel", "type_id": "portfolio.select_top_n", "type_version": "1.0.0", "params": { "n": 3 }, "ui": { "position": { "x": 1680, "y": 200 } } }
       ],
       "edges": [
         { "from": ["ret", "values"], "to": ["rk", "values"] },

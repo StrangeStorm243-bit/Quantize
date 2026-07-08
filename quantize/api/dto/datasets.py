@@ -45,14 +45,19 @@ class DatasetUpload(_Dto):
 
 
 class DatasetStored(_Dto):
-    """Metadata for a stored dataset — the content-addressed id plus both provenance fingerprints
-    and simple counts. NEVER carries the payload (fetch-metadata returns this, not the data)."""
+    """Metadata for a stored dataset — the content-addressed id plus both provenance fingerprints,
+    simple counts, and a read-only introspection projection (calendar bounds + canonical asset
+    tickers, M13.1) computed from the stored payload. NEVER carries the payload itself. The same
+    DTO serves both the upload response and describe — do not fork it."""
 
     dataset_id: str
     dataset_fingerprint: str
     calendar_fingerprint: str
     sessions: int
     assets: int
+    first_session: date
+    last_session: date
+    asset_tickers: tuple[str, ...]
 
 
 class DatasetListRow(_Dto):

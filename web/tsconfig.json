@@ -1,5 +1,6 @@
 {
   "//": "M11.2 web app compile config. `tsc --noEmit`. The @quantize/* alias imports the committed generated declarations in ../ts (CLAUDE.md invariant 4 — never re-declare a domain type).",
+  "//paths": "No `baseUrl` (deprecated, removed in TS 7.0): since TS 4.1 `paths` resolves relative to this file's directory, so `../ts/*` still maps to the committed generated declarations. Vite mirrors this via its own resolve.alias in vite.config.ts.",
   "compilerOptions": {
     "target": "ES2022",
     "useDefineForClassFields": true,
@@ -18,11 +19,12 @@
     "isolatedModules": true,
     "noEmit": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
     "paths": {
       "@quantize/*": ["../ts/*"]
     },
     "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
+  "//exclude": "The app config is the browser-safety guardrail: it excludes the test files and the test-only Node ambient shim, so browser app code CANNOT reference process/node:fs and pass. Tests are type-checked by tsconfig.test.json (which includes the shim).",
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test-node.d.ts"],
   "include": ["src"]
 }

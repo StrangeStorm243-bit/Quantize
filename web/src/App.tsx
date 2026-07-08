@@ -1,38 +1,53 @@
-// The editor shell (M11.5): palette (left), canvas (center), inspector + validate (right), and the
-// strategy panel (bottom). The whole tree is wrapped in the `CatalogProvider` so palette, canvas, and
-// inspector share ONE catalog fetch. The canonical document lives in `useStrategyDocument`; every
-// mutation routes through the store dispatchers (D4).
+// The IDE shell (M13.3): a document-centric workspace. The app has two views — a Home front door
+// (no document open) and the editor (a document open). The editor is a strategy bar (identity +
+// Validate/Run/Save + dataset chip + session-cursor slot) over the three-column workspace
+// (Library | canvas | Inspector) with a VS Code-style bottom Dock (Problems/Runs/Results/Trace).
 //
-// The App holds the two pieces of view state the panels coordinate over: `selectedNodeId` (set on a
-// canvas node click OR by a validate highlight) and `highlightedEdgeIndex` (set by a validate edge
-// highlight). Both are DERIVED view state, never a second source of truth — the document is canonical.
-import { useEffect, useState } from 'react'
+// The canonical document lives in `useStrategyDocument`; every mutation routes through the store
+// dispatchers (D4). Strategy CRUD (new/open/save) is lifted here so Home and the strategy bar share
+// it, and the App tracks a `savedDoc` baseline so `dirty` is a pure object-identity check (every
+// reducer returns a new object). Selection/highlight/run-record are DERIVED view state, never a
+// second source of truth.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { RunRecordResponse } from '@quantize/quantize-api'
+import type { DatasetStored, RunRecordResponse, ValidateResponse } from '@quantize/quantize-api'
 import type { StrategyDocument } from '@quantize/quantize-ir'
-import { errorMessage, getRun } from './api/client'
+import {
+  ApiClientError,
+  errorMessage,
+  getDataset,
+  getRun,
+  listStrategyVersions,
+  loadStrategyVersion,
+  saveStrategy,
+} from './api/client'
 import { CatalogProvider } from './catalog'
 import { ComponentsProvider } from './components-cache'
 import { Canvas } from './components/Canvas'
 import { ComponentDrawer } from './components/ComponentDrawer'
 import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
+import { Dock } from './components/Dock'
+import type { DockPanel } from './components/Dock'
 import { ExtractDialog } from './components/ExtractDialog'
+import { Home } from './components/Home'
 import { Inspector } from './components/Inspector'
 import { Palette } from './components/Palette'
 import { ResultsView } from './components/ResultsView'
 import { RunPanel } from './components/RunPanel'
-import { StrategyPanel } from './components/StrategyPanel'
+import { StrategyBar } from './components/StrategyBar'
 import { TraceView } from './components/TraceView'
 import { ValidatePanel } from './components/ValidatePanel'
-import type { HighlightTarget } from './components/ValidatePanel'
-import { newStrategyDocument, useStrategyDocument } from './document/store'
+import type { HighlightTarget } from './validation/targets'
+import { bumpStrategyVersion, newStrategyDocument, semanticKey, useStrategyDocument } from './document/store'
+import { computeNodeValidity } from './validity'
+import type { StampedVerdict } from './validity'
 import { useSchemaVersionCheck } from './meta'
+import { useTheme } from './theme'
+import './styles/tokens.css'
 import './App.css'
 
-// The bottom-panel tabs. The document is the single source of truth; datasets/runs/results are
-// SERVER state fetched via the client — the App only holds the current selections (dataset id, run
-// id) that the panels coordinate over.
-type PanelTab = 'strategies' | 'datasets' | 'runs' | 'results' | 'trace'
+/** The bottom dock's panels (datasets left the dock in M13.3 — they live on Home + the bar chip). */
+type DockTab = 'problems' | 'runs' | 'results' | 'trace'
 
 // Restore the last-selected dataset id from localStorage (a UX convenience ONLY — the server list is
 // the source of truth; a stale id simply shows as selected until the user picks another).
@@ -45,34 +60,214 @@ function initialDatasetId(): string | undefined {
 }
 
 export function App(): ReactElement {
-  // Best-effort boot check: warn (never crash) if the server's schema version has drifted from the
-  // version this editor was built against. Fulfills the config.ts pin-vs-service contract.
+  // Best-effort boot check: warn (never crash) if the server's schema version has drifted.
   useSchemaVersionCheck()
+  // Theme is a pure client preference (dark default, light opt-in), applied to the document root.
+  const [theme, toggleTheme] = useTheme()
+
+  // Home vs. editor is plain app state (no router, D-10). Start on Home: no document is open.
+  const [view, setView] = useState<'home' | 'editor'>('home')
 
   const [doc, actions] = useStrategyDocument(newStrategyDocument('Untitled'))
+  // The last saved/loaded document OBJECT: `dirty` is `doc !== savedDoc` (every reducer returns a new
+  // object, so any mutation makes them differ; new/open/save reset the baseline to the exact object).
+  const [savedDoc, setSavedDoc] = useState<StrategyDocument | null>(null)
+  const dirty = savedDoc !== null && doc !== savedDoc
+
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [highlightedEdgeIndex, setHighlightedEdgeIndex] = useState<number | null>(null)
-  const [tab, setTab] = useState<PanelTab>('strategies')
+  const [dockTab, setDockTab] = useState<DockTab>('problems')
   const [datasetId, setDatasetId] = useState<string | undefined>(initialDatasetId)
+  const [datasetMeta, setDatasetMeta] = useState<DatasetStored | undefined>(undefined)
+  const [datasetPickerOpen, setDatasetPickerOpen] = useState(false)
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
-  // The component whose internals are open in the read-only detail drawer (M12.4, E11). Transient view
-  // state — never a second source of truth; the definition itself lives in the immutable cache.
+  // The session cursor is client state over the selected run's server dates (M13.7). Null for now —
+  // the strategy bar renders an empty slot until that slice wires it.
+  const sessionCursor: string | null = null
+  // The strategy bar's Validate verb bumps this to trigger a validation in the Problems panel.
+  const [validateNonce, setValidateNonce] = useState(0)
+  // The document's semantic identity (ui.* excluded) — badges key on THIS, not the whole doc object,
+  // so a pure node MOVE never disturbs validity (D-7). `docKeyRef` gives the async validate publisher
+  // the latest committed key to stamp its verdict with.
+  const docKey = useMemo(() => semanticKey(doc), [doc])
+  const docKeyRef = useRef(docKey)
+  useEffect(() => {
+    docKeyRef.current = docKey
+  }, [docKey])
+  // The LATEST validation verdict, STAMPED with the semantic key it was validated against, mirrored up
+  // from the Problems panel so node cards can badge validity (M13.4, D-7). The panel only publishes a
+  // verdict for the current semantics (it discards a superseded in-flight one).
+  const [validation, setValidation] = useState<StampedVerdict | undefined>(undefined)
+  const onValidationResult = useCallback((verdict: ValidateResponse | undefined) => {
+    setValidation(verdict === undefined ? undefined : { verdict, key: docKeyRef.current })
+  }, [])
+  // Clear the mirrored verdict on any SEMANTIC change (D-7 — no stale green after an edit). The App
+  // owns this, NOT the Problems panel: the dock mounts only the active panel, so switching tabs
+  // unmounts/remounts ValidatePanel with the SAME semantic key — a panel-owned clear would wipe node
+  // badges on mere navigation. Keyed on `docKey`, this fires only on a real semantic edit; a pure ui
+  // move (same key) leaves badges intact.
+  useEffect(() => {
+    setValidation(undefined)
+  }, [docKey])
+  // Per-node validity — pure projection of the stamped verdict; renders no badge once the key no
+  // longer matches the current document, so an ok verdict can never flash green on an edited graph.
+  const nodeValidity = useMemo(
+    () => computeNodeValidity(validation, doc, docKey),
+    [validation, doc, docKey],
+  )
+  const [saving, setSaving] = useState(false)
+  const [shellError, setShellError] = useState<string | undefined>(undefined)
+  // A monotonic ticket for document-open requests. Opening a strategy is async (version lookup +
+  // load) while Home stays interactive, so rapid clicks race. Each New/Open takes the next ticket and
+  // an in-flight open applies (or reports) ONLY if it is still the latest — so the user's LAST action
+  // wins and a superseded request is dropped silently (never applied, never a spurious error).
+  const openTicketRef = useRef(0)
+
+  // The component whose internals are open in the read-only detail drawer (M12.4, E11).
   const [viewedComponent, setViewedComponent] = useState<{ componentId: string; version: string } | null>(
     null,
   )
 
   // Extraction mode (M12.5, E2): an App-OWNED selection set — NOT React Flow's transient multi-select
-  // (kept disabled since M11.10) — so it survives every doc re-seed by construction. `extractionMode`
-  // gates the Canvas's click-to-toggle + delete-key behaviour; `extractDialogOpen` mounts the dialog.
-  // `componentsRefreshKey` is bumped on a successful extraction so the Palette refetches its list and
-  // the freshly-minted component appears without a page reload.
+  // — so it survives every doc re-seed by construction.
   const [extractionMode, setExtractionMode] = useState(false)
   const [extractionSelection, setExtractionSelection] = useState<Set<string>>(new Set())
   const [extractDialogOpen, setExtractDialogOpen] = useState(false)
   const [componentsRefreshKey, setComponentsRefreshKey] = useState(0)
 
-  // Enter extraction mode: seed the set from the single selection (if any), then clear single-select so
-  // the two selection models never fight. Exit paths (cancel / success) always clear the set + dialog.
+  // --- Strategy CRUD (lifted so Home + the strategy bar share it) -------------------------------
+
+  // Apply the non-document editor state for a freshly opened document (the caller already made `next`
+  // canonical). Split from the document swap so an async open can guard the swap with `replaceIf` and
+  // only enter the editor once the swap actually applied.
+  const enterEditorWith = (next: StrategyDocument): void => {
+    setSavedDoc(next)
+    setSelectedNodeId(null)
+    setSelectedRunId(undefined)
+    setDockTab('problems')
+    setShellError(undefined)
+    setSaving(false) // a freshly opened document is not mid-save (a prior save belongs to the old doc)
+    setView('editor')
+  }
+
+  // New is synchronous — replace immediately. It also claims the next ticket, so any in-flight open
+  // is superseded (a New always beats a still-loading Open).
+  const handleNew = (name: string): void => {
+    openTicketRef.current += 1
+    const created = newStrategyDocument(name)
+    actions.replace(created)
+    enterEditorWith(created)
+  }
+
+  // Open is async: claim a ticket, and after each await bail if a newer New/Open has superseded this
+  // request — so the user's LATEST click wins regardless of which load resolves first, and a stale
+  // earlier request is dropped silently (never applied, never a spurious error). When it is still the
+  // latest, nothing else changed the canonical document (only New/Open do, and both bump the ticket),
+  // so the swap is unconditional.
+  const handleOpen = async (strategyId: string): Promise<void> => {
+    const ticket = (openTicketRef.current += 1)
+    setShellError(undefined)
+    try {
+      const { versions } = await listStrategyVersions(strategyId)
+      if (ticket !== openTicketRef.current) return // superseded during the version lookup
+      if (versions.length === 0) {
+        setShellError('This strategy has no stored versions.')
+        return
+      }
+      const latest = versions.reduce((a, b) => (b > a ? b : a), versions[0])
+      const loaded = await loadStrategyVersion(strategyId, latest)
+      if (ticket !== openTicketRef.current) return // superseded during the load
+      actions.replace(loaded)
+      enterEditorWith(loaded)
+    } catch (e) {
+      if (ticket !== openTicketRef.current) return // stale request — do not report its error
+      setShellError(errorMessage(e))
+    }
+  }
+
+  // Save the CURRENT document. Byte-identical → 200/201; a different doc at an existing (id, version)
+  // → 409 → bump the version and retry once (mirrors the M11.5 recovery). On success the saved object
+  // becomes the dirty baseline, clearing the dirty indicator.
+  const handleSave = async (): Promise<void> => {
+    // Capture the current document GENERATION. A save must never update the baseline/error/saving of a
+    // DIFFERENT document that became current while it was in flight (the user navigated Home and
+    // created/opened another doc). New/Open bump the generation; a stale save is dropped on resolution.
+    const generation = openTicketRef.current
+    const captured = doc
+    setSaving(true)
+    setShellError(undefined)
+    try {
+      await saveStrategy(captured)
+      if (generation !== openTicketRef.current) return // a different document is now open
+      // Baseline becomes the object we persisted. If the user edited during the await, the live doc
+      // now differs from `captured`, so `dirty` stays true (there are unsaved edits) — never a clobber,
+      // because the success path does not touch the live document.
+      setSavedDoc(captured)
+    } catch (e) {
+      if (generation !== openTicketRef.current) return // stale — do not touch the newer document
+      if (e instanceof ApiClientError && e.code === 'artifact_conflict') {
+        // Bump + retry — but ONLY if the document is unchanged since we captured it. If the user edited
+        // during the save await, `replaceIf` refuses so the bumped STALE document never overwrites the
+        // live edit; the user saves again to persist the new content (the async-writer guard, D4).
+        const bumped = bumpStrategyVersion(captured)
+        if (!actions.replaceIf(captured, bumped)) {
+          setShellError('Document changed during save — not retried. Save again to persist your edits.')
+          return
+        }
+        try {
+          await saveStrategy(bumped)
+          if (generation !== openTicketRef.current) return
+          setSavedDoc(bumped)
+        } catch (retryError) {
+          if (generation !== openTicketRef.current) return
+          setShellError(errorMessage(retryError))
+        }
+      } else {
+        setShellError(errorMessage(e))
+      }
+    } finally {
+      // Only clear the SHARED saving indicator if this save's document is still the one on screen —
+      // otherwise a stale save would flip a newer document's Save button.
+      if (generation === openTicketRef.current) {
+        setSaving(false)
+      }
+    }
+  }
+
+  const handleValidate = (): void => {
+    setDockTab('problems')
+    setValidateNonce((n) => n + 1)
+  }
+  // Consumption is App-owned via a SYNCHRONOUS guard (M13.4). The nonce is monotonic; this ref records
+  // the highest one already run. `consumeValidateNonce` returns true only the FIRST time it sees a given
+  // nonce and false thereafter. Because it mutates a ref (not state), the answer is correct WITHIN a
+  // single commit — so a StrictMode double-invoked mount effect, and a later dock remount (the dock
+  // mounts only the active panel), both run the validation exactly once. A state reset could not: it
+  // would not land before StrictMode's second synchronous mount-effect invocation.
+  const consumedNonceRef = useRef(0)
+  const consumeValidateNonce = useCallback((nonce: number): boolean => {
+    if (nonce <= consumedNonceRef.current) {
+      return false
+    }
+    consumedNonceRef.current = nonce
+    return true
+  }, [])
+  const handleRun = (): void => setDockTab('runs')
+  // The stage strip's Engine chip links the canvas toward the run outputs (PX-2). With a run selected,
+  // Results is enabled → open it; otherwise fall back to Runs (never activate a disabled Results/Trace).
+  const handleEngine = (): void => setDockTab(selectedRunId !== undefined ? 'results' : 'runs')
+  const handleHome = (): void => {
+    setShellError(undefined) // a shell error is contextual to the current document; drop it on nav
+    setView('home')
+  }
+
+  const onSelectRun = (runId: string): void => {
+    setSelectedRunId(runId)
+    setDockTab('results')
+  }
+
+  // --- Extraction orchestration (unchanged from M12) -------------------------------------------
+
   const enterExtractionMode = (): void => {
     setExtractionSelection(selectedNodeId !== null ? new Set([selectedNodeId]) : new Set())
     setSelectedNodeId(null)
@@ -95,8 +290,6 @@ export function App(): ReactElement {
       return next
     })
   }
-  // A blessed extraction: replace the doc, refresh the palette, leave the mode, and select the minted
-  // component instance node. Called from the dialog's `onCommit` ONLY after it applies (see below).
   const onExtracted = (newNodeId: string): void => {
     setComponentsRefreshKey((k) => k + 1)
     setExtractionMode(false)
@@ -104,11 +297,6 @@ export function App(): ReactElement {
     setExtractDialogOpen(false)
     setSelectedNodeId(newNodeId === '' ? null : newNodeId)
   }
-  // The App-owned commit gate (M12.5b): the dialog server-validated the rewrite and now asks us to apply
-  // it. The store's `replaceIf` compare-and-swap refuses — WITHOUT mutating anything — if the live
-  // document is no longer the object the commit captured (a mid-flight load/new/edit, e.g. from the
-  // StrategyPanel the modal does not cover). This is the last line closing the stale-clobber hole; the
-  // dialog surfaces a non-destructive message on false.
   const commitExtraction = (
     capturedDoc: StrategyDocument,
     strategy: StrategyDocument,
@@ -121,10 +309,8 @@ export function App(): ReactElement {
     return true
   }
 
-  // The run record is fetched ONCE per selected run and held here (not in the panels): ResultsView and
-  // TraceView are conditionally mounted per tab, so if each fetched its own record every results↔trace
-  // flip would refetch + re-parse the same run. The App holds the record so it survives the flips; the
-  // panels render the passed record (TraceView keeps its own per-session `getTrace`).
+  // --- The lifted run record (fetched once per selected run) ------------------------------------
+
   const [runRecord, setRunRecord] = useState<RunRecordResponse | undefined>(undefined)
   const [runRecordLoading, setRunRecordLoading] = useState(false)
   const [runRecordError, setRunRecordError] = useState<string | undefined>(undefined)
@@ -161,27 +347,43 @@ export function App(): ReactElement {
     }
   }, [selectedRunId])
 
-  // When the selected node leaves the document — Backspace-delete, a load/replace, or an extraction
-  // rewrite — clear the stale selection: nothing else does, so `selectedNodeId` would otherwise point
-  // at a nonexistent id. That phantom is not just cosmetic: `enterExtractionMode` seeds the extraction
-  // set from it, so a deleted-then-extract flow would seed an un-toggleable ghost member that errors the
-  // preview. Resolving by id (O(n) over nodes) keyed on [doc, selectedNodeId] covers every removal path.
+  // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
+  useEffect(() => {
+    if (datasetId === undefined) {
+      setDatasetMeta(undefined)
+      return
+    }
+    let cancelled = false
+    getDataset(datasetId)
+      .then((meta) => {
+        if (!cancelled) {
+          setDatasetMeta(meta)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDatasetMeta(undefined)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [datasetId])
+
+  // Clear a stale node selection when the selected node leaves the document (delete/replace/extract).
   useEffect(() => {
     if (selectedNodeId !== null && !doc.nodes.some((n) => n.id === selectedNodeId)) {
       setSelectedNodeId(null)
     }
   }, [doc, selectedNodeId])
 
-  // A positional edge highlight (`highlightedEdgeIndex`) is an INDEX into `doc.edges`; once the
-  // document mutates or is replaced those indices point at different edges, so a stale highlight would
-  // mark the WRONG edge (and, being RF-`selected`, make it Backspace-deletable). Clear it on any doc
-  // change — node highlights are id-resolved and survive. Mirrors ValidatePanel clearing its verdict.
+  // A positional edge highlight is an INDEX into `doc.edges`; clear it on any doc change so a stale
+  // index never mis-highlights (and is not Backspace-deletable while selected).
   useEffect(() => {
     setHighlightedEdgeIndex(null)
   }, [doc])
 
-  // Resolve a structured validate target to a selection / edge highlight — the App owns both. A node
-  // index is resolved against the current document to a node id; a runtime target already carries one.
+  // Resolve a structured validate target to a selection / edge highlight — the App owns both.
   const onHighlight = (target: HighlightTarget): void => {
     if (target.kind === 'nodeId') {
       setSelectedNodeId(target.nodeId)
@@ -197,137 +399,202 @@ export function App(): ReactElement {
     }
   }
 
+  const dockPanels: DockPanel[] = [
+    {
+      id: 'problems',
+      label: 'Problems',
+      node: (
+        <ValidatePanel
+          doc={doc}
+          onHighlight={onHighlight}
+          validateNonce={validateNonce}
+          consumeValidateNonce={consumeValidateNonce}
+          onResult={onValidationResult}
+        />
+      ),
+    },
+    {
+      id: 'runs',
+      label: 'Runs',
+      node: (
+        <RunPanel
+          doc={doc}
+          datasetId={datasetId}
+          selectedRunId={selectedRunId}
+          onSelectRun={onSelectRun}
+        />
+      ),
+    },
+    {
+      id: 'results',
+      label: 'Results',
+      disabled: selectedRunId === undefined,
+      node: (
+        <ResultsView
+          runId={selectedRunId}
+          record={runRecord}
+          loading={runRecordLoading}
+          error={runRecordError}
+        />
+      ),
+    },
+    {
+      id: 'trace',
+      label: 'Trace',
+      disabled: selectedRunId === undefined,
+      node: (
+        <TraceView
+          runId={selectedRunId}
+          record={runRecord}
+          recordLoading={runRecordLoading}
+          recordError={runRecordError}
+        />
+      ),
+    },
+  ]
+
   return (
     <CatalogProvider>
       <ComponentsProvider>
         <div className="app">
           <header className="app-header">
             <h1>Quantize</h1>
-            <span className="app-header__name">
-              {doc.strategy.name} · v{doc.strategy.version}
-            </span>
+            <span className="app-header__spacer" />
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            >
+              {theme === 'dark' ? '☀' : '☾'}
+            </button>
           </header>
-          <main className="app-body">
-            <aside className="app-region app-region--left" aria-label="palette">
-              <Palette refreshKey={componentsRefreshKey} />
-            </aside>
-            <section className="app-region app-region--center" aria-label="canvas">
-              <div className="extract-toolbar">
-                {extractionMode ? (
-                  <div className="extract-banner" role="status">
-                    <span className="extract-banner__count">
-                      Extraction mode — {extractionSelection.size} node
-                      {extractionSelection.size === 1 ? '' : 's'} selected
-                    </span>
-                    <button
-                      type="button"
-                      className="pform__btn pform__btn--primary"
-                      disabled={extractionSelection.size === 0}
-                      onClick={() => setExtractDialogOpen(true)}
-                    >
-                      Create component…
-                    </button>
-                    <button type="button" className="pform__btn" onClick={cancelExtraction}>
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button type="button" className="pform__btn" onClick={enterExtractionMode}>
-                    Extract component
-                  </button>
-                )}
-              </div>
-              <Canvas
-                doc={doc}
-                actions={actions}
-                onNodeClick={(id) => setSelectedNodeId(id)}
-                selectedNodeId={selectedNodeId}
-                selectedNodeIds={extractionMode ? extractionSelection : undefined}
-                extractionMode={extractionMode}
-                onToggleExtractionNode={toggleExtractionNode}
-                highlightedEdgeIndex={highlightedEdgeIndex}
-              />
-              {viewedComponent !== null ? (
-                <ComponentDrawer
-                  componentId={viewedComponent.componentId}
-                  version={viewedComponent.version}
-                  onClose={() => setViewedComponent(null)}
-                />
-              ) : null}
-              {extractDialogOpen ? (
-                <ExtractDialog
-                  doc={doc}
-                  selection={extractionSelection}
-                  onCommit={commitExtraction}
-                  onCancel={() => setExtractDialogOpen(false)}
-                />
-              ) : null}
-            </section>
-            <aside className="app-region app-region--right" aria-label="inspector">
-              <Inspector
-                doc={doc}
-                selectedNodeId={selectedNodeId}
-                actions={actions}
-                onInspectComponent={(target) => setViewedComponent(target)}
-              />
-              <ValidatePanel doc={doc} onHighlight={onHighlight} />
-            </aside>
-          </main>
-          <footer className="app-region app-region--bottom" aria-label="panel">
-            <nav className="tabbar" aria-label="panel tabs">
-              {(['strategies', 'datasets', 'runs', 'results', 'trace'] as const).map((t) => {
-                // Trace inspects a selected run — disabled until one is chosen (like results, it is
-                // meaningless without a run; the button gates on the App's `selectedRunId`).
-                const needsRun = t === 'trace'
-                const disabled = needsRun && selectedRunId === undefined
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    className={`tabbar__tab ${tab === t ? 'is-active' : ''}`}
-                    aria-pressed={tab === t}
-                    disabled={disabled}
-                    onClick={() => setTab(t)}
-                  >
-                    {t}
-                  </button>
-                )
-              })}
-            </nav>
-            <div className="tabpanel">
-              {tab === 'strategies' ? <StrategyPanel doc={doc} actions={actions} /> : null}
-              {tab === 'datasets' ? (
-                <DatasetPanel activeDatasetId={datasetId} onSelectDataset={setDatasetId} />
-              ) : null}
-              {tab === 'runs' ? (
-                <RunPanel
-                  doc={doc}
-                  datasetId={datasetId}
-                  selectedRunId={selectedRunId}
-                  onSelectRun={(runId) => {
-                    setSelectedRunId(runId)
-                    setTab('results')
-                  }}
-                />
-              ) : null}
-              {tab === 'results' ? (
-                <ResultsView
-                  runId={selectedRunId}
-                  record={runRecord}
-                  loading={runRecordLoading}
-                  error={runRecordError}
-                />
-              ) : null}
-              {tab === 'trace' ? (
-                <TraceView
-                  runId={selectedRunId}
-                  record={runRecord}
-                  recordLoading={runRecordLoading}
-                  recordError={runRecordError}
-                />
-              ) : null}
+
+          {/* Shell-level error — rendered OUTSIDE the Home/editor branch so a failed open (which
+              leaves the user on Home) is visible, as well as a failed save in the editor. */}
+          {shellError !== undefined ? (
+            <div className="sbar__error" role="alert">
+              {shellError}
             </div>
-          </footer>
+          ) : null}
+
+          {view === 'home' ? (
+            <Home
+              onNew={handleNew}
+              onOpen={(id) => void handleOpen(id)}
+              datasetId={datasetId}
+              onSelectDataset={setDatasetId}
+            />
+          ) : (
+            <>
+              <StrategyBar
+                doc={doc}
+                dirty={dirty}
+                saving={saving}
+                datasetId={datasetId}
+                datasetMeta={datasetMeta}
+                sessionCursor={sessionCursor}
+                onValidate={handleValidate}
+                onRun={handleRun}
+                onSave={() => void handleSave()}
+                onChooseDataset={() => setDatasetPickerOpen(true)}
+                onHome={handleHome}
+              />
+
+              <main className="app-body">
+                <aside className="app-region app-region--left" aria-label="library">
+                  <Palette refreshKey={componentsRefreshKey} />
+                </aside>
+                <section className="app-region app-region--center" aria-label="canvas">
+                  <div className="extract-toolbar">
+                    {extractionMode ? (
+                      <div className="extract-banner" role="status">
+                        <span className="extract-banner__count">
+                          Extraction mode — {extractionSelection.size} node
+                          {extractionSelection.size === 1 ? '' : 's'} selected
+                        </span>
+                        <button
+                          type="button"
+                          className="pform__btn pform__btn--primary"
+                          disabled={extractionSelection.size === 0}
+                          onClick={() => setExtractDialogOpen(true)}
+                        >
+                          Create component…
+                        </button>
+                        <button type="button" className="pform__btn" onClick={cancelExtraction}>
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button type="button" className="pform__btn" onClick={enterExtractionMode}>
+                        Extract component
+                      </button>
+                    )}
+                  </div>
+                  <Canvas
+                    doc={doc}
+                    actions={actions}
+                    onNodeClick={(id) => setSelectedNodeId(id)}
+                    selectedNodeId={selectedNodeId}
+                    selectedNodeIds={extractionMode ? extractionSelection : undefined}
+                    extractionMode={extractionMode}
+                    onToggleExtractionNode={toggleExtractionNode}
+                    highlightedEdgeIndex={highlightedEdgeIndex}
+                    datasetId={datasetId}
+                    datasetMeta={datasetMeta}
+                    nodeValidity={nodeValidity}
+                    onEngineClick={handleEngine}
+                  />
+                  {viewedComponent !== null ? (
+                    <ComponentDrawer
+                      componentId={viewedComponent.componentId}
+                      version={viewedComponent.version}
+                      onClose={() => setViewedComponent(null)}
+                    />
+                  ) : null}
+                  {extractDialogOpen ? (
+                    <ExtractDialog
+                      doc={doc}
+                      selection={extractionSelection}
+                      onCommit={commitExtraction}
+                      onCancel={() => setExtractDialogOpen(false)}
+                    />
+                  ) : null}
+                  {datasetPickerOpen ? (
+                    <div className="dpicker" role="dialog" aria-label="choose dataset">
+                      <div className="dpicker__panel">
+                        <div className="dpicker__head">
+                          <span className="dpicker__title">Choose dataset</span>
+                          <button
+                            type="button"
+                            className="dpicker__close"
+                            aria-label="close dataset picker"
+                            onClick={() => setDatasetPickerOpen(false)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <DatasetPanel activeDatasetId={datasetId} onSelectDataset={setDatasetId} />
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
+                <aside className="app-region app-region--right" aria-label="inspector">
+                  <Inspector
+                    doc={doc}
+                    selectedNodeId={selectedNodeId}
+                    actions={actions}
+                    onInspectComponent={(target) => setViewedComponent(target)}
+                  />
+                </aside>
+              </main>
+
+              <footer className="app-region app-region--bottom" aria-label="dock">
+                <Dock tab={dockTab} onTab={(id) => setDockTab(id as DockTab)} panels={dockPanels} />
+              </footer>
+            </>
+          )}
         </div>
       </ComponentsProvider>
     </CatalogProvider>

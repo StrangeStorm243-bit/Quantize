@@ -76,8 +76,8 @@ export function Palette({ refreshKey }: PaletteProps = {}): ReactElement {
   return (
     <div className="palette">
       {groups.map((group) => (
-        <div key={group.group} className="palette-group">
-          <h3 className="palette-group__title">{group.group}</h3>
+        <div key={group.group} className={`palette-group palette-group--${group.group}`}>
+          <h3 className="palette-group__title">{group.label}</h3>
           {group.nodeTypes.map((nodeType) => (
             <div
               key={nodeType.type_id}

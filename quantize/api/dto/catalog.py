@@ -8,9 +8,30 @@ are imported from the schema layer — never re-declared here.
 
 from __future__ import annotations
 
+from pydantic import Field
+
 from quantize.api.dto.common import _Dto
 from quantize.schema.primitives import JsonObject
 from quantize.schema.types import PortType
+
+
+class ParamDocDto(_Dto):
+    """Wire mirror of ``registry.descriptor.ParamDoc`` — a parameter's display label + help."""
+
+    label: str
+    help: str | None = None
+
+
+class NodeDocDto(_Dto):
+    """Wire mirror of ``registry.descriptor.NodeDoc`` — the node's role-first meaning for the
+    editor (``summary`` prose, plain-text ``formula``, reserved ``latex``, ``semantics``, and
+    per-parameter docs)."""
+
+    summary: str
+    formula: str | None = None
+    latex: str | None = None
+    semantics: str | None = None
+    parameters: dict[str, ParamDocDto] = Field(default_factory=dict)
 
 
 class PortTypeEntryDto(_Dto):
@@ -43,15 +64,18 @@ class CatalogOutputPortDto(_Dto):
 
 
 class NodeTypeDto(_Dto):
-    """One registered node type: identity, typed ports, and its parameter JSON Schema (if any)."""
+    """One registered node type: identity, machine-stage ``category``, typed ports, its parameter
+    JSON Schema (if any), and the structured ``doc`` block the inspector renders (M13.1)."""
 
     type_id: str
     type_version: str
     display_name: str
     description: str
+    category: str
     inputs: tuple[CatalogInputPortDto, ...]
     outputs: tuple[CatalogOutputPortDto, ...]
     parameter_schema: JsonObject | None
+    doc: NodeDocDto | None = None
 
 
 class NodeCatalogResponse(_Dto):

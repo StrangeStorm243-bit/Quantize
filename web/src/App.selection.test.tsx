@@ -70,9 +70,22 @@ vi.mock('./components/Canvas', () => ({
 vi.mock('./components/Palette', () => ({ Palette: () => <div /> }))
 vi.mock('./components/Inspector', () => ({ Inspector: () => <div /> }))
 vi.mock('./components/ValidatePanel', () => ({ ValidatePanel: () => <div /> }))
+// The app opens on Home (M13.3); a Home stub enters the editor via onNew.
+vi.mock('./components/Home', () => ({
+  Home: (props: { onNew: (name: string) => void }) => (
+    <button type="button" onClick={() => props.onNew('Test')}>
+      home-new
+    </button>
+  ),
+}))
 
 // eslint-disable-next-line import/first
 import { App } from './App'
+
+function renderEditor(): void {
+  render(<App />)
+  fireEvent.click(screen.getByText('home-new'))
+}
 
 async function flush(): Promise<void> {
   await act(async () => {
@@ -82,7 +95,7 @@ async function flush(): Promise<void> {
 
 describe('App selection lifecycle (A2)', () => {
   it('clears the selection when the selected node is removed from the document', async () => {
-    render(<App />)
+    renderEditor()
     // Add a node and select it → the selection prop reflects its id.
     fireEvent.click(screen.getByText('add-node'))
     fireEvent.click(screen.getByText('select-first'))
@@ -95,7 +108,7 @@ describe('App selection lifecycle (A2)', () => {
   })
 
   it('seeds an EMPTY extraction set after the selected node was deleted (no phantom)', async () => {
-    render(<App />)
+    renderEditor()
     fireEvent.click(screen.getByText('add-node'))
     fireEvent.click(screen.getByText('select-first'))
     fireEvent.click(screen.getByText('remove-first'))

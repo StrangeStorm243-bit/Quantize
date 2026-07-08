@@ -21,7 +21,9 @@ from quantize.api.dto.catalog import (
     CatalogOutputPortDto,
     CompatibilityPairDto,
     NodeCatalogResponse,
+    NodeDocDto,
     NodeTypeDto,
+    ParamDocDto,
     PortTypeEntryDto,
 )
 from quantize.api.dto.common import ApiError, MetaResponse
@@ -197,6 +199,9 @@ _SAMPLES: dict[str, Any] = {
         calendar_fingerprint="c" * 64,
         sessions=1,
         assets=1,
+        first_session=date(2026, 1, 5),
+        last_session=date(2026, 1, 5),
+        asset_tickers=("AAA",),
     ),
     "DatasetList": DatasetList(
         datasets=(
@@ -264,6 +269,12 @@ _SAMPLES: dict[str, Any] = {
                 type_version="1.0.0",
                 display_name="Rank",
                 description="Rank a cross-section.",
+                category="selection",
+                doc=NodeDocDto(
+                    summary="Orders the universe by a score.",
+                    formula="rank ∈ {1..k}",
+                    parameters={"descending": ParamDocDto(label="Descending")},
+                ),
                 inputs=(
                     CatalogInputPortDto(
                         name="values",
@@ -288,9 +299,11 @@ _SAMPLES: dict[str, Any] = {
                 type_version="1.0.0",
                 display_name="Passthrough",
                 description="No parameters.",
+                category="transform",
                 inputs=(),
                 outputs=(),
                 parameter_schema=None,
+                doc=None,
             ),
         ),
     ),

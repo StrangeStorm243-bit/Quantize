@@ -12,6 +12,9 @@ dist/
 # Node (M1.3+)
 node_modules/
 
+# Local databases (seed/demo/runtime — regenerable, never committed)
+*.db
+
 # OS / editor
 .DS_Store
 Thumbs.db

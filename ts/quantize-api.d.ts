@@ -38,8 +38,10 @@ export interface QuantizeApi {
   JsonValue?: JsonValue;
   MetaResponse?: MetaResponse;
   NodeCatalogResponse?: NodeCatalogResponse;
+  NodeDocDto?: NodeDocDto;
   NodeTypeDto?: NodeTypeDto;
   ObservationDto?: ObservationDto;
+  ParamDocDto?: ParamDocDto;
   PersistedDiagnostic?: PersistedDiagnostic;
   PersistedEvaluation?: PersistedEvaluation;
   PersistedFill?: PersistedFill;
@@ -181,14 +183,19 @@ export interface DatasetListRow {
   saved_at: string;
 }
 /**
- * Metadata for a stored dataset — the content-addressed id plus both provenance fingerprints
- * and simple counts. NEVER carries the payload (fetch-metadata returns this, not the data).
+ * Metadata for a stored dataset — the content-addressed id plus both provenance fingerprints,
+ * simple counts, and a read-only introspection projection (calendar bounds + canonical asset
+ * tickers, M13.1) computed from the stored payload. NEVER carries the payload itself. The same
+ * DTO serves both the upload response and describe — do not fork it.
  */
 export interface DatasetStored {
+  asset_tickers: string[];
   assets: number;
   calendar_fingerprint: string;
   dataset_fingerprint: string;
   dataset_id: string;
+  first_session: string;
+  last_session: string;
   sessions: number;
 }
 /**
@@ -246,11 +253,14 @@ export interface NodeCatalogResponse {
   schema_version: string;
 }
 /**
- * One registered node type: identity, typed ports, and its parameter JSON Schema (if any).
+ * One registered node type: identity, machine-stage ``category``, typed ports, its parameter
+ * JSON Schema (if any), and the structured ``doc`` block the inspector renders (M13.1).
  */
 export interface NodeTypeDto {
+  category: string;
   description: string;
   display_name: string;
+  doc?: NodeDocDto | null;
   inputs: CatalogInputPortDto[];
   outputs: CatalogOutputPortDto[];
   parameter_schema: {
@@ -258,6 +268,27 @@ export interface NodeTypeDto {
   } | null;
   type_id: string;
   type_version: string;
+}
+/**
+ * Wire mirror of ``registry.descriptor.NodeDoc`` — the node's role-first meaning for the
+ * editor (``summary`` prose, plain-text ``formula``, reserved ``latex``, ``semantics``, and
+ * per-parameter docs).
+ */
+export interface NodeDocDto {
+  formula?: string | null;
+  latex?: string | null;
+  parameters?: {
+    [k: string]: ParamDocDto;
+  };
+  semantics?: string | null;
+  summary: string;
+}
+/**
+ * Wire mirror of ``registry.descriptor.ParamDoc`` — a parameter's display label + help.
+ */
+export interface ParamDocDto {
+  help?: string | null;
+  label: string;
 }
 /**
  * One lattice member paired with its compact human ``label`` (e.g. ``"Scalar[Number]"``).

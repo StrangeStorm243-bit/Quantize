@@ -50,6 +50,14 @@ def _observation(
 # --- dataset construction contract ------------------------------------------------------------
 
 
+def test_dataset_rejects_empty_calendar() -> None:
+    """A market dataset must have at least one session — an empty calendar is not backtestable
+    and has no first/last session (M13.1 introspection guard)."""
+    empty = ExchangeCalendar(exchange="QSE", timezone="UTC-05:00", sessions=())
+    with pytest.raises(ValueError, match="at least one session"):
+        MarketDataSet(calendar=empty, observations={})
+
+
 def test_dataset_rejects_observation_off_calendar() -> None:
     stray = date(2026, 1, 7)
     observation = PriceObservation(

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from quantize.registry.descriptor import NodeDescriptor, NodeMetadata, OutputPortSpec
+from quantize.registry.descriptor import (
+    NodeDescriptor,
+    NodeDoc,
+    NodeMetadata,
+    OutputPortSpec,
+    ParamDoc,
+)
 from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.runtime.binding import NodeImplementation, NodeInvocation
 from quantize.runtime.values import AssetSetValue, RuntimeValue
@@ -33,6 +39,24 @@ FIXED_LIST = NodeImplementation(
         metadata=NodeMetadata(
             display_name="Fixed Universe",
             description="A fixed list of asset tickers, emitted in canonical (ascending) order.",
+            category="universe",
+            doc=NodeDoc(
+                summary=(
+                    "Defines the machine's investable universe — the fixed set of asset tickers "
+                    "every downstream stage is allowed to consider. This is where the strategy "
+                    "declares what it can trade."
+                ),
+                semantics=(
+                    "Emits the tickers in canonical (ascending) order. Reads no market data; the "
+                    "list is taken verbatim from the tickers parameter."
+                ),
+                parameters={
+                    "tickers": ParamDoc(
+                        label="Tickers",
+                        help="Asset symbols in the universe (e.g. SPY, QQQ); emitted ascending.",
+                    ),
+                },
+            ),
         ),
         parameter_schema=JsonSchemaSpec(
             {

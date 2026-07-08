@@ -14,8 +14,10 @@ from quantize.nodes._params import require_int
 from quantize.registry.descriptor import (
     InputPortSpec,
     NodeDescriptor,
+    NodeDoc,
     NodeMetadata,
     OutputPortSpec,
+    ParamDoc,
 )
 from quantize.registry.schema_spec import JsonSchemaSpec
 from quantize.runtime.binding import NodeImplementation, NodeInvocation
@@ -143,6 +145,25 @@ SELECT_TOP_N = NodeImplementation(
                 "The n best-ranked universe assets (smallest score wins; ties by canonical "
                 "ticker); unscored assets are excluded, and fewer than n may qualify."
             ),
+            category="selection",
+            doc=NodeDoc(
+                summary=(
+                    "Selects the n best-ranked assets from the universe — the machine's shortlist "
+                    "step that narrows a scored cross-section down to the names actually held."
+                ),
+                semantics=(
+                    "Consumes rank/score values (smallest score = best, designed for "
+                    "transform.rank output); ties resolve by ascending canonical ticker. Universe "
+                    "assets without a score are excluded (traced); if fewer than n qualify, all "
+                    "qualifying assets are selected."
+                ),
+                parameters={
+                    "n": ParamDoc(
+                        label="Number to select",
+                        help="How many top-ranked assets to hold (fewer if fewer qualify).",
+                    ),
+                },
+            ),
         ),
         parameter_schema=JsonSchemaSpec(
             {
@@ -188,6 +209,18 @@ EQUAL_WEIGHT = NodeImplementation(
             description=(
                 "1/|selected| per selected asset (renormalized across the selection); an empty "
                 "selection is all cash."
+            ),
+            category="weighting",
+            doc=NodeDoc(
+                summary=(
+                    "Weights the selected assets equally — the machine's simplest allocation "
+                    "stage, splitting the portfolio evenly across whatever was selected."
+                ),
+                formula="w = 1 / |selected|   for each selected asset",
+                semantics=(
+                    "Renormalizes across the selected set. An empty selection yields all cash. "
+                    "Cash = 1 - Σw."
+                ),
             ),
         ),
         parameter_schema=_EMPTY_PARAMS,
@@ -237,6 +270,24 @@ FIXED_WEIGHT = NodeImplementation(
             description=(
                 "A fixed sleeve per universe asset (a number, or 'equal' for 1/|universe|); "
                 "no renormalization — unallocated weight is cash."
+            ),
+            category="weighting",
+            doc=NodeDoc(
+                summary=(
+                    "Assigns each universe asset a fixed sleeve — the machine's allocation stage "
+                    "for a static, non-renormalized book (used with a downstream mask)."
+                ),
+                formula="w = weight_per_asset (or 1 / |universe| when 'equal') per universe asset",
+                semantics=(
+                    "Never renormalizes; unallocated weight is cash. A numeric weight whose total "
+                    "across the universe exceeds 1 fails loudly. An empty universe yields all cash."
+                ),
+                parameters={
+                    "weight_per_asset": ParamDoc(
+                        label="Weight per asset",
+                        help="A fixed fraction per asset, or 'equal' for 1/|universe|.",
+                    ),
+                },
             ),
         ),
         parameter_schema=JsonSchemaSpec(
@@ -306,6 +357,19 @@ APPLY_MASK = NodeImplementation(
             description=(
                 "Zeroes weights where the mask is false or missing (traced); survivors keep "
                 "their sleeves — no renormalization, zeroed weight becomes cash."
+            ),
+            category="weighting",
+            doc=NodeDoc(
+                summary=(
+                    "Gates an allocation by a boolean signal — zeroes the weight of any asset the "
+                    "mask rejects. This is where a signal stage actually removes names from the "
+                    "book."
+                ),
+                formula="w'(asset) = w(asset) if mask(asset) else 0",
+                semantics=(
+                    "Zeroes weights where the mask is false OR missing (traced); survivors keep "
+                    "their sleeves — no renormalization, so the zeroed weight becomes cash."
+                ),
             ),
         ),
         parameter_schema=_EMPTY_PARAMS,

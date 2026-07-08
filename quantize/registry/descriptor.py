@@ -38,11 +38,42 @@ class OutputPortSpec(_FrozenGoverned):
     port_type: PortType
 
 
+class ParamDoc(_FrozenGoverned):
+    """Editor-facing docs for one node parameter: a display ``label`` and optional ``help`` text."""
+
+    label: str = Field(min_length=1)
+    help: str | None = None
+
+
+class NodeDoc(_FrozenGoverned):
+    """Structured node meaning served to the editor (M13.1) — the registry is its single home.
+
+    ``summary`` opens with the node's plain-English *role for the machine* (role-first authoring,
+    plan D-13). ``formula`` is plain-text/Unicode math; ``latex`` is reserved and never rendered in
+    M13. ``semantics`` states the missing-data / alignment / warm-up rules CLAUDE.md requires to be
+    explicit. ``parameters`` keys must be a subset of the node's ``parameter_schema`` properties —
+    enforced on ``NodeDescriptor`` (which alone knows the schema).
+    """
+
+    summary: str = Field(min_length=1)
+    formula: str | None = None
+    latex: str | None = None
+    semantics: str | None = None
+    parameters: dict[str, ParamDoc] = Field(default_factory=dict)
+
+
 class NodeMetadata(_FrozenGoverned):
-    """Human-readable metadata a node type declares (consumed later by the M10 editor API)."""
+    """Human-readable metadata a node type declares (consumed by the M10 editor API).
+
+    ``category`` is authored **machine-stage semantics**, not the ``type_id`` namespace (M13.1
+    guardrail): a lowercase open-set identifier the editor maps to a stage color/segment. ``doc`` is
+    the optional structured meaning block served to the inspector.
+    """
 
     display_name: str = Field(min_length=1)
     description: str = Field(min_length=1)
+    category: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    doc: NodeDoc | None = None
 
 
 class NodeDescriptor(_FrozenGoverned):
@@ -79,4 +110,26 @@ class NodeDescriptor(_FrozenGoverned):
                 if port.name in seen:
                     raise ValueError(f"duplicate {kind} port name {port.name!r}")
                 seen.add(port.name)
+        return self
+
+    @model_validator(mode="after")
+    def _reject_orphan_param_docs(self) -> Self:
+        """Every ``doc.parameters`` key must name a real ``parameter_schema`` property.
+
+        The subset check lives here (not on ``NodeDoc``) because only the descriptor knows the
+        parameter schema. Exact coverage (every parameter is documented) is a registration-time
+        invariant tested over ``build_core_catalog()``, not a per-model rule.
+        """
+        doc = self.metadata.doc
+        if doc is not None and doc.parameters:
+            properties: set[str] = set()
+            if self.parameter_schema is not None:
+                schema_properties = self.parameter_schema.document.get("properties", {})
+                if isinstance(schema_properties, dict):
+                    properties = set(schema_properties)
+            orphans = sorted(set(doc.parameters) - properties)
+            if orphans:
+                raise ValueError(
+                    f"doc.parameters {orphans} are not properties of the parameter schema"
+                )
         return self

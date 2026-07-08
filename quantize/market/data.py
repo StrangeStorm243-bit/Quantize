@@ -72,6 +72,8 @@ class MarketDataSet:
     observations: Mapping[str, Sequence[PriceObservation]]
 
     def __post_init__(self) -> None:
+        if not self.calendar.sessions:
+            raise ValueError("a market dataset must contain at least one session")
         sessions_by_date = {s.session_date: s for s in self.calendar.sessions}
         normalized: dict[str, tuple[PriceObservation, ...]] = {}
         for asset in sorted(self.observations):

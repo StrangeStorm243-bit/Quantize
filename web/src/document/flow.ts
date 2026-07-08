@@ -17,6 +17,8 @@ import type {
   JsonValue,
   StrategyDocument,
 } from '@quantize/quantize-ir'
+import { portColorVar } from '../catalog/colors'
+import type { PortType } from '../catalog'
 
 /**
  * The data an IR node contributes to its React Flow node. `typeId` is ALWAYS present. When `toFlow`
@@ -29,6 +31,102 @@ export type FlowNodeData = {
   displayName?: string
   inputs?: CatalogInputPortDto[]
   outputs?: CatalogOutputPortDto[]
+  /** The served machine-stage category (M13.4) — drives the card color/icon. Absent for an unknown/
+   * future type (the view falls back to the neutral token) and for component instances. */
+  category?: string
+  /** A one-line description for the card's hover tooltip (PX-3): the catalog `description` for a
+   * registered node, the resolved definition's `description` for a component. Absent for an unknown/
+   * future type, a component whose definition has none (null), or a component cache miss. */
+  description?: string
+  /** A one-line preview of the node's params for the card face (e.g. `lookback_sessions = 63`). */
+  paramSummary?: string
+  /** True for a `ComponentRefNode` — the card renders the composition variant + a version chip. */
+  isComponent?: boolean
+  /** The pinned component version, for the chip (present whether or not the definition has loaded). */
+  version?: string
+  /** For a `data`-category node: the universe tickers read from the connected `universe.*` node's
+   * params (document data), or `null` when nothing feeds its asset input (unbound). Absent for
+   * non-data nodes. Consumed by the Data Source card. */
+  universeTickers?: string[] | null
+  /** Run-derived validity badge, OVERLAID by the Canvas from the latest validation (never by
+   * `toFlow`, which is a pure doc/catalog projection). Cleared on any semantic doc mutation (D-7). */
+  validity?: NodeValidity
+}
+
+/** The validity a node card badges: from the most-recent validation response only (D-7). */
+export type NodeValidity = 'valid' | 'error'
+
+// A single scalar param → its display string. The ONLY place param values are stringified for a card.
+function formatParamScalar(value: JsonValue): string {
+  if (value === null) {
+    return 'null'
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false'
+  }
+  if (typeof value === 'number' || typeof value === 'string') {
+    return String(value)
+  }
+  return JSON.stringify(value)
+}
+
+// One param value → display string; a long array is truncated to its first three plus a `+N` count so
+// the card face stays a single line (the full list lives in the inspector / Data Source card).
+function formatParamValue(value: JsonValue): string {
+  if (Array.isArray(value)) {
+    const head = value.slice(0, 3).map(formatParamScalar)
+    return value.length > 3 ? `[${head.join(', ')}, +${value.length - 3}]` : `[${head.join(', ')}]`
+  }
+  return formatParamScalar(value)
+}
+
+/**
+ * Format a node's params into a compact one-line summary for the card face (`key = value`, joined by
+ * ` · `), or `undefined` when the node has no params. Pure presentation of document data — no numeric
+ * derivation (invariant 5).
+ */
+export function formatParamSummary(params: { [k: string]: JsonValue } | undefined): string | undefined {
+  if (params === undefined) {
+    return undefined
+  }
+  const entries = Object.entries(params)
+  if (entries.length === 0) {
+    return undefined
+  }
+  return entries.map(([key, value]) => `${key} = ${formatParamValue(value)}`).join(' · ')
+}
+
+/**
+ * Resolve a `data`-category node's universe: the tickers from whatever node feeds its asset input.
+ * Walks the document's edges (document data only) — for each edge INTO the data node, if the source is
+ * a genuine `universe`-category node (per the injected `isUniverseSource` predicate, a served-catalog
+ * string comparison) that carries a `tickers` string array param, that is the universe. Returns `null`
+ * when nothing resolvable feeds it (an unbound data node, a non-universe source that merely happens to
+ * carry a `tickers` param, a `ComponentRefNode` source which has no catalog category, or — in a
+ * read-only component view — a universe arriving through an exposed input). NEVER computes (invariant 5).
+ *
+ * The category gate is passed in (not read here) because this function stays a pure doc projection with
+ * no catalog dependency of its own; `toFlow` supplies a predicate over its own catalog index.
+ */
+export function resolveUniverseTickers(
+  doc: Pick<StrategyDocument, 'nodes' | 'edges'>,
+  dataNodeId: string,
+  isUniverseSource: (nodeTypeId: string) => boolean,
+): string[] | null {
+  for (const edge of doc.edges) {
+    if (edge.to[0] !== dataNodeId) {
+      continue
+    }
+    const source = doc.nodes.find((n) => n.id === edge.from[0])
+    if (source === undefined || !isUniverseSource(source.type_id)) {
+      continue
+    }
+    const tickers = (source.params as { [k: string]: JsonValue } | undefined)?.tickers
+    if (Array.isArray(tickers) && tickers.every((t) => typeof t === 'string')) {
+      return tickers as string[]
+    }
+  }
+  return null
 }
 
 /**
@@ -145,16 +243,30 @@ export function toFlow(
 
   const nodes: StrategyFlowNode[] = doc.nodes.map((node, index) => {
     const data: FlowNodeData = { typeId: node.type_id }
+    // The param-summary line is document data on EVERY node kind (registered + component).
+    const paramSummary = formatParamSummary(node.params)
+    if (paramSummary !== undefined) {
+      data.paramSummary = paramSummary
+    }
     if ('ref' in node) {
       // A ComponentRefNode: resolve its pinned `(component_id, version)` and enrich from the cached
-      // definition. On a cache miss (definition not fetched yet) keep the bare `{typeId: 'component'}`
-      // shape — the SAME degradation an unknown/future registered type gets, never a crash.
+      // definition. The variant flag + version chip come from the pinned REF (always present), so the
+      // card reads as a component even on a cache miss (definition not fetched yet) — never a crash.
+      data.isComponent = true
+      const ref = findComponentRef(doc.component_refs, node.ref)
+      if (ref !== undefined) {
+        data.version = ref.version
+      }
       const def = resolveComponentDef(doc.component_refs, node.ref, components)
       if (def !== undefined) {
         const ports = componentPorts(def)
         data.displayName = def.name
         data.inputs = ports.inputs
         data.outputs = ports.outputs
+        // A component's description is optional (`string | null`); carry it only when present.
+        if (def.description !== null && def.description !== undefined) {
+          data.description = def.description
+        }
       }
     } else {
       const nodeType = byType?.get(node.type_id)
@@ -164,6 +276,17 @@ export function toFlow(
         data.displayName = nodeType.display_name
         data.inputs = nodeType.inputs
         data.outputs = nodeType.outputs
+        data.category = nodeType.category
+        data.description = nodeType.description
+        // A data-category node is the machine's entry point — resolve its universe (document data) so
+        // the Data Source card can show it; `null` records an explicit unbound state, not "absent".
+        if (nodeType.category === 'data') {
+          data.universeTickers = resolveUniverseTickers(
+            doc,
+            node.id,
+            (typeId) => byType?.get(typeId)?.category === 'universe',
+          )
+        }
       }
     }
     return {
@@ -173,16 +296,44 @@ export function toFlow(
     }
   })
 
+  // Resolve the port type a source handle CARRIES, so the edge can be colored by it (M13.4). A
+  // registered source resolves via the catalog; a component source via its cached definition — the
+  // SAME two port sources render already uses. Returns undefined when unresolved (no catalog, unknown
+  // type, definition not loaded, unknown handle) → the edge stays the default color, never a crash.
+  const outputPortType = (sourceId: string, handle: string): PortType | undefined => {
+    const node = doc.nodes.find((n) => n.id === sourceId)
+    if (node === undefined) {
+      return undefined
+    }
+    if ('ref' in node) {
+      const def = resolveComponentDef(doc.component_refs, node.ref, components)
+      return def === undefined
+        ? undefined
+        : componentPorts(def).outputs.find((p) => p.name === handle)?.port_type
+    }
+    return byType?.get(node.type_id)?.outputs.find((p) => p.name === handle)?.port_type
+  }
+
   const edges: FlowEdge[] = doc.edges.map((edge, index) => {
     const [source, sourceHandle] = edge.from
     const [target, targetHandle] = edge.to
-    return {
+    const flowEdge: FlowEdge = {
       id: `${source}:${sourceHandle}->${target}:${targetHandle}#${index}`,
       source,
       target,
       sourceHandle,
       targetHandle,
     }
+    // Color by carried port type when it resolves. The class suffix is DERIVED from the token name
+    // (`--port-cross-section-number` → `cross-section-number`) so class and color stay in lockstep,
+    // and the inline stroke actually paints the wire without a per-type CSS rule.
+    const portType = outputPortType(source, sourceHandle)
+    if (portType !== undefined) {
+      const tokenVar = portColorVar(portType)
+      flowEdge.className = `sedge sedge--${tokenVar.replace('--port-', '')}`
+      flowEdge.style = { stroke: `var(${tokenVar})` }
+    }
+    return flowEdge
   })
 
   return { nodes, edges }

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Connection } from '@xyflow/react'
 import type { NodeCatalogResponse } from '@quantize/quantize-api'
@@ -14,10 +14,39 @@ const catalog = catalogJson as unknown as NodeCatalogResponse
 // The memoized allow-set the component threads into `decideConnection`; here we build it once.
 const compatSet = buildCompatibilitySet(catalog)
 
-// No network in tests: the CatalogProvider's fetch resolves to the committed golden.
+// No network in tests: the CatalogProvider's fetch resolves to the committed golden, and the
+// component-definition cache resolves to a fixed definition (the ComponentsProvider fetches every
+// pinned ref on mount). `errorMessage` is used by the cache's failure path.
 vi.mock('../api/client', async () => {
   const json = (await import('../../../tests/goldens/node_catalog.json')).default
-  return { getNodeCatalog: () => Promise.resolve(json) }
+  return {
+    getNodeCatalog: () => Promise.resolve(json),
+    loadComponentVersion: () =>
+      Promise.resolve({
+        schema_version: '0.1.0',
+        component_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        version: '1.0.0',
+        name: 'Momentum Selector',
+        description: null,
+        component_refs: [],
+        implementation: { kind: 'graph', graph: { nodes: [], edges: [] } },
+        exposed_inputs: [
+          { name: 'series', type: { kind: 'TimeSeries', dtype: 'Number' }, maps_to: ['ret', 'series'] },
+        ],
+        exposed_outputs: [{ name: 'assets', type: { kind: 'AssetSet' }, maps_to: ['sel', 'assets'] }],
+        exposed_params: [],
+        provenance: {
+          owner: '00000000-0000-0000-0000-000000000001',
+          creator: '00000000-0000-0000-0000-000000000001',
+          contributors: [],
+          visibility: 'private',
+          duplicable: false,
+          created_at: '2026-07-06T00:00:00Z',
+          forked_from: null,
+        },
+      }),
+    errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  }
 })
 
 // A minimal component definition + a doc that instantiates it, for the component-connection tests.
@@ -294,5 +323,101 @@ describe('Canvas render', () => {
       </CatalogProvider>,
     )
     expect(await screen.findByText('Fixed Universe')).toBeInTheDocument()
+  })
+})
+
+// A single-node doc carrying a param, so the card face has a summary to show.
+function cardDoc(): { doc: StrategyDocument; nodeId: string } {
+  const doc = addNode(newStrategyDocument('t'), {
+    typeId: 'transform.trailing_return',
+    typeVersion: '1.0.0',
+    params: { lookback_sessions: 63 },
+    position: { x: 0, y: 0 },
+  })
+  return { doc, nodeId: doc.nodes[0].id }
+}
+
+function renderCanvas(ui: Parameters<typeof render>[0]): ReturnType<typeof render> {
+  return render(
+    <CatalogProvider>
+      <ComponentsProvider>{ui}</ComponentsProvider>
+    </CatalogProvider>,
+  )
+}
+
+describe('Canvas M13.4 legibility', () => {
+  it('renders a node as a category card with icon, param summary and a validity badge', async () => {
+    const { doc, nodeId } = cardDoc()
+    const { container } = renderCanvas(
+      <Canvas doc={doc} actions={stubActions()} nodeValidity={new Map([[nodeId, 'error']])} />,
+    )
+    await screen.findByText('Trailing Return')
+    // Category color/icon: the card carries the served category class and an inline svg glyph.
+    const card = container.querySelector('.snode--cat-transform')
+    expect(card).not.toBeNull()
+    expect(card?.querySelector('svg')).not.toBeNull()
+    // The param summary is on the card face.
+    expect(screen.getByText('lookback_sessions = 63')).toBeInTheDocument()
+    // The validity badge reflects the passed-in (server-derived) verdict.
+    expect(container.querySelector('.snode__badge--error')).not.toBeNull()
+  })
+
+  it('gives the card a description tooltip and each port row a served type title (PX-3)', async () => {
+    const { doc } = cardDoc()
+    const { container } = renderCanvas(<Canvas doc={doc} actions={stubActions()} />)
+    await screen.findByText('Trailing Return')
+    // The card's hover tooltip is the catalog description verbatim.
+    const retType = catalog.node_types.find((n) => n.type_id === 'transform.trailing_return')
+    const card = container.querySelector('.snode--cat-transform')
+    expect(card?.getAttribute('title')).toBe(retType?.description)
+    // Each port row carries "<port name> · <served port-type label>" — the label comes from labelOf,
+    // never hardcoded (the same label the Legend and rejection banners use).
+    expect(container.querySelector('[title="series · TimeSeries[Number]"]')).not.toBeNull()
+    expect(container.querySelector('[title="values · CrossSection[Number]"]')).not.toBeNull()
+  })
+
+  it('renders a ComponentRef as the composition variant with a version chip', async () => {
+    const { doc } = buildComponentDoc()
+    const { container } = renderCanvas(<Canvas doc={doc} actions={stubActions()} />)
+    await screen.findByLabelText('port type legend')
+    expect(container.querySelector('.snode--component')).not.toBeNull()
+    expect(screen.getByText(/v1\.0\.0/)).toBeInTheDocument()
+  })
+
+  it('shows the on-canvas legend listing the catalog port types', async () => {
+    const { doc } = buildDoc()
+    renderCanvas(<Canvas doc={doc} actions={stubActions()} />)
+    expect(await screen.findByLabelText('port type legend')).toBeInTheDocument()
+    // A representative lattice label sourced from the catalog.
+    expect(screen.getByText('CrossSection[Number]')).toBeInTheDocument()
+  })
+
+  it('shows the pipeline stage strip with per-segment counts for the graph', async () => {
+    const { doc } = buildDoc() // trailing_return(transform) + rank(selection) + price(data)
+    renderCanvas(<Canvas doc={doc} actions={stubActions()} />)
+    // Await a node so the catalog has resolved and categories are projected into the strip.
+    await screen.findByText('Rank')
+    expect(screen.getByRole('button', { name: /Data: 1 node/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Transforms: 1 node/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Rank & Select: 1 node/ })).toBeInTheDocument()
+  })
+
+  it('forwards onEngineClick to the stage strip Engine chip (PX-2)', async () => {
+    const { doc } = buildDoc()
+    const onEngineClick = vi.fn()
+    renderCanvas(<Canvas doc={doc} actions={stubActions()} onEngineClick={onEngineClick} />)
+    const engine = await screen.findByRole('button', { name: 'Engine — targets to orders to fills' })
+    fireEvent.click(engine)
+    expect(onEngineClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the quick-add menu on a double-click of the canvas pane', async () => {
+    const { doc } = buildDoc()
+    const { container } = renderCanvas(<Canvas doc={doc} actions={stubActions()} />)
+    await screen.findByLabelText('port type legend')
+    const pane = container.querySelector('.react-flow__pane')
+    expect(pane).not.toBeNull()
+    fireEvent.doubleClick(pane as Element)
+    expect(screen.getByLabelText('quick add search')).toBeInTheDocument()
   })
 })

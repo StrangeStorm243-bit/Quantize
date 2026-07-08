@@ -18,17 +18,36 @@ from quantize.api.dto.catalog import (
     CatalogOutputPortDto,
     CompatibilityPairDto,
     NodeCatalogResponse,
+    NodeDocDto,
     NodeTypeDto,
+    ParamDocDto,
     PortTypeEntryDto,
 )
 from quantize.api.version import API_VERSION
 from quantize.nodes import build_core_catalog
+from quantize.registry.descriptor import NodeDoc
 from quantize.registry.export import PORT_TYPE_LATTICE, catalog_digest, compatible_pairs
 from quantize.schema.primitives import JsonObject
 from quantize.schema.types import render_port_type
 from quantize.schema.version import CURRENT_SCHEMA_VERSION
 
 router = APIRouter(prefix="/v1", tags=["catalog"])
+
+
+def _doc_dto(doc: NodeDoc | None) -> NodeDocDto | None:
+    """Project a registry ``NodeDoc`` into its wire mirror (identity translation, no logic)."""
+    if doc is None:
+        return None
+    return NodeDocDto(
+        summary=doc.summary,
+        formula=doc.formula,
+        latex=doc.latex,
+        semantics=doc.semantics,
+        parameters={
+            name: ParamDocDto(label=param.label, help=param.help)
+            for name, param in doc.parameters.items()
+        },
+    )
 
 
 @router.get("/node-types")
@@ -42,6 +61,7 @@ def get_node_types() -> NodeCatalogResponse:
             type_version=descriptor.type_version,
             display_name=descriptor.metadata.display_name,
             description=descriptor.metadata.description,
+            category=descriptor.metadata.category,
             inputs=tuple(
                 CatalogInputPortDto(
                     name=port.name, port_type=port.port_type, required=port.required
@@ -57,6 +77,7 @@ def get_node_types() -> NodeCatalogResponse:
                 if descriptor.parameter_schema is not None
                 else None
             ),
+            doc=_doc_dto(descriptor.metadata.doc),
         )
         for descriptor in catalog.descriptors()
     )

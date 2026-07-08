@@ -22,12 +22,12 @@
   },
   "schedule": { "kind": "monthly" },
   "nodes": [
-    { "id": "u", "type_id": "universe.fixed_list", "type_version": "1.0.0", "params": { "tickers": ["EFA", "GLD", "IWM", "QQQ", "SPY", "TLT"] } },
-    { "id": "px", "type_id": "data.price", "type_version": "1.0.0", "params": {} },
-    { "id": "mom", "type_id": "component", "ref": "c1", "params": { "n": 3 } },
-    { "id": "ew", "type_id": "portfolio.equal_weight", "type_version": "1.0.0", "params": {} },
-    { "id": "cap", "type_id": "risk.max_weight", "type_version": "1.0.0", "params": { "max": 0.4 } },
-    { "id": "tp", "type_id": "output.target_portfolio", "type_version": "1.0.0", "params": {} }
+    { "id": "u", "type_id": "universe.fixed_list", "type_version": "1.0.0", "params": { "tickers": ["EFA", "GLD", "IWM", "QQQ", "SPY", "TLT"] }, "ui": { "position": { "x": 0, "y": 0 } } },
+    { "id": "px", "type_id": "data.price", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 420, "y": 200 } } },
+    { "id": "mom", "type_id": "component", "ref": "c1", "params": { "n": 3 }, "ui": { "position": { "x": 1260, "y": 200 } } },
+    { "id": "ew", "type_id": "portfolio.equal_weight", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 2100, "y": 200 } } },
+    { "id": "cap", "type_id": "risk.max_weight", "type_version": "1.0.0", "params": { "max": 0.4 }, "ui": { "position": { "x": 2520, "y": 200 } } },
+    { "id": "tp", "type_id": "output.target_portfolio", "type_version": "1.0.0", "params": {}, "ui": { "position": { "x": 2940, "y": 200 } } }
   ],
   "edges": [
     { "from": ["u", "assets"], "to": ["px", "assets"] },
