@@ -328,7 +328,12 @@ export function App(): ReactElement {
     setRunRecord(undefined)
     setRunRecordError(undefined)
     setRunRecordLoading(true)
-    setSessionCursor(null) // clear on run switch — the new run's axis is not known until it loads
+    // Clear on run switch — the new run's axis is not known until it loads. Clearing to null (rather
+    // than TraceView's render-time reset pattern) is safe BECAUSE no effect depends on `sessionCursor`:
+    // it is consumed only by StrategyBar's render, and the axis it indexes (`sessionDates`) is a
+    // run_id-gated memo, so a stale cursor is masked (`hasRun`/index -1) rather than acted upon. If a
+    // future effect ever read `sessionCursor`, reconsider — TraceView resets at render for that reason.
+    setSessionCursor(null)
     getRun(selectedRunId)
       .then((res) => {
         if (!cancelled) {
@@ -363,11 +368,14 @@ export function App(): ReactElement {
     return runRecord.record.valuations.map(([date]) => date)
   }, [runRecord, selectedRunId])
   // The evaluated subset — sessions the engine actually evaluated (vs. warm-up / skipped sessions),
-  // used only to MARK the cursor readout. A pure projection of the record; it computes nothing.
-  const evaluatedSessions = useMemo(
-    () => new Set(runRecord?.record.evaluations.map((e) => e.session_date) ?? []),
-    [runRecord],
-  )
+  // used only to MARK the cursor readout. A pure projection of the record; it computes nothing. Gated
+  // on the SAME run_id check as `sessionDates` so both projections of one record are defended alike —
+  // a future consumer reading this outside the bar's `hasRun` mask never sees the stale run's set.
+  const evaluatedSessions = useMemo(() => {
+    if (runRecord === undefined || selectedRunId === undefined || runRecord.record.run_id !== selectedRunId)
+      return new Set<string>()
+    return new Set(runRecord.record.evaluations.map((e) => e.session_date))
+  }, [runRecord, selectedRunId])
 
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
   useEffect(() => {

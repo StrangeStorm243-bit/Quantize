@@ -69,8 +69,19 @@ const RUN_2 = record({
   ],
   evaluations: [],
 })
+// A one-shot deferral hook for run-1: when `deferRun1` is set, the NEXT getRun('run-1') returns a
+// promise this test resolves manually — so we can hold run-1 in-flight, switch away, and resolve it
+// late to exercise the effect's `cancelled` guard (the trickiest, otherwise-untested path).
+let deferRun1 = false
+let run1Resolve: ((r: RunRecordResponse) => void) | null = null
 const getRunMock = vi.fn((runId: string): Promise<RunRecordResponse> => {
   if (runId === 'run-2') return Promise.resolve(RUN_2)
+  if (runId === 'run-1' && deferRun1) {
+    deferRun1 = false // consume the deferral so only the FIRST run-1 fetch is held open
+    return new Promise<RunRecordResponse>((resolve) => {
+      run1Resolve = resolve
+    })
+  }
   return Promise.resolve(RUN_1)
 })
 
@@ -140,6 +151,12 @@ function cursorReadout(): HTMLElement {
   return screen.getByLabelText('session cursor')
 }
 
+async function flush(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve()
+  })
+}
+
 describe('App session cursor (M13.7)', () => {
   it("sets the cursor to the run's LAST session when the record arrives (D-12)", async () => {
     renderEditor()
@@ -147,15 +164,29 @@ describe('App session cursor (M13.7)', () => {
     await waitFor(() => expect(cursorReadout()).toHaveTextContent('2026-05-15'))
   })
 
-  it("clears the cursor on run switch and re-defaults to the new run's last session", async () => {
+  it('clears the cursor on run switch, then re-defaults; a late-resolving prior fetch is ignored', async () => {
+    // Hold run-1's fetch in-flight so the switch happens WHILE run-1 is still loading — exercising the
+    // effect's `cancelled` guard and the memo's run_id gate together. A regression dropping either would
+    // let run-1's stale last session (or dates) win once its promise resolves late.
+    deferRun1 = true
     renderEditor()
     selectRun('run-1')
-    await waitFor(() => expect(cursorReadout()).toHaveTextContent('2026-05-15'))
+    // run-1 is pending: no record yet → empty axis → the readout is the bare em-dash (transient clear).
+    await flush()
+    expect(cursorReadout()).toHaveTextContent('—')
+    expect(screen.queryByLabelText('previous session')).not.toBeInTheDocument()
 
-    // Switching to run-2 clears the cursor (— while the new record loads) then re-defaults to run-2's
-    // last session — a date drawn EXCLUSIVELY from run-2's own valuations, never run-1's.
+    // Switch to run-2 (resolves normally). Its cursor defaults to run-2's OWN last session.
     selectRun('run-2')
     await waitFor(() => expect(cursorReadout()).toHaveTextContent('2026-06-02'))
+
+    // Now resolve run-1 LATE. The prior effect was cancelled on switch, so its .then must not fire:
+    // the cursor stays on run-2's date and never flips to run-1's last session (2026-05-15).
+    await act(async () => {
+      run1Resolve?.(RUN_1)
+      await Promise.resolve()
+    })
+    expect(cursorReadout()).toHaveTextContent('2026-06-02')
     expect(cursorReadout()).not.toHaveTextContent('2026-05-15')
   })
 
