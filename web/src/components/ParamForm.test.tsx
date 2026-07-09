@@ -215,4 +215,33 @@ describe('ParamForm — doc labels/help (M13.5)', () => {
     )
     expect(screen.getByLabelText('window')).toBeInTheDocument()
   })
+
+  it('links the control to its help text via aria-describedby', () => {
+    render(
+      <ParamForm
+        schema={schemaOf('transform.trailing_return')}
+        params={{}}
+        docs={docs}
+        onParamsChange={vi.fn()}
+      />,
+    )
+    const input = screen.getByLabelText('Lookback sessions')
+    const describedBy = input.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    const helpEl = document.getElementById(describedBy as string)
+    expect(helpEl).not.toBeNull()
+    expect(helpEl).toHaveTextContent(/Calendar sessions back to the anchor close/)
+  })
+
+  it('sets no aria-describedby when a parameter has no help', () => {
+    render(
+      <ParamForm
+        schema={schemaOf('transform.moving_average')}
+        params={{}}
+        docs={{}}
+        onParamsChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByLabelText('window')).not.toHaveAttribute('aria-describedby')
+  })
 })

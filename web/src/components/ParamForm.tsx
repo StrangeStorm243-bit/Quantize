@@ -74,9 +74,11 @@ interface ControlProps {
   prop: Record<string, JsonValue>
   current: JsonValue | undefined
   emit: (value: JsonValue | undefined) => void
+  /** Id of the control's help text (`doc.help`), wired to the primary input via aria-describedby. */
+  describedBy?: string
 }
 
-function NumberControl({ label, prop, current, emit }: ControlProps): ReactElement {
+function NumberControl({ label, prop, current, emit, describedBy }: ControlProps): ReactElement {
   const isInteger = prop.type === 'integer'
   const minimum = asNumber(prop.minimum)
   const exclusiveMinimum = asNumber(prop.exclusiveMinimum)
@@ -95,6 +97,7 @@ function NumberControl({ label, prop, current, emit }: ControlProps): ReactEleme
           step={isInteger ? 1 : 'any'}
           min={minAttr}
           max={maximum}
+          aria-describedby={describedBy}
           onChange={(e) => emit(parseFiniteNumber(e.target.value))}
         />
       </label>
@@ -105,7 +108,7 @@ function NumberControl({ label, prop, current, emit }: ControlProps): ReactEleme
   )
 }
 
-function BooleanControl({ label, prop, current, emit }: ControlProps): ReactElement {
+function BooleanControl({ label, prop, current, emit, describedBy }: ControlProps): ReactElement {
   const fallback = typeof prop.default === 'boolean' ? prop.default : false
   const checked = typeof current === 'boolean' ? current : fallback
   return (
@@ -114,6 +117,7 @@ function BooleanControl({ label, prop, current, emit }: ControlProps): ReactElem
         type="checkbox"
         className="pform__checkbox"
         checked={checked}
+        aria-describedby={describedBy}
         onChange={(e) => emit(e.target.checked)}
       />
       <span className="pform__label">{label}</span>
@@ -121,7 +125,7 @@ function BooleanControl({ label, prop, current, emit }: ControlProps): ReactElem
   )
 }
 
-function StringControl({ label, prop, current, emit }: ControlProps): ReactElement {
+function StringControl({ label, prop, current, emit, describedBy }: ControlProps): ReactElement {
   const minLength = asNumber(prop.minLength)
   return (
     <label className="pform__field">
@@ -131,6 +135,7 @@ function StringControl({ label, prop, current, emit }: ControlProps): ReactEleme
         className="pform__input"
         value={typeof current === 'string' ? current : ''}
         minLength={minLength}
+        aria-describedby={describedBy}
         onChange={(e) => emit(e.target.value === '' ? undefined : e.target.value)}
       />
     </label>
@@ -139,7 +144,7 @@ function StringControl({ label, prop, current, emit }: ControlProps): ReactEleme
 
 // A unique-string array editor (tickers): chips with remove buttons + an add field that rejects
 // duplicates to honour `uniqueItems`. The value is always a string[].
-function StringArrayControl({ label, current, emit }: ControlProps): ReactElement {
+function StringArrayControl({ label, current, emit, describedBy }: ControlProps): ReactElement {
   const items: string[] = Array.isArray(current)
     ? current.filter((v): v is string => typeof v === 'string')
     : []
@@ -183,6 +188,7 @@ function StringArrayControl({ label, current, emit }: ControlProps): ReactElemen
           type="text"
           className="pform__input"
           aria-label={`Add ${label}`}
+          aria-describedby={describedBy}
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value)
@@ -208,7 +214,7 @@ function StringArrayControl({ label, current, emit }: ControlProps): ReactElemen
 // number branch (fixed_weight: "equal" vs a number). Emits the const value or the number. Mode is
 // LOCAL state (seeded from the current value) so switching to the number branch before typing does
 // not snap back to a const — the enclosing ParamForm remounts per node, resetting it cleanly.
-function OneOfControl({ label, prop, current, emit }: ControlProps): ReactElement {
+function OneOfControl({ label, prop, current, emit, describedBy }: ControlProps): ReactElement {
   const branches = Array.isArray(prop.oneOf)
     ? prop.oneOf.map((b) => asRecord(b)).filter((b): b is Record<string, JsonValue> => b !== undefined)
     : []
@@ -262,6 +268,7 @@ function OneOfControl({ label, prop, current, emit }: ControlProps): ReactElemen
       <select
         className="pform__input"
         aria-label={label}
+        aria-describedby={describedBy}
         value={mode}
         onChange={(e) => onModeChange(e.target.value)}
       >
@@ -292,7 +299,7 @@ function OneOfControl({ label, prop, current, emit }: ControlProps): ReactElemen
 // The D6 fallback: a raw-JSON textarea bound to one property. On change, if the text parses we emit
 // the parsed value; if it does not, we KEEP the text and show an "invalid JSON" hint (never block —
 // the server validates authoritatively). Empty text clears the key.
-function RawJsonControl({ label, current, emit }: ControlProps): ReactElement {
+function RawJsonControl({ label, current, emit, describedBy }: ControlProps): ReactElement {
   const [text, setText] = useState(() => (current === undefined ? '' : JSON.stringify(current, null, 2)))
   const [invalid, setInvalid] = useState(false)
   return (
@@ -301,6 +308,7 @@ function RawJsonControl({ label, current, emit }: ControlProps): ReactElement {
       <textarea
         className="pform__textarea"
         aria-label={label}
+        aria-describedby={describedBy}
         value={text}
         rows={3}
         onChange={(e) => {
@@ -364,14 +372,30 @@ export function ParamForm({ schema, params, docs, onParamsChange }: ParamFormPro
         const docEntry = docs?.[name]
         // The visible/accessible label is the doc label; the emit key stays the raw property `name`.
         const label = docEntry?.label ?? name
+        const help = docEntry?.help != null && docEntry.help !== '' ? docEntry.help : undefined
+        // Help text sits UNDER the control (a column) and is announced via aria-describedby — never a
+        // horizontal sibling of the input (that squeezed the layout and left the help unassociated).
+        const helpId = help !== undefined ? `pform-help-${name}` : undefined
         const emit = (value: JsonValue | undefined): void =>
           onParamsChange(nextParams(params, name, value))
         return (
           <div key={name} className="pform__row">
-            {renderControl({ name, label, prop, current: params[name], emit })}
-            {docEntry?.help != null && docEntry.help !== '' ? (
-              <span className="pform__help">{docEntry.help}</span>
-            ) : null}
+            <div className="pform__control">
+              {renderControl({
+                name,
+                label,
+                prop,
+                current: params[name],
+                emit,
+                // exactOptionalPropertyTypes: only pass describedBy when there is a help id to point at.
+                ...(helpId !== undefined ? { describedBy: helpId } : {}),
+              })}
+              {help !== undefined ? (
+                <span id={helpId} className="pform__help">
+                  {help}
+                </span>
+              ) : null}
+            </div>
             {required.includes(name) ? (
               <span className="pform__required" title="required">
                 required
