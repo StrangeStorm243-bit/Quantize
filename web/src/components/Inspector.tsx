@@ -1,9 +1,11 @@
-// The node inspector (M11.5, M12.4, M13.5): identity + schema-driven parameter form for the selected
-// node, plus its meaning. The primitive-node branch renders four sections (M13.5): Parameters (the
+// The node inspector (M11.5, M12.4, M13.5, M13.7): identity + schema-driven parameter form for the
+// selected node, plus its meaning. The primitive-node branch renders four sections: Parameters (the
 // doc-labeled ParamForm), Explanation (role sentence → formula → semantics/warm-up), Ports (typed,
-// labeled), and an inert "At session" shell — a stable slot a later slice fills with the node's
-// last-run trace values at the session cursor. All of it is pure projection of served catalog
-// metadata; no numerical or compatibility logic lives here (CLAUDE.md invariant 5).
+// labeled), and the "At session" section — the Node Value Tap slot (design W4), now LIVE (M13.7): the
+// selected node's SERVED trace events at the shared session cursor, addressed by (node_id,
+// component_path); at the output boundary it appends the engine reconciliation rows. All of it is pure
+// projection of served catalog metadata + served trace facts; no numerical, compatibility, or decision
+// logic lives here (CLAUDE.md invariant 5) — the section only looks up and filters served state.
 //
 // Selection is APP-level state (not React Flow's transient selection — the canvas re-seeds its RF
 // nodes from the document, which would drop RF selection). The Inspector reads the selected node from
@@ -14,7 +16,13 @@
 // overrides — through the SAME `ParamForm`, over a SYNTHESIZED object schema built from each exposed
 // param's verbatim `schema` fragment. "Inspect internals" opens a read-only detail drawer (E11).
 import type { ReactElement } from 'react'
-import type { NodeCatalogResponse, NodeTypeDto } from '@quantize/quantize-api'
+import type {
+  NodeCatalogResponse,
+  NodeTypeDto,
+  PersistedNote,
+  TraceTreeDto,
+  TraceTreeNodeDto,
+} from '@quantize/quantize-api'
 import type { JsonValue, StrategyDocument } from '@quantize/quantize-ir'
 import { labelOf, nodeTypeById, useCatalog } from '../catalog'
 import { portColor } from '../catalog/colors'
@@ -23,6 +31,7 @@ import { findComponentRef } from '../document/flow'
 import type { NodeParams, StrategyDocumentActions } from '../document/store'
 import type { ParameterSchema } from './ParamForm'
 import { ParamForm } from './ParamForm'
+import { TraceEventBody } from './TraceView'
 
 // W3: the node's meaning, role sentence first (D-13). `doc.latex` is RESERVED and never rendered.
 function ExplanationSection({ nodeType }: { nodeType: NodeTypeDto }): ReactElement {
@@ -77,15 +86,144 @@ function PortsSection({ nodeType, catalog }: { nodeType: NodeTypeDto; catalog: N
   )
 }
 
-// The Node Value Tap rendering slot (design W4): a stable section that a later slice fills with the
-// selected node's served trace events at the session cursor — values arrive here with NO relayout.
-function AtSessionShell(): ReactElement {
+/** Live data for the "At session" section (M13.7) — undefined until a run + cursor exist. */
+export interface AtSessionProps {
+  cursor: string
+  trees: TraceTreeDto[] | undefined
+  loading: boolean
+  error: string | undefined
+  /** Whether the cursor session has an evaluation; false → honest no-eval state. */
+  evaluated: boolean
+  /** The run record note for this session, when one exists (the served no-eval reason). */
+  note: PersistedNote | undefined
+}
+
+// --- Node Value Tap addressing (design W4) --------------------------------------------------------
+// The section renders SERVED facts addressed by (node_id, component_path); the cursor supplies the
+// session_date. These are pure lookups/filters over the served trees — NOTHING is computed here
+// (invariant 5). This addressing is the same shape a future `/v1/runs/{id}/values` request would use.
+
+// Locate the SELECTED node among the served roots. Top-level nodes and ComponentRef INSTANCES are
+// roots with an empty component_path; a match on (node_id, empty path) is the node's tap address.
+function findRoot(trees: TraceTreeDto[], nodeId: string): TraceTreeNodeDto | undefined {
+  for (const tree of trees) {
+    const root = tree.roots.find((r) => r.node_id === nodeId && r.component_path.length === 0)
+    if (root !== undefined) return root
+  }
+  return undefined
+}
+
+// All engine-origin roots across the served trees. The engine is NOT a graph node (invariant 2), so it
+// is addressed by origin — never by a node_id — and surfaces only at the output boundary below.
+function engineRoots(trees: TraceTreeDto[]): TraceTreeNodeDto[] {
+  return trees.flatMap((tree) => tree.roots.filter((r) => r.origin === 'engine'))
+}
+
+// One served event rendered through the SHARED TraceView renderer (no duplicated per-event markup).
+// The caller supplies the React `key` at each `.map` site.
+function EventRow({ event }: { event: TraceTreeNodeDto['events'][number] }): ReactElement {
+  return (
+    <div className="trace-event">
+      <span className="trace-event__type">{event.event_type}</span>
+      <TraceEventBody event={event} />
+    </div>
+  )
+}
+
+// The Node Value Tap rendering slot (design W4): the stable "At session" section, now LIVE (M13.7).
+// Without an `atSession` (no run/cursor) it renders the ORIGINAL inert empty state, unchanged, in the
+// SAME container so the slot never relayouts when data arrives (the M13.5 contract). With one, it shows
+// the cursor date and the selected node's served trace events; at the output boundary it appends the
+// engine reconciliation rows. `componentCategory` is the selected node's catalog category (undefined
+// for a ComponentRef instance, which has no catalog entry) — the ONLY thing that gates the engine subsection.
+function AtSessionSection({
+  atSession,
+  nodeId,
+  componentCategory,
+}: {
+  atSession: AtSessionProps | undefined
+  nodeId: string
+  componentCategory: string | undefined
+}): ReactElement {
+  if (atSession === undefined) {
+    return (
+      <section className="inspector__section inspector__section--at-session" aria-label="at session">
+        <h3 className="inspector__section-title">At session</h3>
+        <p className="inspector__empty-note">
+          Run a strategy and select a session to inspect this node's last-run behavior.
+        </p>
+      </section>
+    )
+  }
+
+  // The live body, in the precedence loading → error → no-eval → evaluated. Every branch is a
+  // structural read of served state (or a filter of the served trees); nothing is derived.
+  let body: ReactElement
+  if (atSession.loading) {
+    body = <p className="inspector__empty-note">Loading trace…</p>
+  } else if (atSession.error !== undefined) {
+    body = (
+      <p className="inspector__at-error" role="alert">
+        {atSession.error}
+      </p>
+    )
+  } else if (!atSession.evaluated) {
+    // Honest no-evaluation state; surface the run's note for this session verbatim when one exists.
+    body = (
+      <>
+        <p className="inspector__empty-note">No evaluation this session.</p>
+        {atSession.note !== undefined ? (
+          <p className="inspector__at-note">
+            <code className="trace-event__token">{atSession.note.code}</code> {atSession.note.message}
+          </p>
+        ) : null}
+      </>
+    )
+  } else {
+    // Evaluated: locate the selected node among the served roots and render its events. A ComponentRef
+    // instance carries children (its internal nodes) — flatten ONE level so the instance shows what its
+    // internal nodes did. The engine subsection appears only at the output boundary (category 'output').
+    const trees = atSession.trees ?? []
+    const found = findRoot(trees, nodeId)
+    const children = found?.children ?? []
+    const hasOwnEvents = found !== undefined && found.events.length > 0
+    const childrenWithEvents = children.filter((c) => c.events.length > 0)
+    const engine = componentCategory === 'output' ? engineRoots(trees) : []
+
+    body = (
+      <>
+        {!hasOwnEvents && childrenWithEvents.length === 0 ? (
+          <p className="inspector__empty-note">This node emitted no events at this session.</p>
+        ) : (
+          <>
+            {found?.events.map((event, i) => <EventRow key={`own:${i}`} event={event} />)}
+            {childrenWithEvents.map((child) => (
+              <div key={child.node_id} className="inspector__at-child">
+                <span className="inspector__at-child-id">{child.node_id}</span>
+                {child.events.map((event, i) => (
+                  <EventRow key={`${child.node_id}:${i}`} event={event} />
+                ))}
+              </div>
+            ))}
+          </>
+        )}
+        {engine.length > 0 ? (
+          <div className="inspector__at-engine">
+            <h4 className="inspector__at-subhead">Engine</h4>
+            {engine.flatMap((root) =>
+              root.events.map((event, i) => <EventRow key={`${root.node_id}:${i}`} event={event} />),
+            )}
+          </div>
+        ) : null}
+      </>
+    )
+  }
+
   return (
     <section className="inspector__section inspector__section--at-session" aria-label="at session">
       <h3 className="inspector__section-title">At session</h3>
-      <p className="inspector__empty-note">
-        Run a strategy and select a session to inspect this node's last-run behavior.
-      </p>
+      <span className="inspector__cursor-date">{atSession.cursor}</span>
+      {body}
     </section>
   )
 }
@@ -96,6 +234,8 @@ export interface InspectorProps {
   actions: StrategyDocumentActions
   /** Open the read-only internal-graph drawer for a component instance (App owns the drawer state). */
   onInspectComponent?: (target: { componentId: string; version: string }) => void
+  /** Live "At session" data (M13.7); undefined until a run + cursor exist — the slot stays inert then. */
+  atSession?: AtSessionProps | undefined
 }
 
 export function Inspector({
@@ -103,6 +243,7 @@ export function Inspector({
   selectedNodeId,
   actions,
   onInspectComponent,
+  atSession,
 }: InspectorProps): ReactElement {
   const { catalog } = useCatalog()
   const { get } = useComponentDefs()
@@ -146,7 +287,7 @@ export function Inspector({
             Component definition is not loaded (or the ref is unknown) — parameters cannot be shown yet.
           </p>
           {inspectButton}
-          <AtSessionShell />
+          <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={undefined} />
         </div>
       )
     }
@@ -180,7 +321,7 @@ export function Inspector({
           />
         )}
         {inspectButton}
-        <AtSessionShell />
+        <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={undefined} />
       </div>
     )
   }
@@ -216,7 +357,7 @@ export function Inspector({
           <PortsSection nodeType={nodeType} catalog={catalog} />
         </>
       )}
-      <AtSessionShell />
+      <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={nodeType?.category} />
     </div>
   )
 }

@@ -205,8 +205,10 @@ function GenericPayload({ payload }: { payload: TraceEvent['payload'] }): ReactE
   )
 }
 
-// Dispatch on the machine `event_type` token — the tailored renderer or the generic fallback.
-function EventBody({ event }: { event: TraceEvent }): ReactElement {
+// Dispatch on the machine `event_type` token — the tailored renderer or the generic fallback. This is
+// the ONE trace-event renderer: the Inspector's "At session" section (M13.7) imports it rather than
+// duplicating the per-event markup, so both surfaces render served facts identically (invariant 5).
+export function TraceEventBody({ event }: { event: TraceEvent }): ReactElement {
   switch (event.event_type) {
     case 'select.selected':
       return <SelectSelected payload={event.payload} />
@@ -267,7 +269,7 @@ function TraceNodeView({
       {node.events.map((event, i) => (
         <div key={i} className="trace-event" style={{ paddingLeft: `${depth * 1.25}rem` }}>
           <span className="trace-event__type">{event.event_type}</span>
-          <EventBody event={event} />
+          <TraceEventBody event={event} />
         </div>
       ))}
       {node.children.length > 0 ? (

@@ -434,6 +434,24 @@ export function App(): ReactElement {
     }
   }, [selectedRunId, sessionCursor, sessionDates])
 
+  // The live "At session" payload for the Inspector (M13.7): the App-owned trace tree at the shared
+  // cursor, plus whether that session was evaluated and its no-eval note. Undefined until a run + cursor
+  // exist, which keeps the Inspector's value-tap slot in its inert empty state. It shares the SAME lifted
+  // trace fetch the Trace panel uses (keyed on run + cursor) — no second request. All fields are served
+  // reads / filters (invariant 5); addressing stays (node_id, component_path) — the section resolves the
+  // node, the cursor supplies session_date.
+  const atSession = useMemo(() => {
+    if (selectedRunId === undefined || sessionCursor === null) return undefined
+    return {
+      cursor: sessionCursor,
+      trees: traceTrees,
+      loading: traceLoading,
+      error: traceError,
+      evaluated: evaluatedSessions.has(sessionCursor),
+      note: runRecord?.record.notes.find((n) => n.session_date === sessionCursor),
+    }
+  }, [selectedRunId, sessionCursor, traceTrees, traceLoading, traceError, evaluatedSessions, runRecord])
+
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
   useEffect(() => {
     if (datasetId === undefined) {
@@ -691,6 +709,7 @@ export function App(): ReactElement {
                     selectedNodeId={selectedNodeId}
                     actions={actions}
                     onInspectComponent={(target) => setViewedComponent(target)}
+                    atSession={atSession}
                   />
                 </aside>
               </main>

@@ -777,6 +777,62 @@ body {
   line-height: 1.5;
 }
 
+/* --- Inspector "At session" live section (M13.7) --------------------------------------------- */
+
+/* The cursor date, sitting under the "At session" heading so live values read as "this node, at this
+   session". Rendered inline-block so it never disturbs the slot's block layout when data arrives. */
+.inspector__cursor-date {
+  display: inline-block;
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.inspector__at-error {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+.inspector__at-note {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* One flattened child of a ComponentRef instance: its node id labels the events its internal node emitted. */
+.inspector__at-child {
+  margin-top: var(--space-2);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--border-faint);
+}
+
+.inspector__at-child-id {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+}
+
+/* The engine reconciliation subsection at the output boundary — a subtle divider from the node's events. */
+.inspector__at-engine {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border-faint);
+}
+
+.inspector__at-subhead {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--engine-accent);
+}
+
 /* --- Component detail drawer (M12.4) ---------------------------------------------------------- */
 
 /* A modal overlay pinned over the canvas region (`.app-region--center` is `position: relative`). */
