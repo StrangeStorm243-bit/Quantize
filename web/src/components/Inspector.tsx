@@ -146,6 +146,7 @@ export function Inspector({
             Component definition is not loaded (or the ref is unknown) — parameters cannot be shown yet.
           </p>
           {inspectButton}
+          <AtSessionShell />
         </div>
       )
     }
@@ -179,6 +180,7 @@ export function Inspector({
           />
         )}
         {inspectButton}
+        <AtSessionShell />
       </div>
     )
   }
