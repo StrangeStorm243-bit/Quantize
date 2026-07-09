@@ -39,7 +39,7 @@ import { StrategyBar } from './components/StrategyBar'
 import { TraceView } from './components/TraceView'
 import { ValidatePanel } from './components/ValidatePanel'
 import type { HighlightTarget } from './validation/targets'
-import { selectTrace } from './trace/selectTrace'
+import { isCursorOnAxis, selectTrace } from './trace/selectTrace'
 import type { TaggedTrace } from './trace/selectTrace'
 import { bumpStrategyVersion, newStrategyDocument, semanticKey, useStrategyDocument } from './document/store'
 import { computeNodeValidity } from './validity'
@@ -449,7 +449,12 @@ export function App(): ReactElement {
   // reads / filters (invariant 5); addressing stays (node_id, component_path) — the section resolves the
   // node, the cursor supplies session_date.
   const atSession = useMemo(() => {
-    if (selectedRunId === undefined || sessionCursor === null) return undefined
+    // Gate on the cursor being on the CURRENT run's axis — the SAME shared predicate `selectTrace`
+    // uses for the trace panel. Without this, the one-render run-switch window (cursor still the
+    // previous run's date, `sessionDates` already the new run's axis or empty) would build an
+    // atSession with an off-axis cursor and `evaluated: false`, flashing "No evaluation this session"
+    // in the Inspector instead of the inert empty slot. Off-axis → undefined keeps the slot inert.
+    if (!isCursorOnAxis(selectedRunId, sessionCursor, sessionDates)) return undefined
     // Gate the note lookup on the record's OWN run_id matching the selection (as sessionDates /
     // evaluatedSessions / TraceView already do): during a run switch the App briefly still holds the
     // previous run's record, and an ungated lookup would surface the stale run's note for this session.
@@ -462,7 +467,7 @@ export function App(): ReactElement {
       evaluated: evaluatedSessions.has(sessionCursor),
       note: recordMatches ? runRecord.record.notes.find((n) => n.session_date === sessionCursor) : undefined,
     }
-  }, [selectedRunId, sessionCursor, traceTrees, traceLoading, traceError, evaluatedSessions, runRecord])
+  }, [selectedRunId, sessionCursor, sessionDates, traceTrees, traceLoading, traceError, evaluatedSessions, runRecord])
 
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
   useEffect(() => {

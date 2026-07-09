@@ -4,7 +4,7 @@
 // the old trees.
 import { describe, expect, it } from 'vitest'
 import type { TraceTreeDto } from '@quantize/quantize-api'
-import { selectTrace } from './selectTrace'
+import { isCursorOnAxis, selectTrace } from './selectTrace'
 import type { TaggedTrace } from './selectTrace'
 
 const AXIS = ['2026-05-14', '2026-05-15', '2026-05-16']
@@ -12,6 +12,21 @@ const AXIS = ['2026-05-14', '2026-05-15', '2026-05-16']
 function tree(instant: string): TraceTreeDto {
   return { run_id: 'run-1', instant, roots: [] }
 }
+
+describe('isCursorOnAxis', () => {
+  it('is true only when a run + cursor are set and the cursor is on the run axis', () => {
+    expect(isCursorOnAxis('run-1', '2026-05-15', AXIS)).toBe(true)
+  })
+
+  it('is false with no run, no cursor, or an off-axis cursor (the run-switch window)', () => {
+    expect(isCursorOnAxis(undefined, '2026-05-15', AXIS)).toBe(false)
+    expect(isCursorOnAxis('run-1', null, AXIS)).toBe(false)
+    // Cursor still the previous run's date while the axis is the new run's (or empty): the shared
+    // guard that keeps BOTH the trace panel and the Inspector "At session" inert during the switch.
+    expect(isCursorOnAxis('run-1', '2025-01-01', AXIS)).toBe(false)
+    expect(isCursorOnAxis('run-1', '2026-05-15', [])).toBe(false)
+  })
+})
 
 describe('selectTrace', () => {
   it('exposes trees when the fetch tag matches the current run + cursor', () => {

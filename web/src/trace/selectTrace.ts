@@ -28,12 +28,27 @@ export interface TraceSelection {
 }
 
 /**
+ * Whether the cursor identifies a session on the CURRENT run's axis — the precondition for any
+ * per-session view (the trace panel AND the Inspector "At session" section). `sessionDates` is the
+ * run_id-gated axis of the selected run, so during the one-render run-switch window (cursor still the
+ * previous run's date, axis already the new run's or empty) this is false, keeping both surfaces
+ * inert instead of flashing a stale-cursor state. Shared so the two consumers cannot drift apart.
+ */
+export function isCursorOnAxis(
+  runId: string | undefined,
+  sessionCursor: string | null,
+  sessionDates: readonly string[],
+): sessionCursor is string {
+  return runId !== undefined && sessionCursor !== null && sessionDates.includes(sessionCursor)
+}
+
+/**
  * Gate a tagged trace fetch to the current selection.
  *
- * `sessionDates` is the run_id-gated axis of the selected run; a cursor not on it (the transient
- * run-switch window) is not "active", so it never shows a spurious loading state. A fetch is only
- * surfaced when its tag matches the current `runId` + `sessionCursor`; otherwise an active selection
- * reads as loading (its fetch is in flight or about to be issued) and an inactive one as empty.
+ * A cursor not on the current axis (the transient run-switch window) is not "active", so it never
+ * shows a spurious loading state. A fetch is only surfaced when its tag matches the current `runId` +
+ * `sessionCursor`; otherwise an active selection reads as loading (its fetch is in flight or about to
+ * be issued) and an inactive one as empty.
  */
 export function selectTrace(
   fetch: TaggedTrace | undefined,
@@ -41,7 +56,7 @@ export function selectTrace(
   sessionCursor: string | null,
   sessionDates: readonly string[],
 ): TraceSelection {
-  const active = runId !== undefined && sessionCursor !== null && sessionDates.includes(sessionCursor)
+  const active = isCursorOnAxis(runId, sessionCursor, sessionDates)
   const matches = fetch !== undefined && fetch.runId === runId && fetch.sessionDate === sessionCursor
   if (matches) {
     return { trees: fetch.trees, loading: false, error: fetch.error }
