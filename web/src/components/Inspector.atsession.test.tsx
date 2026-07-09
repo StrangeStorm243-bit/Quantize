@@ -216,6 +216,55 @@ function outputTrees(): TraceTreeDto[] {
   ]
 }
 
+// The production shape: a single session normally serves TWO instants — the open instant (engine
+// fills) and the close instant (engine proposals) — each a separate tree whose engine root shares the
+// node_id 'engine'. This exercises the multi-instant engine subsection (and its duplicate-key risk).
+function multiInstantOutputTrees(): TraceTreeDto[] {
+  return [
+    {
+      run_id: 'run-1',
+      instant: '2026-05-15T14:30:00+00:00',
+      roots: [
+        treeNode({
+          node_id: 'engine',
+          origin: 'engine',
+          events: [
+            event({
+              node_id: 'engine', event_type: 'engine.orders_filled',
+              payload: { v: 1, fills: [['buy', 'SPY', 100, 500.0, 0, 0, false]] },
+            }),
+          ],
+        }),
+      ],
+    },
+    {
+      run_id: 'run-1',
+      instant: '2026-05-15T21:00:00+00:00',
+      roots: [
+        treeNode({
+          node_id: 'tp',
+          events: [
+            event({ node_id: 'tp', event_type: 'target.portfolio', payload: { v: 1, weights: [['SPY', 1.0]] } }),
+          ],
+        }),
+        treeNode({
+          node_id: 'engine',
+          origin: 'engine',
+          events: [
+            event({
+              node_id: 'engine', event_type: 'engine.orders_proposed',
+              payload: {
+                v: 1, session: '2026-05-15', portfolio_value: 1_000_000, target_cash: 0,
+                projected_cash: 0, orders: [['buy', 'SPY', 100]], omitted: [],
+              },
+            }),
+          ],
+        }),
+      ],
+    },
+  ]
+}
+
 function atSession(overrides: Partial<AtSessionProps> = {}): AtSessionProps {
   return {
     cursor: '2026-05-15',
@@ -354,6 +403,33 @@ describe('Inspector — "At session" live section (M13.7)', () => {
     // …and the Engine subheading + the engine reconciliation event both appear.
     expect(within(shell).getByText('Engine')).toBeInTheDocument()
     expect(within(shell).getByText('engine.orders_filled')).toBeInTheDocument()
+  })
+
+  it('renders BOTH instants\' engine events for an output node without duplicate React keys', () => {
+    // Two served instants, each with an engine root sharing node_id 'engine' — the production case.
+    // A colliding key here would emit React's "same key" warning via console.error, so spy and assert it.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      render(
+        <Inspector
+          doc={docWith('tp', 'output.target_portfolio')}
+          selectedNodeId="tp"
+          actions={stubActions()}
+          atSession={atSession({ trees: multiInstantOutputTrees() })}
+        />,
+      )
+      const shell = screen.getByRole('region', { name: 'at session' })
+      // BOTH engine events render (open-instant fills AND close-instant proposals).
+      expect(within(shell).getByText('engine.orders_filled')).toBeInTheDocument()
+      expect(within(shell).getByText('engine.orders_proposed')).toBeInTheDocument()
+      // No React duplicate-key warning was emitted.
+      const keyWarnings = errorSpy.mock.calls.filter((args) =>
+        args.some((a) => typeof a === 'string' && /same key|unique "key"/i.test(a)),
+      )
+      expect(keyWarnings).toEqual([])
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 
   it('flattens one level of a ComponentRef instance\'s children, labeled by node_id', () => {

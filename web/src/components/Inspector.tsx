@@ -107,7 +107,11 @@ export interface AtSessionProps {
 // roots with an empty component_path; a match on (node_id, empty path) is the node's tap address.
 function findRoot(trees: TraceTreeDto[], nodeId: string): TraceTreeNodeDto | undefined {
   for (const tree of trees) {
-    const root = tree.roots.find((r) => r.node_id === nodeId && r.component_path.length === 0)
+    // Restrict to node-origin roots: the engine is addressed by origin, never by node_id (invariant 2),
+    // so a strategy node literally named `engine` never resolves to the engine-origin reconciliation root.
+    const root = tree.roots.find(
+      (r) => r.node_id === nodeId && r.component_path.length === 0 && r.origin === 'node',
+    )
     if (root !== undefined) return root
   }
   return undefined
@@ -187,6 +191,8 @@ function AtSessionSection({
     const found = findRoot(trees, nodeId)
     const children = found?.children ?? []
     const hasOwnEvents = found !== undefined && found.events.length > 0
+    // KNOWN LIMITATION (deferred to M13.8+): this flattens exactly ONE level, so a nested-component
+    // child that emits nothing itself but whose OWN children (grandchildren) did is dropped here.
     const childrenWithEvents = children.filter((c) => c.events.length > 0)
     const engine = componentCategory === 'output' ? engineRoots(trees) : []
 
@@ -210,8 +216,11 @@ function AtSessionSection({
         {engine.length > 0 ? (
           <div className="inspector__at-engine">
             <h4 className="inspector__at-subhead">Engine</h4>
-            {engine.flatMap((root) =>
-              root.events.map((event, i) => <EventRow key={`${root.node_id}:${i}`} event={event} />),
+            {engine.flatMap((root, ri) =>
+              // A single session normally yields TWO instants (open-instant fills + close-instant
+              // proposals), so `engineRoots` returns two roots BOTH with node_id 'engine'; fold the root
+              // index into the key so the two instants' events never collide (duplicate-key warning).
+              root.events.map((event, i) => <EventRow key={`engine:${ri}:${i}`} event={event} />),
             )}
           </div>
         ) : null}
