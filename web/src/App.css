@@ -1709,6 +1709,60 @@ body {
   margin-top: 0.2rem;
 }
 
+/* Interactive chart (M13.7): a hover crosshair + a readout of the hovered point. Both are presentation
+   over the served points — the readout value is the verbatim record number (invariant 5). */
+.chart__crosshair {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.chart__readout {
+  position: absolute;
+  top: 0.2rem;
+  right: 0.2rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-muted);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+
+/* A clickable SESSION cell in the fills/evaluations tables — an inline, link-like button that keeps
+   the table layout unchanged while staying keyboard-reachable (M13.7). */
+.results__rowbtn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-strong);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.results__rowbtn:hover {
+  text-decoration: underline;
+}
+
+/* The explicit Engine stage (invariant 2): the engine — not the graph — reconciles targets into orders
+   and fills. Set off from the graph's evaluations above it with a leading rule. */
+.results__section--engine {
+  border-top: 1px solid var(--border-faint);
+  padding-top: 0.4rem;
+}
+
+.results__engine-note {
+  margin: 0 0 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
 /* --- Trace explorer (M11.7) --------------------------------------------------------------------- */
 
 .trace {

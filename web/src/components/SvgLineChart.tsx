@@ -3,7 +3,8 @@
 // This is PURE PRESENTATION: it SCALES the already-computed valuations to pixel coordinates so they
 // can be drawn — it derives no metric (returns/drawdown/PnL all live in the record, invariant 5).
 // `chartPoints` is the extracted, unit-tested mapping; the component only draws its output.
-import type { ReactElement } from 'react'
+import { useState } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 
 /** A pixel coordinate in the chart's viewBox. */
 export interface ChartPoint {
@@ -41,9 +42,16 @@ const HEIGHT = 120
 export interface SvgLineChartProps {
   /** `[date, portfolio_value]` pairs, verbatim from a run record's `valuations`. */
   points: [string, number][]
+  /** Optional interactivity (M13.7): hover crosshair + click-to-select. The chart maps a pixel x to a
+   *  point INDEX and reports the SERVER date at that index — it derives no number (invariant 5). */
+  onSelectPoint?: ((date: string) => void) | undefined
 }
 
-export function SvgLineChart({ points }: SvgLineChartProps): ReactElement {
+export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): ReactElement {
+  // The hovered point INDEX (or null when not hovering / not interactive). It indexes the served
+  // points array; it is never used to compute a value.
+  const [hover, setHover] = useState<number | null>(null)
+
   if (points.length === 0) {
     return <div className="chart chart--empty">No valuations to plot.</div>
   }
@@ -59,6 +67,16 @@ export function SvgLineChart({ points }: SvgLineChartProps): ReactElement {
   const firstDate = points[0][0]
   const lastDate = points[points.length - 1][0]
 
+  const interactive = onSelectPoint !== undefined
+
+  // Map a mouse x to the NEAREST point index (clamped to valid indices) — pure pixel→index mapping,
+  // NO date/value arithmetic. Reads the svg's on-screen box so the viewBox scaling is irrelevant.
+  const indexAt = (e: ReactMouseEvent<SVGSVGElement>): number => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const frac = rect.width === 0 ? 0 : (e.clientX - rect.left) / rect.width
+    return Math.max(0, Math.min(points.length - 1, Math.round(frac * (points.length - 1))))
+  }
+
   return (
     <div className="chart">
       <svg
@@ -67,9 +85,29 @@ export function SvgLineChart({ points }: SvgLineChartProps): ReactElement {
         preserveAspectRatio="none"
         role="img"
         aria-label="portfolio value over time"
+        onMouseMove={interactive ? (e) => setHover(indexAt(e)) : undefined}
+        onMouseLeave={interactive ? () => setHover(null) : undefined}
+        onClick={interactive ? (e) => onSelectPoint(points[indexAt(e)][0]) : undefined}
       >
         <polyline className="chart__line" points={polyline} fill="none" />
+        {/* Crosshair at the hovered point's x (viewBox units, from `coords`), spanning full height. */}
+        {interactive && hover !== null ? (
+          <line
+            className="chart__crosshair"
+            x1={coords[hover].x}
+            x2={coords[hover].x}
+            y1={0}
+            y2={HEIGHT}
+          />
+        ) : null}
       </svg>
+      {/* Readout of the hovered point — the VERBATIM record date and value (String(...), never formatted
+          or derived). role="status" announces it to assistive tech as the hover moves. */}
+      {interactive && hover !== null ? (
+        <div className="chart__readout" role="status">
+          {points[hover][0]} · {String(points[hover][1])}
+        </div>
+      ) : null}
       <div className="chart__axis chart__axis--y">
         <span className="chart__label">{maxValue}</span>
         <span className="chart__label">{minValue}</span>

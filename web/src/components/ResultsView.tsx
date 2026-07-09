@@ -15,6 +15,9 @@ export interface ResultsViewProps {
   loading: boolean
   /** A record-fetch error message, or undefined. */
   error: string | undefined
+  /** Optional (M13.7): clicking the chart / an evaluation or fill row selects that session (App sets the
+   *  cursor + opens Trace). Every date passed is a server field; the view derives nothing. */
+  onSelectSession?: ((date: string) => void) | undefined
 }
 
 // Display formatting only — a raw record number rendered with a fixed precision. Non-finite guards
@@ -23,7 +26,13 @@ function fmt(value: number, digits = 4): string {
   return Number.isFinite(value) ? value.toFixed(digits) : String(value)
 }
 
-export function ResultsView({ runId, record: data, loading, error }: ResultsViewProps): ReactElement {
+export function ResultsView({
+  runId,
+  record: data,
+  loading,
+  error,
+  onSelectSession,
+}: ResultsViewProps): ReactElement {
   if (runId === undefined) {
     return <div className="results results--empty">Select a run to view its results.</div>
   }
@@ -46,6 +55,22 @@ export function ResultsView({ runId, record: data, loading, error }: ResultsView
 
   const { record, replay_verifiable } = data
 
+  // A session cell's content: when the parent wired `onSelectSession`, wrap the SERVER date in a button
+  // so it is keyboard-reachable without restructuring the table; otherwise render the plain date text as
+  // before. The date is passed through verbatim — the view selects a session, it derives nothing.
+  const sessionCell = (date: string): ReactElement | string =>
+    onSelectSession !== undefined ? (
+      <button
+        type="button"
+        className="results__rowbtn"
+        onClick={() => onSelectSession(date)}
+      >
+        {date}
+      </button>
+    ) : (
+      date
+    )
+
   return (
     <div className="results">
       <div className="results__head">
@@ -58,7 +83,7 @@ export function ResultsView({ runId, record: data, loading, error }: ResultsView
         </span>
       </div>
 
-      <SvgLineChart points={record.valuations} />
+      <SvgLineChart points={record.valuations} onSelectPoint={onSelectSession} />
 
       <dl className="results__stats">
         <div className="results__stat">
@@ -75,7 +100,45 @@ export function ResultsView({ runId, record: data, loading, error }: ResultsView
         </div>
       </dl>
 
+      {/* Evaluations are the GRAPH's per-session decisions (targets + order counts) — distinct from the
+          engine's reconciliation below, so they get their own section ABOVE the Engine stage. */}
       <section className="results__section">
+        <h4 className="results__section-title">Evaluations ({record.evaluations.length})</h4>
+        {record.evaluations.length > 0 ? (
+          <table className="results__table">
+            <thead>
+              <tr>
+                <th>Session</th>
+                <th>Portfolio value</th>
+                <th>#Orders</th>
+                <th>Fill session</th>
+              </tr>
+            </thead>
+            <tbody>
+              {record.evaluations.map((evaluation, i) => (
+                <tr key={`${evaluation.session_date}:${i}`}>
+                  <td>{sessionCell(evaluation.session_date)}</td>
+                  <td>{evaluation.portfolio_value ?? '—'}</td>
+                  <td>{evaluation.orders.length}</td>
+                  <td>{evaluation.fill_session ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="results__empty-row">No evaluations.</p>
+        )}
+      </section>
+
+      {/* The Engine stage (invariant 2): the strategy graph ends at portfolio targets; the ENGINE — not
+          the graph — reconciles targets into orders and fills them at the next session open. Fills are
+          engine output, so they live under this explicit section. */}
+      <section className="results__section results__section--engine" aria-label="engine stage">
+        <h4 className="results__section-title">Engine — targets → orders → fills</h4>
+        <p className="results__engine-note">
+          The strategy graph ends at portfolio targets; the engine reconciles targets into orders and
+          fills them at the next session open.
+        </p>
         <h4 className="results__section-title">Fills ({record.fills.length})</h4>
         {record.fills.length > 0 ? (
           <table className="results__table">
@@ -92,7 +155,7 @@ export function ResultsView({ runId, record: data, loading, error }: ResultsView
             <tbody>
               {record.fills.map((fill, i) => (
                 <tr key={`${fill.session_date}:${fill.asset}:${i}`}>
-                  <td>{fill.session_date}</td>
+                  <td>{sessionCell(fill.session_date)}</td>
                   <td>{fill.side}</td>
                   <td>{fill.asset}</td>
                   <td>{fill.quantity}</td>
@@ -104,34 +167,6 @@ export function ResultsView({ runId, record: data, loading, error }: ResultsView
           </table>
         ) : (
           <p className="results__empty-row">No fills.</p>
-        )}
-      </section>
-
-      <section className="results__section">
-        <h4 className="results__section-title">Evaluations ({record.evaluations.length})</h4>
-        {record.evaluations.length > 0 ? (
-          <table className="results__table">
-            <thead>
-              <tr>
-                <th>Session</th>
-                <th>Portfolio value</th>
-                <th>#Orders</th>
-                <th>Fill session</th>
-              </tr>
-            </thead>
-            <tbody>
-              {record.evaluations.map((evaluation, i) => (
-                <tr key={`${evaluation.session_date}:${i}`}>
-                  <td>{evaluation.session_date}</td>
-                  <td>{evaluation.portfolio_value ?? '—'}</td>
-                  <td>{evaluation.orders.length}</td>
-                  <td>{evaluation.fill_session ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="results__empty-row">No evaluations.</p>
         )}
       </section>
 

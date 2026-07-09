@@ -272,6 +272,14 @@ export function App(): ReactElement {
     setDockTab('results')
   }
 
+  // Results→Trace click-through (M13.7): the chart / an evaluation or fill row selects a session, which
+  // sets the shared cursor and opens the Trace tab so the decision is inspectable side by side.
+  const onSelectSession = (date: string): void => {
+    // `date` is a server field (a valuations/evaluation/fill session date), so the cursor contract holds.
+    setSessionCursor(date)
+    setDockTab('trace')
+  }
+
   // --- Extraction orchestration (unchanged from M12) -------------------------------------------
 
   const enterExtractionMode = (): void => {
@@ -523,6 +531,7 @@ export function App(): ReactElement {
           record={runRecord}
           loading={runRecordLoading}
           error={runRecordError}
+          onSelectSession={onSelectSession}
         />
       ),
     },
