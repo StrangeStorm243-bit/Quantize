@@ -18,6 +18,11 @@ export interface StrategyBarProps {
   datasetMeta: DatasetStored | undefined
   /** The selected session date (M13.7). Null until a run+cursor exist — renders an empty slot. */
   sessionCursor: string | null
+  /** Cursor axis: the run's server session dates in order; empty without a run/record. */
+  sessionDates: string[]
+  /** The evaluated subset (from record.evaluations) — distinguishes warm-up/no-eval sessions. */
+  evaluatedSessions: ReadonlySet<string>
+  onCursorChange: (date: string) => void
   onValidate: () => void
   onRun: () => void
   onSave: () => void
@@ -37,12 +42,21 @@ export function StrategyBar(props: StrategyBarProps): ReactElement {
     datasetId,
     datasetMeta,
     sessionCursor,
+    sessionDates,
+    evaluatedSessions,
+    onCursorChange,
     onValidate,
     onRun,
     onSave,
     onChooseDataset,
     onHome,
   } = props
+  // Pure list-index navigation over the SERVER date array — no numerics (invariant 5). `i` is the
+  // cursor's position in the run's session list, or -1 when there is no cursor (no run selected, or
+  // the cursor briefly cleared during a run switch). Prev/next simply step to the neighbouring date.
+  const i = sessionCursor === null ? -1 : sessionDates.indexOf(sessionCursor)
+  const hasRun = sessionDates.length > 0
+  const evaluated = sessionCursor !== null && evaluatedSessions.has(sessionCursor)
   return (
     <div className="sbar">
       <button type="button" className="sbar__home" onClick={onHome} title="Back to home">
@@ -94,8 +108,44 @@ export function StrategyBar(props: StrategyBarProps): ReactElement {
         )}
       </button>
 
+      {/* The session cursor: without a run, just an em-dash (no stepper). With a run, a ◀/▶ stepper
+          around the current date + a marker distinguishing an evaluated session from one the engine
+          skipped (warm-up / no evaluation). Navigation is bounded to the run's own session list. */}
       <span className="sbar__cursor" aria-label="session cursor">
-        {sessionCursor ?? '—'}
+        {hasRun ? (
+          <>
+            <button
+              type="button"
+              className="sbar__cursor-step"
+              aria-label="previous session"
+              onClick={() => onCursorChange(sessionDates[i - 1])}
+              disabled={i <= 0}
+            >
+              ◀
+            </button>
+            <span className="sbar__cursor-date">
+              {sessionCursor ?? '—'}
+              {sessionCursor !== null ? (
+                evaluated ? (
+                  <span className="sbar__cursor-eval"> · evaluated</span>
+                ) : (
+                  <span className="sbar__cursor-noeval"> · no evaluation</span>
+                )
+              ) : null}
+            </span>
+            <button
+              type="button"
+              className="sbar__cursor-step"
+              aria-label="next session"
+              onClick={() => onCursorChange(sessionDates[i + 1])}
+              disabled={i === -1 || i === sessionDates.length - 1}
+            >
+              ▶
+            </button>
+          </>
+        ) : (
+          '—'
+        )}
       </span>
     </div>
   )

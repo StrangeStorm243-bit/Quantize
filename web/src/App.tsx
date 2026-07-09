@@ -81,9 +81,11 @@ export function App(): ReactElement {
   const [datasetMeta, setDatasetMeta] = useState<DatasetStored | undefined>(undefined)
   const [datasetPickerOpen, setDatasetPickerOpen] = useState(false)
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
-  // The session cursor is client state over the selected run's server dates (M13.7). Null for now —
-  // the strategy bar renders an empty slot until that slice wires it.
-  const sessionCursor: string | null = null
+  // The session cursor is client state over the SELECTED RUN's server session dates (M13.7). It is
+  // valid only while a run is selected, drawn exclusively from that run's own valuations, defaulted to
+  // the run's LAST session on select (D-12), cleared on run switch, and absent (null) without a run.
+  // It NEVER enters the document and NEVER computes anything — it only indexes served dates.
+  const [sessionCursor, setSessionCursor] = useState<string | null>(null)
   // The strategy bar's Validate verb bumps this to trigger a validation in the Problems panel.
   const [validateNonce, setValidateNonce] = useState(0)
   // The document's semantic identity (ui.* excluded) — badges key on THIS, not the whole doc object,
@@ -319,16 +321,21 @@ export function App(): ReactElement {
       setRunRecord(undefined)
       setRunRecordError(undefined)
       setRunRecordLoading(false)
+      setSessionCursor(null) // no run → no cursor axis
       return
     }
     let cancelled = false
     setRunRecord(undefined)
     setRunRecordError(undefined)
     setRunRecordLoading(true)
+    setSessionCursor(null) // clear on run switch — the new run's axis is not known until it loads
     getRun(selectedRunId)
       .then((res) => {
         if (!cancelled) {
           setRunRecord(res)
+          // D-12: default the cursor to the run's LAST session (drawn from its own server dates).
+          const dates = res.record.valuations
+          setSessionCursor(dates.length > 0 ? dates[dates.length - 1][0] : null)
         }
       })
       .catch((e: unknown) => {
@@ -346,6 +353,21 @@ export function App(): ReactElement {
       cancelled = true
     }
   }, [selectedRunId])
+
+  // The cursor axis (M13.7): the selected run's server session dates, in order. Gated on the record's
+  // OWN run_id matching the selection (mirrors TraceView) — during a run switch the App briefly still
+  // holds the previous run's record, and an unguarded derivation would offer the stale run's dates.
+  const sessionDates = useMemo(() => {
+    if (runRecord === undefined || selectedRunId === undefined || runRecord.record.run_id !== selectedRunId)
+      return []
+    return runRecord.record.valuations.map(([date]) => date)
+  }, [runRecord, selectedRunId])
+  // The evaluated subset — sessions the engine actually evaluated (vs. warm-up / skipped sessions),
+  // used only to MARK the cursor readout. A pure projection of the record; it computes nothing.
+  const evaluatedSessions = useMemo(
+    () => new Set(runRecord?.record.evaluations.map((e) => e.session_date) ?? []),
+    [runRecord],
+  )
 
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
   useEffect(() => {
@@ -495,6 +517,9 @@ export function App(): ReactElement {
                 datasetId={datasetId}
                 datasetMeta={datasetMeta}
                 sessionCursor={sessionCursor}
+                sessionDates={sessionDates}
+                evaluatedSessions={evaluatedSessions}
+                onCursorChange={setSessionCursor}
                 onValidate={handleValidate}
                 onRun={handleRun}
                 onSave={() => void handleSave()}

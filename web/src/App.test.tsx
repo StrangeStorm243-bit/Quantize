@@ -188,7 +188,12 @@ describe('App run-record fetch (the F7 lift)', () => {
 
     await act(async () => {
       // A minimal record shape — the mocked ResultsView reads only record.run_id (test fixture cast).
-      resolveGetRun({ record: { run_id: 'run-1' }, replay_verifiable: true } as GetRunResult)
+      // `valuations`/`evaluations` are present (empty) because the App now reads them to seed the
+      // session cursor + its evaluated-session markers (M13.7).
+      resolveGetRun({
+        record: { run_id: 'run-1', valuations: [], evaluations: [] },
+        replay_verifiable: true,
+      } as unknown as GetRunResult)
       await Promise.resolve()
     })
     expect(screen.getByTestId('rv-loading')).toHaveTextContent('false')

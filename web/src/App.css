@@ -1904,11 +1904,46 @@ body {
 }
 
 .sbar__cursor {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   min-width: 6rem;
-  text-align: right;
+  justify-content: flex-end;
+}
+
+.sbar__cursor-step {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1;
+  padding: 0.15rem 0.3rem;
+  cursor: pointer;
+}
+
+.sbar__cursor-step:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.sbar__cursor-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.sbar__cursor-date {
+  white-space: nowrap;
+}
+
+.sbar__cursor-eval {
+  color: var(--accent);
+}
+
+.sbar__cursor-noeval {
+  color: var(--text-muted);
 }
 
 .sbar__error {
