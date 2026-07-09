@@ -1,24 +1,33 @@
-// The trace explorer (M11.7, D10; M13.6). Pick an evaluation session → fetch its per-instant trace
-// tree from `GET /v1/runs/{id}/trace-tree` (grouped SERVER-SIDE by build_trace_trees) → render each
+// The trace explorer (M11.7, D10; M13.6; M13.7). The per-instant trace tree (grouped SERVER-SIDE by
+// build_trace_trees, served by `GET /v1/runs/{id}/trace-tree`) is FETCHED BY THE APP, not here: the
+// App owns one fetch keyed on the run + the shared session cursor so the Trace panel and the (later)
+// always-mounted Inspector consume a single result (the Dock mounts only one panel at a time, so a
+// panel-local fetch could not be shared). This view is therefore CURSOR-CONTROLLED — it takes the
+// cursor + served trees as props and reports picker changes via `onCursorChange`. It renders each
 // event with a TAILORED renderer keyed on `event_type` / machine tokens, falling back to a generic
-// structured renderer for any unknown type. The grouping now arrives served — the client no longer
-// regroups (the old `trace/group.ts` twin is deleted); nothing here parses prose or recomputes a
-// decision, every field is read structurally from the payload (D10, invariant 5). The session dates
-// come from the run record's evaluations, so the persisted run stays the single source of truth.
-import { useEffect, useMemo, useState } from 'react'
+// structured renderer for any unknown type; nothing here parses prose or recomputes a decision, every
+// field is read structurally from the payload (D10, invariant 5). The picker lists ALL of the run's
+// sessions (from the record's valuations), flagging sessions the engine did not evaluate; the served
+// engine-origin root is grouped under a distinct "engine stage" section (display grouping only).
+import { useMemo } from 'react'
 import type { ReactElement } from 'react'
 import type { JsonValue, RunRecordResponse, TraceEvent, TraceTreeDto, TraceTreeNodeDto } from '@quantize/quantize-api'
-import { errorMessage, getTraceTree } from '../api/client'
 
 export interface TraceViewProps {
   /** The selected run id, or `undefined` when nothing is selected. */
   runId: string | undefined
-  /** The fetched run record (owned by the App, shared with ResultsView), or undefined. */
+  /** The fetched run record (owned by the App); the session picker options come from its valuations. */
   record: RunRecordResponse | undefined
-  /** True while the App is fetching the record (the session dates come from it). */
-  recordLoading: boolean
-  /** A record-fetch error message, or undefined. */
-  recordError: string | undefined
+  /** The shared session cursor (App-owned), or `null` when there is no run/axis. */
+  sessionCursor: string | null
+  /** Report a picker change up to the App (it re-keys the shared fetch). */
+  onCursorChange: (date: string) => void
+  /** The served per-instant trees for the cursor session (App-owned), or undefined before load. */
+  trees: TraceTreeDto[] | undefined
+  /** True while the App is fetching the trace for the cursor session. */
+  treesLoading: boolean
+  /** A trace-fetch error message, or undefined. */
+  treesError: string | undefined
 }
 
 // --- Structural payload accessors (NEVER prose parsing) -------------------------------------------
@@ -235,13 +244,17 @@ function TraceNodeView({ node, depth }: { node: TraceTreeNodeDto; depth: number 
   )
 }
 
-export function TraceView({ runId, record, recordLoading, recordError }: TraceViewProps): ReactElement {
-  const [selected, setSelected] = useState<string>('')
-  const [trees, setTrees] = useState<TraceTreeDto[] | undefined>(undefined)
-  const [traceError, setTraceError] = useState<string | undefined>(undefined)
-  const [loading, setLoading] = useState(false)
-
-  // The distinct evaluation session dates are the picker options. They come from the App-owned record
+export function TraceView({
+  runId,
+  record,
+  sessionCursor,
+  onCursorChange,
+  trees,
+  treesLoading,
+  treesError,
+}: TraceViewProps): ReactElement {
+  // The picker offers ALL of the run's sessions (from the record's valuations), so the cursor can rest
+  // on a session the engine did not evaluate (warm-up / skipped). They come from the App-owned record
   // — the persisted run is the single source of truth for which sessions exist. Gate on the record's
   // own `run_id` matching `runId`: during a run switch the App briefly still holds the previous run's
   // record, so an unguarded derivation would offer the stale run's dates.
@@ -249,76 +262,30 @@ export function TraceView({ runId, record, recordLoading, recordError }: TraceVi
     if (record === undefined || runId === undefined || record.record.run_id !== runId) {
       return []
     }
-    const seen = new Set<string>()
-    const dates: string[] = []
-    for (const evaluation of record.record.evaluations) {
-      if (!seen.has(evaluation.session_date)) {
-        seen.add(evaluation.session_date)
-        dates.push(evaluation.session_date)
-      }
-    }
-    return dates
+    return record.record.valuations.map(([date]) => date)
   }, [record, runId])
 
-  // When the run changes, synchronously reset the session selection so the trace-fetch effect can't
-  // fire ONCE with the PREVIOUS run's `selected` date before the new run's dates resolve — a wasted
-  // `getTrace(newRunId, staleDate)`. Setting state during render re-renders immediately with
-  // `selected === ''` BEFORE any effect runs. (React's supported "adjust state on a prop change".)
-  const [loadedRunId, setLoadedRunId] = useState(runId)
-  if (runId !== loadedRunId) {
-    setLoadedRunId(runId)
-    setSelected('')
-    setTrees(undefined)
-    // Also drop the previous run's trace error: the fetch effect early-returns while selected is ''
-    // and would otherwise never clear it, leaving a stale error shown for the whole window the new
-    // run's record loads (instead of the loading state).
-    setTraceError(undefined)
-  }
-
-  // Auto-select the first session once the matching record's dates are known so a trace shows. `''`
-  // is never a user choice (the picker only offers real dates), so this only fires on the initial load.
-  if (selected === '' && sessions.length > 0) {
-    setSelected(sessions[0])
-  }
-
-  // Fetch the selected session's trace tree. The server filters to that session AND groups it
-  // (build_trace_trees); the client renders the served shape verbatim.
-  useEffect(() => {
-    if (runId === undefined || selected === '') {
-      setTrees(undefined)
-      return
+  // The subset the engine actually evaluated — used only to MARK non-evaluated options and to decide
+  // which empty state to show. A pure projection of the record, gated on the same run_id identity.
+  const evaluated = useMemo(() => {
+    if (record === undefined || runId === undefined || record.record.run_id !== runId) {
+      return new Set<string>()
     }
-    let cancelled = false
-    setLoading(true)
-    setTraceError(undefined)
-    getTraceTree(runId, selected)
-      .then((res) => {
-        if (!cancelled) {
-          setTrees(res.trees)
-        }
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setTrees(undefined)
-          setTraceError(errorMessage(e))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [runId, selected])
+    return new Set(record.record.evaluations.map((e) => e.session_date))
+  }, [record, runId])
 
   if (runId === undefined) {
     return <div className="trace trace--empty">Select a run to view its trace.</div>
   }
 
-  // A record-fetch failure (App) or a trace-fetch failure (here) — both surface in the same slot.
-  const error = recordError ?? traceError
+  // For an empty served result, distinguish an evaluated-but-traceless session from a session the
+  // engine never evaluated; for the latter, surface the run's note for that session verbatim (never
+  // blank). The note is a structural read — no prose parsing (invariant 5).
+  const cursorEvaluated = sessionCursor !== null && evaluated.has(sessionCursor)
+  const note =
+    record !== undefined && sessionCursor !== null
+      ? record.record.notes.find((n) => n.session_date === sessionCursor)
+      : undefined
 
   return (
     <div className="trace">
@@ -330,41 +297,73 @@ export function TraceView({ runId, record, recordLoading, recordError }: TraceVi
           id="trace-session"
           aria-label="trace session"
           className="pform__input"
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
+          value={sessionCursor ?? ''}
+          onChange={(e) => onCursorChange(e.target.value)}
         >
           {sessions.length === 0 ? <option value="">No sessions</option> : null}
           {sessions.map((date) => (
             <option key={date} value={date}>
-              {date}
+              {`${date}${evaluated.has(date) ? '' : ' — no evaluation'}`}
             </option>
           ))}
         </select>
       </div>
 
-      {error !== undefined ? (
+      {treesError !== undefined ? (
         <div className="trace__error" role="alert">
-          {error}
+          {treesError}
         </div>
-      ) : recordLoading || loading ? (
+      ) : treesLoading ? (
         <div className="trace trace--empty">Loading trace…</div>
       ) : trees !== undefined && trees.length === 0 ? (
-        <div className="trace trace--empty">No trace for this session.</div>
+        cursorEvaluated ? (
+          <div className="trace trace--empty">No trace for this session.</div>
+        ) : (
+          <div className="trace trace--empty">
+            <p>No evaluation this session.</p>
+            {note !== undefined ? (
+              <p>
+                <code className="trace-event__token">{note.code}</code> {note.message}
+              </p>
+            ) : null}
+          </div>
+        )
       ) : (
-        (trees ?? []).map((tree) => (
-          <section key={tree.instant} className="trace__instant">
-            <h4 className="trace__instant-title">{tree.instant}</h4>
-            <ul className="trace__roots">
-              {tree.roots.map((root) => (
-                <TraceNodeView
-                  key={`${root.component_path.join('/')}/${root.node_id}/${root.origin}`}
-                  node={root}
-                  depth={0}
-                />
-              ))}
-            </ul>
-          </section>
-        ))
+        (trees ?? []).map((tree) => {
+          // Partition the served roots by origin, PRESERVING order within each partition — a display
+          // grouping only (never a re-sort): node-origin roots render first, the engine-origin root(s)
+          // under a distinct "engine stage" section.
+          const nodeRoots = tree.roots.filter((root) => root.origin !== 'engine')
+          const engineRoots = tree.roots.filter((root) => root.origin === 'engine')
+          return (
+            <section key={tree.instant} className="trace__instant">
+              <h4 className="trace__instant-title">{tree.instant}</h4>
+              <ul className="trace__roots">
+                {nodeRoots.map((root) => (
+                  <TraceNodeView
+                    key={`${root.component_path.join('/')}/${root.node_id}/${root.origin}`}
+                    node={root}
+                    depth={0}
+                  />
+                ))}
+              </ul>
+              {engineRoots.length > 0 ? (
+                <section className="trace__engine" aria-label="engine stage">
+                  <h4 className="trace__engine-title">Engine — targets → orders → fills</h4>
+                  <ul className="trace__roots">
+                    {engineRoots.map((root) => (
+                      <TraceNodeView
+                        key={`${root.component_path.join('/')}/${root.node_id}/${root.origin}`}
+                        node={root}
+                        depth={0}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </section>
+          )
+        })
       )}
     </div>
   )

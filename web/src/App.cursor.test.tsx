@@ -103,6 +103,9 @@ vi.mock('./api/client', async (importOriginal) => {
     listStrategies: vi.fn().mockResolvedValue({ strategies: [] }),
     listComponents: vi.fn().mockResolvedValue({ components: [] }),
     getRun: (runId: string) => getRunMock(runId),
+    // The App lifts the trace-tree fetch (M13.7 Task 2) and re-keys it on every cursor move; stub it so
+    // stepping the cursor here neither hits the network nor leaves an async state update untested.
+    getTraceTree: vi.fn().mockResolvedValue({ trees: [] }),
   }
 })
 
@@ -210,6 +213,10 @@ describe('App session cursor (M13.7)', () => {
     fireEvent.click(next())
     expect(cursorReadout()).toHaveTextContent('2026-05-15')
     expect(next()).toBeDisabled()
+
+    // Each cursor move re-keys the App's lifted trace-tree fetch; flush its (stubbed) resolution so
+    // the trailing state update lands inside act() rather than after the test.
+    await flush()
   })
 
   it('renders no stepper and an em-dash without a run', async () => {

@@ -10,13 +10,14 @@
 // second source of truth.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { DatasetStored, RunRecordResponse, ValidateResponse } from '@quantize/quantize-api'
+import type { DatasetStored, RunRecordResponse, TraceTreeDto, ValidateResponse } from '@quantize/quantize-api'
 import type { StrategyDocument } from '@quantize/quantize-ir'
 import {
   ApiClientError,
   errorMessage,
   getDataset,
   getRun,
+  getTraceTree,
   listStrategyVersions,
   loadStrategyVersion,
   saveStrategy,
@@ -377,6 +378,43 @@ export function App(): ReactElement {
     return new Set(runRecord.record.evaluations.map((e) => e.session_date))
   }, [runRecord, selectedRunId])
 
+  // --- The lifted trace tree (M13.7): ONE fetch keyed on the run + the shared session cursor ------
+  // Lifting the trace-tree fetch out of TraceView lets a single result feed both the Trace panel and
+  // (a later task) the always-mounted Inspector — the Dock mounts only one panel at a time, so a
+  // panel-local fetch could not be shared. Mirrors the runRecord effect's shape (cancelled flag,
+  // reset-then-load, then/catch/finally); re-keys whenever the run OR the cursor changes.
+  const [traceTrees, setTraceTrees] = useState<TraceTreeDto[] | undefined>(undefined)
+  const [traceLoading, setTraceLoading] = useState(false)
+  const [traceError, setTraceError] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    if (selectedRunId === undefined || sessionCursor === null) {
+      setTraceTrees(undefined)
+      setTraceError(undefined)
+      setTraceLoading(false)
+      return
+    }
+    let cancelled = false
+    setTraceTrees(undefined)
+    setTraceError(undefined)
+    setTraceLoading(true)
+    getTraceTree(selectedRunId, sessionCursor)
+      .then((res) => {
+        if (!cancelled) setTraceTrees(res.trees)
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setTraceTrees(undefined)
+          setTraceError(errorMessage(e))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTraceLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedRunId, sessionCursor])
+
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
   useEffect(() => {
     if (datasetId === undefined) {
@@ -476,8 +514,11 @@ export function App(): ReactElement {
         <TraceView
           runId={selectedRunId}
           record={runRecord}
-          recordLoading={runRecordLoading}
-          recordError={runRecordError}
+          sessionCursor={sessionCursor}
+          onCursorChange={setSessionCursor}
+          trees={traceTrees}
+          treesLoading={traceLoading}
+          treesError={traceError}
         />
       ),
     },
