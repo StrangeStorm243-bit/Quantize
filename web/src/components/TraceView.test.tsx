@@ -1,25 +1,32 @@
-// TraceView: the session-date picker (from the run record's evaluations) drives a getTrace fetch;
-// tailored renderers show the structured fields for select.selected / transform.excluded /
-// engine.orders_proposed (with a dust/hold omitted row); an UNKNOWN event type falls back to the
-// generic key/value renderer; an empty session shows the empty state. The api client is mocked (no
-// network); ApiClientError is the real class so `instanceof` works.
+// TraceView: the session-date picker (from the run record's evaluations) drives a getTraceTree
+// fetch; the SERVED per-instant tree (grouped server-side by build_trace_trees, M13.6) is rendered
+// verbatim — component nesting shown as indentation, the engine root labeled. Tailored renderers
+// show the structured fields for select.selected / transform.excluded / engine.orders_proposed
+// (with a dust/hold omitted row); an UNKNOWN event type falls back to the generic key/value
+// renderer; an empty session shows the empty state. The api client is mocked (no network).
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PersistedRunRecord, RunRecordResponse, TraceEvent, TraceResponse } from '@quantize/quantize-api'
+import type {
+  PersistedRunRecord,
+  RunRecordResponse,
+  TraceEvent,
+  TraceTreeNodeDto,
+  TraceTreeResponse,
+} from '@quantize/quantize-api'
 import { TraceView } from './TraceView'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
-  return { ...actual, getTrace: vi.fn() }
+  return { ...actual, getTraceTree: vi.fn() }
 })
 
 // eslint-disable-next-line import/first
-import { getTrace } from '../api/client'
+import { getTraceTree } from '../api/client'
 
-const mockGetTrace = vi.mocked(getTrace)
+const mockGetTraceTree = vi.mocked(getTraceTree)
 
 // A minimal record carrying just the evaluation session dates the picker needs (two distinct dates).
-// The record is now OWNED BY THE APP and passed in (M11.9, F7); `run_id` must match the `runId` prop
+// The record is OWNED BY THE APP and passed in (M11.9, F7); `run_id` must match the `runId` prop
 // (the view gates session derivation on that identity to ignore a previous run's record mid-switch).
 function runResponse(sessionDates: string[], runId = 'run-1'): RunRecordResponse {
   const record = {
@@ -52,8 +59,91 @@ function event(overrides: Partial<TraceEvent>): TraceEvent {
   }
 }
 
+// A served tree node with sensible defaults; override the fields a case cares about.
+function treeNode(overrides: Partial<TraceTreeNodeDto>): TraceTreeNodeDto {
+  return {
+    node_id: 'n',
+    component_path: [],
+    origin: 'node',
+    events: [],
+    children: [],
+    ...overrides,
+  }
+}
+
+// One instant's served tree: the 'mom' component instance (emitting nothing, with two internal
+// children), a top-level unknown-event node, and the engine root last (as build_trace_trees orders).
+const SERVED_TREE: TraceTreeResponse = {
+  trees: [
+    {
+      run_id: 'run-1',
+      instant: '2026-05-15T21:00:00+00:00',
+      roots: [
+        treeNode({
+          node_id: 'mom',
+          children: [
+            treeNode({
+              node_id: 'sel',
+              component_path: ['mom'],
+              events: [
+                event({
+                  node_id: 'sel',
+                  component_path: ['mom'],
+                  event_type: 'select.selected',
+                  payload: { v: 1, n: 2, selected: ['SPY', 'QQQ'], unselected: ['GLD'] },
+                }),
+              ],
+            }),
+            treeNode({
+              node_id: 'ret',
+              component_path: ['mom'],
+              events: [
+                event({
+                  node_id: 'ret',
+                  component_path: ['mom'],
+                  event_type: 'transform.excluded',
+                  payload: { v: 1, asset: 'IWM', reason: 'missing_current_close' },
+                }),
+              ],
+            }),
+          ],
+        }),
+        treeNode({
+          node_id: 'x',
+          events: [
+            event({
+              node_id: 'x',
+              event_type: 'mystery.unknown',
+              payload: { v: 1, gizmo: 'widget', count: 42 },
+            }),
+          ],
+        }),
+        treeNode({
+          node_id: 'engine',
+          origin: 'engine',
+          events: [
+            event({
+              node_id: 'engine',
+              event_type: 'engine.orders_proposed',
+              payload: {
+                v: 1,
+                session: '2026-05-15',
+                portfolio_value: 1_000_000,
+                target_cash: 0,
+                projected_cash: 0,
+                orders: [['buy', 'SPY', 100]],
+                omitted: [['GLD', 'dust', 3]],
+              },
+            }),
+          ],
+        }),
+      ],
+    },
+  ],
+}
+
 beforeEach(() => {
-  mockGetTrace.mockReset()
+  mockGetTraceTree.mockReset()
 })
 
 // A helper: render with the App-owned record prop (loading/error default to idle).
@@ -62,50 +152,21 @@ function renderTrace(runId: string | undefined, record: RunRecordResponse | unde
 }
 
 describe('TraceView', () => {
-  it('drives the fetch from the session picker and renders tailored + generic renderers', async () => {
-    const trace: TraceResponse = {
-      events: [
-        event({
-          node_id: 'sel',
-          component_path: ['mom'],
-          event_type: 'select.selected',
-          payload: { v: 1, n: 2, selected: ['SPY', 'QQQ'], unselected: ['GLD'] },
-        }),
-        event({
-          node_id: 'ret',
-          component_path: ['mom'],
-          event_type: 'transform.excluded',
-          payload: { v: 1, asset: 'IWM', reason: 'missing_current_close' },
-        }),
-        event({
-          node_id: 'engine',
-          event_type: 'engine.orders_proposed',
-          payload: {
-            v: 1,
-            session: '2026-05-15',
-            portfolio_value: 1_000_000,
-            target_cash: 0,
-            projected_cash: 0,
-            orders: [['buy', 'SPY', 100]],
-            omitted: [['GLD', 'dust', 3]],
-          },
-        }),
-        event({
-          node_id: 'x',
-          event_type: 'mystery.unknown',
-          payload: { v: 1, gizmo: 'widget', count: 42 },
-        }),
-      ],
-    }
-    mockGetTrace.mockResolvedValue(trace)
+  it('drives the fetch from the picker and renders the served nested tree + tailored/generic renderers', async () => {
+    mockGetTraceTree.mockResolvedValue(SERVED_TREE)
 
     renderTrace('run-1', runResponse(['2026-05-15', '2026-05-16']))
 
-    // Auto-selects the first session and fetches its trace.
-    await waitFor(() => expect(mockGetTrace).toHaveBeenCalledWith('run-1', '2026-05-15'))
+    // Auto-selects the first session and fetches its tree.
+    await waitFor(() => expect(mockGetTraceTree).toHaveBeenCalledWith('run-1', '2026-05-15'))
+
+    // Served nesting renders: the 'mom' instance head and its internal children appear.
+    expect(await screen.findByText('mom')).toBeInTheDocument()
+    expect(screen.getByText('sel')).toBeInTheDocument()
+    expect(screen.getByText('ret')).toBeInTheDocument()
 
     // select.selected tailored renderer: the count and selected assets.
-    expect(await screen.findByText(/selected 2:/)).toBeInTheDocument()
+    expect(screen.getByText(/selected 2:/)).toBeInTheDocument()
     expect(screen.getByText(/SPY, QQQ/)).toBeInTheDocument()
     expect(screen.getByText(/unselected: GLD/)).toBeInTheDocument()
 
@@ -122,38 +183,33 @@ describe('TraceView', () => {
     expect(screen.getByText('widget')).toBeInTheDocument()
     expect(screen.getByText('42')).toBeInTheDocument()
 
-    // The engine root's node id appears — grouping placed engine after node roots.
-    expect(screen.getByText('mystery.unknown')).toBeInTheDocument()
+    // The engine root's event type appears — the server placed engine after node roots.
+    expect(screen.getByText('engine.orders_proposed')).toBeInTheDocument()
   })
 
-  it('re-fetches when the picker changes and shows the empty state for a session with no trace', async () => {
-    mockGetTrace.mockImplementation((_runId: string, sessionDate: string) =>
-      Promise.resolve({
-        events:
-          sessionDate === '2026-05-16'
-            ? []
-            : [event({ event_type: 'select.selected', payload: { v: 1, n: 0, selected: [], unselected: [] } })],
-      }),
+  it('re-fetches when the picker changes and shows the empty state for a session with no trees', async () => {
+    mockGetTraceTree.mockImplementation((_runId: string, sessionDate?: string) =>
+      Promise.resolve(sessionDate === '2026-05-16' ? { trees: [] } : SERVED_TREE),
     )
 
     renderTrace('run-1', runResponse(['2026-05-15', '2026-05-16']))
-    await waitFor(() => expect(mockGetTrace).toHaveBeenCalledWith('run-1', '2026-05-15'))
+    await waitFor(() => expect(mockGetTraceTree).toHaveBeenCalledWith('run-1', '2026-05-15'))
 
     fireEvent.change(screen.getByLabelText('trace session'), { target: { value: '2026-05-16' } })
 
-    await waitFor(() => expect(mockGetTrace).toHaveBeenCalledWith('run-1', '2026-05-16'))
+    await waitFor(() => expect(mockGetTraceTree).toHaveBeenCalledWith('run-1', '2026-05-16'))
     expect(await screen.findByText(/no trace for this session/i)).toBeInTheDocument()
   })
 
-  it('surfaces a record-fetch error passed from the App (no trace fetch attempted)', () => {
+  it('surfaces a record-fetch error passed from the App (no tree fetch attempted)', () => {
     render(<TraceView runId="run-1" record={undefined} recordLoading={false} recordError="record boom" />)
     expect(screen.getByRole('alert')).toHaveTextContent('record boom')
-    expect(mockGetTrace).not.toHaveBeenCalled()
+    expect(mockGetTraceTree).not.toHaveBeenCalled()
   })
 
   it('renders nothing actionable when no run is selected', () => {
     renderTrace(undefined, undefined)
-    expect(mockGetTrace).not.toHaveBeenCalled()
+    expect(mockGetTraceTree).not.toHaveBeenCalled()
     expect(screen.getByText(/select a run/i)).toBeInTheDocument()
   })
 })
