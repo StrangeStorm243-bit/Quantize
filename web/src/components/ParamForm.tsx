@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import type { ReactElement } from 'react'
 import type { JsonValue } from '@quantize/quantize-ir'
+import type { ParamDocDto } from '@quantize/quantize-api'
 import type { NodeParams } from '../document/store'
 
 /** The `parameter_schema` shape as the catalog types it (an object of JSON Schema keywords, or null). */
@@ -23,6 +24,8 @@ export interface ParamFormProps {
   schema: ParameterSchema
   /** The node's current params (the edit target). */
   params: NodeParams
+  /** Per-parameter display docs (the catalog's `doc.parameters`); label falls back to the key. */
+  docs?: { [k: string]: ParamDocDto }
   /** Emit the next params object (whole-object replace, exactly what `setParams` takes). */
   onParamsChange: (next: NodeParams) => void
 }
@@ -67,12 +70,13 @@ function nextParams(params: NodeParams, name: string, value: JsonValue | undefin
 
 interface ControlProps {
   name: string
+  label: string
   prop: Record<string, JsonValue>
   current: JsonValue | undefined
   emit: (value: JsonValue | undefined) => void
 }
 
-function NumberControl({ name, prop, current, emit }: ControlProps): ReactElement {
+function NumberControl({ label, prop, current, emit }: ControlProps): ReactElement {
   const isInteger = prop.type === 'integer'
   const minimum = asNumber(prop.minimum)
   const exclusiveMinimum = asNumber(prop.exclusiveMinimum)
@@ -81,9 +85,9 @@ function NumberControl({ name, prop, current, emit }: ControlProps): ReactElemen
   const minAttr = minimum ?? exclusiveMinimum
   return (
     <div className="pform__field">
-      {/* The hint sits OUTSIDE the label so the control's accessible name is exactly `name`. */}
+      {/* The hint sits OUTSIDE the label so the control's accessible name is exactly `label`. */}
       <label className="pform__label-wrap">
-        <span className="pform__label">{name}</span>
+        <span className="pform__label">{label}</span>
         <input
           type="number"
           className="pform__input"
@@ -101,7 +105,7 @@ function NumberControl({ name, prop, current, emit }: ControlProps): ReactElemen
   )
 }
 
-function BooleanControl({ name, prop, current, emit }: ControlProps): ReactElement {
+function BooleanControl({ label, prop, current, emit }: ControlProps): ReactElement {
   const fallback = typeof prop.default === 'boolean' ? prop.default : false
   const checked = typeof current === 'boolean' ? current : fallback
   return (
@@ -112,16 +116,16 @@ function BooleanControl({ name, prop, current, emit }: ControlProps): ReactEleme
         checked={checked}
         onChange={(e) => emit(e.target.checked)}
       />
-      <span className="pform__label">{name}</span>
+      <span className="pform__label">{label}</span>
     </label>
   )
 }
 
-function StringControl({ name, prop, current, emit }: ControlProps): ReactElement {
+function StringControl({ label, prop, current, emit }: ControlProps): ReactElement {
   const minLength = asNumber(prop.minLength)
   return (
     <label className="pform__field">
-      <span className="pform__label">{name}</span>
+      <span className="pform__label">{label}</span>
       <input
         type="text"
         className="pform__input"
@@ -135,7 +139,7 @@ function StringControl({ name, prop, current, emit }: ControlProps): ReactElemen
 
 // A unique-string array editor (tickers): chips with remove buttons + an add field that rejects
 // duplicates to honour `uniqueItems`. The value is always a string[].
-function StringArrayControl({ name, current, emit }: ControlProps): ReactElement {
+function StringArrayControl({ label, current, emit }: ControlProps): ReactElement {
   const items: string[] = Array.isArray(current)
     ? current.filter((v): v is string => typeof v === 'string')
     : []
@@ -158,7 +162,7 @@ function StringArrayControl({ name, current, emit }: ControlProps): ReactElement
 
   return (
     <div className="pform__field">
-      <span className="pform__label">{name}</span>
+      <span className="pform__label">{label}</span>
       <ul className="pform__chips">
         {items.map((item) => (
           <li key={item} className="pform__chip">
@@ -178,7 +182,7 @@ function StringArrayControl({ name, current, emit }: ControlProps): ReactElement
         <input
           type="text"
           className="pform__input"
-          aria-label={`Add ${name}`}
+          aria-label={`Add ${label}`}
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value)
@@ -204,7 +208,7 @@ function StringArrayControl({ name, current, emit }: ControlProps): ReactElement
 // number branch (fixed_weight: "equal" vs a number). Emits the const value or the number. Mode is
 // LOCAL state (seeded from the current value) so switching to the number branch before typing does
 // not snap back to a const — the enclosing ParamForm remounts per node, resetting it cleanly.
-function OneOfControl({ name, prop, current, emit }: ControlProps): ReactElement {
+function OneOfControl({ label, prop, current, emit }: ControlProps): ReactElement {
   const branches = Array.isArray(prop.oneOf)
     ? prop.oneOf.map((b) => asRecord(b)).filter((b): b is Record<string, JsonValue> => b !== undefined)
     : []
@@ -254,10 +258,10 @@ function OneOfControl({ name, prop, current, emit }: ControlProps): ReactElement
 
   return (
     <div className="pform__field">
-      <span className="pform__label">{name}</span>
+      <span className="pform__label">{label}</span>
       <select
         className="pform__input"
-        aria-label={name}
+        aria-label={label}
         value={mode}
         onChange={(e) => onModeChange(e.target.value)}
       >
@@ -276,7 +280,7 @@ function OneOfControl({ name, prop, current, emit }: ControlProps): ReactElement
         <input
           type="number"
           className="pform__input"
-          aria-label={`${name} value`}
+          aria-label={`${label} value`}
           value={typeof current === 'number' ? current : ''}
           onChange={(e) => emit(parseFiniteNumber(e.target.value))}
         />
@@ -288,15 +292,15 @@ function OneOfControl({ name, prop, current, emit }: ControlProps): ReactElement
 // The D6 fallback: a raw-JSON textarea bound to one property. On change, if the text parses we emit
 // the parsed value; if it does not, we KEEP the text and show an "invalid JSON" hint (never block —
 // the server validates authoritatively). Empty text clears the key.
-function RawJsonControl({ name, current, emit }: ControlProps): ReactElement {
+function RawJsonControl({ label, current, emit }: ControlProps): ReactElement {
   const [text, setText] = useState(() => (current === undefined ? '' : JSON.stringify(current, null, 2)))
   const [invalid, setInvalid] = useState(false)
   return (
     <div className="pform__field">
-      <span className="pform__label">{name}</span>
+      <span className="pform__label">{label}</span>
       <textarea
         className="pform__textarea"
-        aria-label={name}
+        aria-label={label}
         value={text}
         rows={3}
         onChange={(e) => {
@@ -343,7 +347,7 @@ function renderControl(props: ControlProps): ReactElement {
   return <RawJsonControl {...props} />
 }
 
-export function ParamForm({ schema, params, onParamsChange }: ParamFormProps): ReactElement {
+export function ParamForm({ schema, params, docs, onParamsChange }: ParamFormProps): ReactElement {
   const properties = asRecord(schema?.properties ?? undefined)
   const required = Array.isArray(schema?.required)
     ? (schema.required as JsonValue[]).filter((r): r is string => typeof r === 'string')
@@ -357,11 +361,17 @@ export function ParamForm({ schema, params, onParamsChange }: ParamFormProps): R
     <div className="pform">
       {Object.entries(properties).map(([name, propVal]) => {
         const prop = asRecord(propVal) ?? {}
+        const docEntry = docs?.[name]
+        // The visible/accessible label is the doc label; the emit key stays the raw property `name`.
+        const label = docEntry?.label ?? name
         const emit = (value: JsonValue | undefined): void =>
           onParamsChange(nextParams(params, name, value))
         return (
           <div key={name} className="pform__row">
-            {renderControl({ name, prop, current: params[name], emit })}
+            {renderControl({ name, label, prop, current: params[name], emit })}
+            {docEntry?.help != null && docEntry.help !== '' ? (
+              <span className="pform__help">{docEntry.help}</span>
+            ) : null}
             {required.includes(name) ? (
               <span className="pform__required" title="required">
                 required

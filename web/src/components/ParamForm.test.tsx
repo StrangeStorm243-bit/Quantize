@@ -168,3 +168,51 @@ describe('ParamForm', () => {
     expect((screen.getByLabelText('cfg') as HTMLTextAreaElement).value).toBe('{"a":')
   })
 })
+
+describe('ParamForm — doc labels/help (M13.5)', () => {
+  const docs = {
+    lookback_sessions: {
+      label: 'Lookback sessions',
+      help: 'Calendar sessions back to the anchor close (the momentum window).',
+    },
+  }
+
+  it('renders the doc label as the control label and shows the help text', () => {
+    render(
+      <ParamForm
+        schema={schemaOf('transform.trailing_return')}
+        params={{}}
+        docs={docs}
+        onParamsChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByLabelText('Lookback sessions')).toBeInTheDocument()
+    expect(screen.getByText(/Calendar sessions back to the anchor close/)).toBeInTheDocument()
+  })
+
+  it('emits params keyed by the RAW property name even when a doc label is shown', () => {
+    const onParamsChange = vi.fn()
+    render(
+      <ParamForm
+        schema={schemaOf('transform.trailing_return')}
+        params={{}}
+        docs={docs}
+        onParamsChange={onParamsChange}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Lookback sessions'), { target: { value: '21' } })
+    expect(onParamsChange).toHaveBeenCalledWith({ lookback_sessions: 21 })
+  })
+
+  it('falls back to the property key for a property with no doc entry', () => {
+    render(
+      <ParamForm
+        schema={schemaOf('transform.moving_average')}
+        params={{}}
+        docs={{}}
+        onParamsChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByLabelText('window')).toBeInTheDocument()
+  })
+})
