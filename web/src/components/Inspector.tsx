@@ -1,22 +1,94 @@
-// The node inspector (M11.5, M12.4): identity + schema-driven parameter form for the selected node.
+// The node inspector (M11.5, M12.4, M13.5): identity + schema-driven parameter form for the selected
+// node, plus its meaning. The primitive-node branch renders four sections (M13.5): Parameters (the
+// doc-labeled ParamForm), Explanation (role sentence → formula → semantics/warm-up), Ports (typed,
+// labeled), and an inert "At session" shell — a stable slot a later slice fills with the node's
+// last-run trace values at the session cursor. All of it is pure projection of served catalog
+// metadata; no numerical or compatibility logic lives here (CLAUDE.md invariant 5).
 //
 // Selection is APP-level state (not React Flow's transient selection — the canvas re-seeds its RF
 // nodes from the document, which would drop RF selection). The Inspector reads the selected node from
-// the canonical document and edits its params through the store's `setParams` reducer — no numerical
-// or compatibility logic lives here (CLAUDE.md invariant 5).
+// the canonical document and edits its params through the store's `setParams` reducer.
 //
 // A ComponentRefNode (`'ref' in node`, M12.4/E10) resolves its pinned definition from the immutable
 // component cache and edits its EXPOSED params — keyed by exposed name, layered server-side as
 // overrides — through the SAME `ParamForm`, over a SYNTHESIZED object schema built from each exposed
 // param's verbatim `schema` fragment. "Inspect internals" opens a read-only detail drawer (E11).
 import type { ReactElement } from 'react'
+import type { NodeCatalogResponse, NodeTypeDto } from '@quantize/quantize-api'
 import type { JsonValue, StrategyDocument } from '@quantize/quantize-ir'
-import { nodeTypeById, useCatalog } from '../catalog'
+import { labelOf, nodeTypeById, useCatalog } from '../catalog'
+import { portColor } from '../catalog/colors'
 import { useComponentDefs } from '../components-cache'
 import { findComponentRef } from '../document/flow'
 import type { NodeParams, StrategyDocumentActions } from '../document/store'
 import type { ParameterSchema } from './ParamForm'
 import { ParamForm } from './ParamForm'
+
+// W3: the node's meaning, role sentence first (D-13). `doc.latex` is RESERVED and never rendered.
+function ExplanationSection({ nodeType }: { nodeType: NodeTypeDto }): ReactElement {
+  const doc = nodeType.doc
+  return (
+    <section className="inspector__section" aria-label="explanation">
+      <h3 className="inspector__section-title">Explanation</h3>
+      <p className="inspector__summary">{doc?.summary ?? nodeType.description}</p>
+      {doc?.formula != null ? (
+        <div className="inspector__docrow">
+          <span className="inspector__doclabel">Formula</span>
+          <code className="inspector__formula">{doc.formula}</code>
+        </div>
+      ) : null}
+      {doc?.semantics != null ? (
+        <div className="inspector__docrow">
+          <span className="inspector__doclabel">Semantics &amp; warm-up</span>
+          <p className="inspector__semantics">{doc.semantics}</p>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+// Port meanings: name + served type label, colored by the shared port token (presentation only).
+function PortsSection({ nodeType, catalog }: { nodeType: NodeTypeDto; catalog: NodeCatalogResponse }): ReactElement {
+  return (
+    <section className="inspector__section" aria-label="ports">
+      <h3 className="inspector__section-title">Ports</h3>
+      <ul className="inspector__ports">
+        {nodeType.inputs.map((p) => (
+          <li key={`in:${p.name}`} className="inspector__port">
+            <span className="inspector__port-dir">in</span>
+            <span className="inspector__port-name">{p.name}</span>
+            <span className="inspector__port-type" style={{ color: portColor(p.port_type) }}>
+              {labelOf(catalog, p.port_type)}
+            </span>
+            {p.required ? <span className="inspector__port-required">required</span> : null}
+          </li>
+        ))}
+        {nodeType.outputs.map((p) => (
+          <li key={`out:${p.name}`} className="inspector__port">
+            <span className="inspector__port-dir">out</span>
+            <span className="inspector__port-name">{p.name}</span>
+            <span className="inspector__port-type" style={{ color: portColor(p.port_type) }}>
+              {labelOf(catalog, p.port_type)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// The Node Value Tap rendering slot (design W4): a stable section that a later slice fills with the
+// selected node's served trace events at the session cursor — values arrive here with NO relayout.
+function AtSessionShell(): ReactElement {
+  return (
+    <section className="inspector__section inspector__section--at-session" aria-label="at session">
+      <h3 className="inspector__section-title">At session</h3>
+      <p className="inspector__empty-note">
+        Run a strategy and select a session to inspect this node's last-run behavior.
+      </p>
+    </section>
+  )
+}
 
 export interface InspectorProps {
   doc: StrategyDocument
@@ -74,6 +146,7 @@ export function Inspector({
             Component definition is not loaded (or the ref is unknown) — parameters cannot be shown yet.
           </p>
           {inspectButton}
+          <AtSessionShell />
         </div>
       )
     }
@@ -107,6 +180,7 @@ export function Inspector({
           />
         )}
         {inspectButton}
+        <AtSessionShell />
       </div>
     )
   }
@@ -119,21 +193,30 @@ export function Inspector({
       <header className="inspector__head">
         <div className="inspector__type">{nodeType?.display_name ?? node.type_id}</div>
         <div className="inspector__typeid">{node.type_id}</div>
-        {nodeType !== undefined ? <p className="inspector__desc">{nodeType.description}</p> : null}
       </header>
-      {nodeType === undefined ? (
+      {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
+      {nodeType === undefined || catalog === undefined ? (
         <p className="inspector__unknown">
           Unknown node type — parameters cannot be rendered without a catalog entry.
         </p>
       ) : (
-        <ParamForm
-          // Remount per node so per-property local UI state (draft chip, oneOf mode) resets cleanly.
-          key={node.id}
-          schema={nodeType.parameter_schema}
-          params={params}
-          onParamsChange={(next) => actions.setParams(node.id, next)}
-        />
+        <>
+          <section className="inspector__section" aria-label="parameters">
+            <h3 className="inspector__section-title">Parameters</h3>
+            <ParamForm
+              // Remount per node so per-property local UI state (draft chip, oneOf mode) resets cleanly.
+              key={node.id}
+              schema={nodeType.parameter_schema}
+              params={params}
+              {...(nodeType.doc?.parameters !== undefined ? { docs: nodeType.doc.parameters } : {})}
+              onParamsChange={(next) => actions.setParams(node.id, next)}
+            />
+          </section>
+          <ExplanationSection nodeType={nodeType} />
+          <PortsSection nodeType={nodeType} catalog={catalog} />
+        </>
       )}
+      <AtSessionShell />
     </div>
   )
 }

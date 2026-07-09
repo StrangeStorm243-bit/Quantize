@@ -142,4 +142,11 @@ describe('Inspector — ComponentRefNode branch', () => {
     fireEvent.click(screen.getByRole('button', { name: /inspect internals/i }))
     expect(onInspect).toHaveBeenCalledWith({ componentId: CID, version: '1.0.0' })
   })
+
+  it('renders the "At session" shell for a component instance (value-tap slot, M13.5)', () => {
+    state.def = makeDef([])
+    render(<Inspector doc={makeDoc()} selectedNodeId="mom" actions={stubActions()} />)
+    expect(screen.getByText('At session')).toBeInTheDocument()
+    expect(screen.getByText(/run a strategy and select a session/i)).toBeInTheDocument()
+  })
 })
