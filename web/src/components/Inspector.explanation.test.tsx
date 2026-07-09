@@ -117,7 +117,7 @@ describe('Inspector — Explanation section (M13.5)', () => {
       description: 'Fits a linear model.', category: 'statistics',
       doc: {
         summary: 'Explains each asset by a fitted linear model.',
-        formula: 'y = Xβ + ε', latex: null,
+        formula: 'y = Xβ + ε', latex: 'LATEX_SENTINEL_XYZ',
         semantics: 'Assets with insufficient history are excluded.',
         parameters: {},
       },
@@ -126,6 +126,8 @@ describe('Inspector — Explanation section (M13.5)', () => {
     render(<Inspector doc={docWith('stats.regression')} selectedNodeId="n1" actions={stubActions()} />)
     expect(screen.getByText('Explains each asset by a fitted linear model.')).toBeInTheDocument()
     expect(screen.getByText('y = Xβ + ε')).toBeInTheDocument()
+    // A populated `latex` is RESERVED and must never render — the formula shows, the latex does not.
+    expect(screen.queryByText('LATEX_SENTINEL_XYZ')).not.toBeInTheDocument()
   })
 
   it('renders the "At session" shell with its empty state', () => {

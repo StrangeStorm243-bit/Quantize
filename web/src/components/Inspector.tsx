@@ -192,6 +192,7 @@ export function Inspector({
         <div className="inspector__type">{nodeType?.display_name ?? node.type_id}</div>
         <div className="inspector__typeid">{node.type_id}</div>
       </header>
+      {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
       {nodeType === undefined || catalog === undefined ? (
         <p className="inspector__unknown">
           Unknown node type — parameters cannot be rendered without a catalog entry.
