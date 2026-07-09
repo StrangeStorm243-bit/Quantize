@@ -77,9 +77,11 @@ describe('SvgLineChart interactivity (M13.7)', () => {
     })
   }
 
+  // A FRACTIONAL second value so the verbatim-value assertion is a real tripwire: any toFixed(0) /
+  // round-to-integer regression would drop the ".5" and fail.
   const twoPoints: [string, number][] = [
     ['2025-07-31', 1_000_000],
-    ['2025-08-29', 1_050_000],
+    ['2025-08-29', 1_050_000.5],
   ]
 
   it('shows a readout with the nearest point date + its VERBATIM value on mousemove', () => {
@@ -90,9 +92,9 @@ describe('SvgLineChart interactivity (M13.7)', () => {
     fireEvent.mouseMove(svg, { clientX: 100 })
     const readout = screen.getByRole('status')
     expect(readout).toHaveTextContent('2025-08-29')
-    // The value is the raw record number serialized with String(...) — NOT a toFixed / derived form.
-    expect(readout).toHaveTextContent('1050000')
-    expect(readout).not.toHaveTextContent('1050000.00')
+    // The value is the raw record number serialized with String(...) — the EXACT fractional string, not
+    // a toFixed / rounded / derived form.
+    expect(readout).toHaveTextContent('1050000.5')
     // A crosshair line is drawn while hovering.
     expect(container.querySelector('.chart__crosshair')).not.toBeNull()
   })
@@ -108,6 +110,25 @@ describe('SvgLineChart interactivity (M13.7)', () => {
     // clientX 100 → index 1 → the last point's date.
     fireEvent.click(svg, { clientX: 100 })
     expect(onSelectPoint).toHaveBeenCalledWith('2025-08-29')
+  })
+
+  it('does not crash when the series shrinks below a stale hover index (in-place rerender)', () => {
+    mockRect(100)
+    const { container, rerender } = render(
+      <SvgLineChart points={twoPoints} onSelectPoint={() => {}} />,
+    )
+    const svg = container.querySelector('svg')!
+    // Hover the LAST point (index 1) so the stored hover index is 1.
+    fireEvent.mouseMove(svg, { clientX: 100 })
+    expect(container.querySelector('.chart__crosshair')).not.toBeNull()
+    // Re-render the SAME component (unkeyed → hover useState persists) with a SHORTER 1-point series.
+    // The stored index 1 is now out of bounds; the render-time clamp must drop it rather than throw.
+    expect(() =>
+      rerender(<SvgLineChart points={[['2025-07-31', 1_000_000]]} onSelectPoint={() => {}} />),
+    ).not.toThrow()
+    // The now-invalid hover index yields no crosshair/readout until the next mousemove.
+    expect(container.querySelector('.chart__crosshair')).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('is inert without onSelectPoint: no readout, no crosshair, and mousemove does not throw', () => {

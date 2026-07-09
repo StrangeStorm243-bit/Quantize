@@ -68,6 +68,11 @@ export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): Reac
   const lastDate = points[points.length - 1][0]
 
   const interactive = onSelectPoint !== undefined
+  // Clamp the stored hover at RENDER time rather than trusting the persisted index: `hover` is useState
+  // on an unkeyed component, so if `points` is replaced in place by a SHORTER series while the pointer
+  // is over the chart, a stale index N ≥ points.length would read out of bounds. Deriving a valid index
+  // per render makes that impossible (the crosshair/readout simply drop until the next mousemove).
+  const hoverIndex = hover !== null && hover < points.length ? hover : null
 
   // Map a mouse x to the NEAREST point index (clamped to valid indices) — pure pixel→index mapping,
   // NO date/value arithmetic. Reads the svg's on-screen box so the viewBox scaling is irrelevant.
@@ -87,15 +92,18 @@ export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): Reac
         aria-label="portfolio value over time"
         onMouseMove={interactive ? (e) => setHover(indexAt(e)) : undefined}
         onMouseLeave={interactive ? () => setHover(null) : undefined}
+        // Click-to-select is a MOUSE affordance; the keyboard-accessible path to selecting a session is
+        // the evaluation/fill row buttons in ResultsView — do not "fix" this handler's mouse-only nature
+        // in isolation.
         onClick={interactive ? (e) => onSelectPoint(points[indexAt(e)][0]) : undefined}
       >
         <polyline className="chart__line" points={polyline} fill="none" />
         {/* Crosshair at the hovered point's x (viewBox units, from `coords`), spanning full height. */}
-        {interactive && hover !== null ? (
+        {interactive && hoverIndex !== null ? (
           <line
             className="chart__crosshair"
-            x1={coords[hover].x}
-            x2={coords[hover].x}
+            x1={coords[hoverIndex].x}
+            x2={coords[hoverIndex].x}
             y1={0}
             y2={HEIGHT}
           />
@@ -103,9 +111,9 @@ export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): Reac
       </svg>
       {/* Readout of the hovered point — the VERBATIM record date and value (String(...), never formatted
           or derived). role="status" announces it to assistive tech as the hover moves. */}
-      {interactive && hover !== null ? (
+      {interactive && hoverIndex !== null ? (
         <div className="chart__readout" role="status">
-          {points[hover][0]} · {String(points[hover][1])}
+          {points[hoverIndex][0]} · {String(points[hoverIndex][1])}
         </div>
       ) : null}
       <div className="chart__axis chart__axis--y">
