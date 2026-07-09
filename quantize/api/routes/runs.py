@@ -21,12 +21,14 @@ from quantize.api.dto.runs import (
     RunListRow,
     TraceResponse,
 )
+from quantize.api.dto.trace_tree import TraceTreeResponse, trace_tree_dto
 from quantize.api.parsing import JsonBody, SettingsDep, load_dto
 from quantize.api.service import execute_backtest_run, execute_forward_run
 from quantize.persistence.database import Database
 from quantize.persistence.provenance import PROVENANCE_RECORDED
 from quantize.persistence.runs import RunRepository
 from quantize.schema.serialization import to_ir_json
+from quantize.tracing.tree import build_trace_trees
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
 
@@ -85,3 +87,19 @@ def fetch_trace(
     with Database(settings.db_path, busy_timeout_ms=settings.busy_timeout_ms) as db:
         events = RunRepository(db).load_trace(run_id, session_date)
     return TraceResponse(events=events)
+
+
+@router.get("/{run_id}/trace-tree")
+def fetch_trace_tree(
+    run_id: str, settings: SettingsDep, session_date: date | None = None
+) -> TraceTreeResponse:
+    """The run's trace as per-instant trees (M13.6) — ``build_trace_trees`` over the SAME
+    stored flat stream ``/trace`` serves, with identical ``session_date`` semantics. A pure
+    projection: no stored format, no engine fact, and no ordering is re-decided here. Unknown
+    runs 404 via ``load_trace``'s not-found fault; a malformed ``session_date`` 422s in query
+    parsing — both exactly as the flat endpoint behaves."""
+    with Database(settings.db_path, busy_timeout_ms=settings.busy_timeout_ms) as db:
+        events = RunRepository(db).load_trace(run_id, session_date)
+    return TraceTreeResponse(
+        trees=tuple(trace_tree_dto(tree) for tree in build_trace_trees(events))
+    )

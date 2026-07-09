@@ -22,6 +22,7 @@ import type {
   StrategyList,
   StrategySaved,
   TraceResponse,
+  TraceTreeResponse,
   ValidateResponse,
   VersionList,
 } from '@quantize/quantize-api'
@@ -194,5 +195,21 @@ export function getTrace(
 ): Promise<TraceResponse> {
   return request<TraceResponse>(
     `/v1/runs/${encodeURIComponent(runId)}/trace?session_date=${encodeURIComponent(sessionDate)}`,
+  )
+}
+
+// The served per-instant trace tree (M13.6) — the same stored stream as getTrace, grouped by the
+// server's build_trace_trees. The optional session filter mirrors the endpoint contract (omitted →
+// the whole run). This is the single grouping implementation; the client no longer regroups.
+export function getTraceTree(
+  runId: string,
+  sessionDate?: string,
+): Promise<TraceTreeResponse> {
+  const query =
+    sessionDate === undefined
+      ? ''
+      : `?session_date=${encodeURIComponent(sessionDate)}`
+  return request<TraceTreeResponse>(
+    `/v1/runs/${encodeURIComponent(runId)}/trace-tree${query}`,
   )
 }

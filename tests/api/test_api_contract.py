@@ -54,6 +54,11 @@ from quantize.api.dto.runs import (
     RunRecordResponse,
     TraceResponse,
 )
+from quantize.api.dto.trace_tree import (
+    TraceTreeDto,
+    TraceTreeNodeDto,
+    TraceTreeResponse,
+)
 from quantize.api.dto.validate import (
     RuntimeDiagnosticDto,
     SemanticDiagnosticDto,
@@ -247,6 +252,38 @@ _SAMPLES: dict[str, Any] = {
     ),
     "RunRecordResponse": RunRecordResponse(record=_RECORD, replay_verifiable=True),
     "TraceResponse": TraceResponse(events=(_TRACE_EVENT,)),
+    "TraceTreeResponse": TraceTreeResponse(
+        trees=(
+            TraceTreeDto(
+                run_id="11111111-1111-1111-1111-111111111111",
+                instant=datetime(2026, 1, 5, 21, 0, tzinfo=UTC),
+                roots=(
+                    TraceTreeNodeDto(
+                        node_id="mom",  # a component-instance root that itself emitted nothing
+                        component_path=(),
+                        origin="node",
+                        events=(),
+                        children=(
+                            TraceTreeNodeDto(
+                                node_id="n1",
+                                component_path=("mom",),
+                                origin="node",
+                                events=(_TRACE_EVENT,),
+                                children=(),
+                            ),
+                        ),
+                    ),
+                    TraceTreeNodeDto(
+                        node_id="engine",  # the engine root sorts after node roots
+                        component_path=(),
+                        origin="engine",
+                        events=(),
+                        children=(),
+                    ),
+                ),
+            ),
+        )
+    ),
     "NodeCatalogResponse": NodeCatalogResponse(
         api_version="v1",
         schema_version="0.1.0",
@@ -364,6 +401,8 @@ def test_ts_exports_core_interfaces(api_ts: str) -> None:
         "RunRecordResponse",
         "NodeCatalogResponse",
         "NodeTypeDto",
+        "TraceTreeResponse",
+        "TraceTreeNodeDto",
         "DatasetList",
         "DatasetListRow",
     ):

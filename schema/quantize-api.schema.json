@@ -1788,6 +1788,97 @@
       "title": "TraceResponse",
       "type": "object"
     },
+    "TraceTreeDto": {
+      "additionalProperties": false,
+      "description": "All events of one instant, nested by component hierarchy.",
+      "properties": {
+        "instant": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "roots": {
+          "items": {
+            "$ref": "#/$defs/TraceTreeNodeDto"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "instant",
+        "roots"
+      ],
+      "title": "TraceTreeDto",
+      "type": "object"
+    },
+    "TraceTreeNodeDto": {
+      "additionalProperties": false,
+      "description": "One node (or component instance, or the engine) with its events and nested children.",
+      "properties": {
+        "children": {
+          "items": {
+            "$ref": "#/$defs/TraceTreeNodeDto"
+          },
+          "type": "array"
+        },
+        "component_path": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_]+$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/TraceEvent"
+          },
+          "type": "array"
+        },
+        "node_id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_]+$",
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "node",
+            "engine"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "component_path",
+        "origin",
+        "events",
+        "children"
+      ],
+      "title": "TraceTreeNodeDto",
+      "type": "object"
+    },
+    "TraceTreeResponse": {
+      "additionalProperties": false,
+      "description": "The run's per-instant trace trees, ascending by instant (optionally session-filtered).",
+      "properties": {
+        "trees": {
+          "items": {
+            "$ref": "#/$defs/TraceTreeDto"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "trees"
+      ],
+      "title": "TraceTreeResponse",
+      "type": "object"
+    },
     "ValidateResponse": {
       "additionalProperties": false,
       "description": "The run-faithful validation verdict. ``ok`` is true only when every layer is clean; on ok\nit additionally reports ``warmup_sessions`` (the resolved warm-up the run would require).",
@@ -2003,6 +2094,15 @@
     },
     "TraceResponse": {
       "$ref": "#/$defs/TraceResponse"
+    },
+    "TraceTreeDto": {
+      "$ref": "#/$defs/TraceTreeDto"
+    },
+    "TraceTreeNodeDto": {
+      "$ref": "#/$defs/TraceTreeNodeDto"
+    },
+    "TraceTreeResponse": {
+      "$ref": "#/$defs/TraceTreeResponse"
     },
     "ValidateResponse": {
       "$ref": "#/$defs/ValidateResponse"

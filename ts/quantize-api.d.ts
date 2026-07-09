@@ -68,6 +68,9 @@ export interface QuantizeApi {
   TimeSeriesType?: TimeSeriesType;
   TraceEvent?: TraceEvent;
   TraceResponse?: TraceResponse;
+  TraceTreeDto?: TraceTreeDto;
+  TraceTreeNodeDto?: TraceTreeNodeDto;
+  TraceTreeResponse?: TraceTreeResponse;
   ValidateResponse?: ValidateResponse;
   VersionList?: VersionList;
 }
@@ -488,6 +491,30 @@ export interface TraceEvent {
  */
 export interface TraceResponse {
   events: TraceEvent[];
+}
+/**
+ * All events of one instant, nested by component hierarchy.
+ */
+export interface TraceTreeDto {
+  instant: string;
+  roots: TraceTreeNodeDto[];
+  run_id: string;
+}
+/**
+ * One node (or component instance, or the engine) with its events and nested children.
+ */
+export interface TraceTreeNodeDto {
+  children: TraceTreeNodeDto[];
+  component_path: string[];
+  events: TraceEvent[];
+  node_id: string;
+  origin: "node" | "engine";
+}
+/**
+ * The run's per-instant trace trees, ascending by instant (optionally session-filtered).
+ */
+export interface TraceTreeResponse {
+  trees: TraceTreeDto[];
 }
 /**
  * The run-faithful validation verdict. ``ok`` is true only when every layer is clean; on ok

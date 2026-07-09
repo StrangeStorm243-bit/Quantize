@@ -1,16 +1,14 @@
-// The trace explorer (M11.7, D10). Pick an evaluation session → fetch its flat trace events →
-// `groupTrace` them into per-instant nested trees (component hierarchy shown as indentation) → render
-// each event with a TAILORED renderer keyed on `event_type` / machine tokens, falling back to a
-// generic structured renderer for any unknown type. The grouping is PRESENTATION only (mirrors the
-// server's tree.py); nothing here parses prose or recomputes a decision — every field is read
-// structurally from the payload (D10, invariant 5). The session dates come from the run record's
-// evaluations, so the persisted run stays the single source of truth.
+// The trace explorer (M11.7, D10; M13.6). Pick an evaluation session → fetch its per-instant trace
+// tree from `GET /v1/runs/{id}/trace-tree` (grouped SERVER-SIDE by build_trace_trees) → render each
+// event with a TAILORED renderer keyed on `event_type` / machine tokens, falling back to a generic
+// structured renderer for any unknown type. The grouping now arrives served — the client no longer
+// regroups (the old `trace/group.ts` twin is deleted); nothing here parses prose or recomputes a
+// decision, every field is read structurally from the payload (D10, invariant 5). The session dates
+// come from the run record's evaluations, so the persisted run stays the single source of truth.
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { JsonValue, RunRecordResponse, TraceEvent } from '@quantize/quantize-api'
-import { errorMessage, getTrace } from '../api/client'
-import { groupTrace } from '../trace/group'
-import type { TraceNode } from '../trace/group'
+import type { JsonValue, RunRecordResponse, TraceEvent, TraceTreeDto, TraceTreeNodeDto } from '@quantize/quantize-api'
+import { errorMessage, getTraceTree } from '../api/client'
 
 export interface TraceViewProps {
   /** The selected run id, or `undefined` when nothing is selected. */
@@ -210,12 +208,14 @@ function EventBody({ event }: { event: TraceEvent }): ReactElement {
   }
 }
 
-// One node's events plus its nested children, indented by `depth` to show the component hierarchy.
-function TraceNodeView({ node, depth }: { node: TraceNode; depth: number }): ReactElement {
+// One served node's events plus its nested children, indented by `depth` to show the component
+// hierarchy. The nesting is SERVED from /trace-tree (M13.6) — the fields are the wire DTO's
+// snake_case shape; nothing is regrouped here.
+function TraceNodeView({ node, depth }: { node: TraceTreeNodeDto; depth: number }): ReactElement {
   return (
     <li className={`trace-node ${node.origin === 'engine' ? 'trace-node--engine' : ''}`}>
       <div className="trace-node__head" style={{ paddingLeft: `${depth * 1.25}rem` }}>
-        <span className="trace-node__id">{node.nodeId}</span>
+        <span className="trace-node__id">{node.node_id}</span>
         <span className="trace-node__origin">{node.origin}</span>
       </div>
       {node.events.map((event, i) => (
@@ -227,7 +227,7 @@ function TraceNodeView({ node, depth }: { node: TraceNode; depth: number }): Rea
       {node.children.length > 0 ? (
         <ul className="trace-node__children">
           {node.children.map((child) => (
-            <TraceNodeView key={`${child.componentPath.join('/')}/${child.nodeId}`} node={child} depth={depth + 1} />
+            <TraceNodeView key={`${child.component_path.join('/')}/${child.node_id}`} node={child} depth={depth + 1} />
           ))}
         </ul>
       ) : null}
@@ -237,7 +237,7 @@ function TraceNodeView({ node, depth }: { node: TraceNode; depth: number }): Rea
 
 export function TraceView({ runId, record, recordLoading, recordError }: TraceViewProps): ReactElement {
   const [selected, setSelected] = useState<string>('')
-  const [events, setEvents] = useState<TraceEvent[] | undefined>(undefined)
+  const [trees, setTrees] = useState<TraceTreeDto[] | undefined>(undefined)
   const [traceError, setTraceError] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(false)
 
@@ -268,7 +268,7 @@ export function TraceView({ runId, record, recordLoading, recordError }: TraceVi
   if (runId !== loadedRunId) {
     setLoadedRunId(runId)
     setSelected('')
-    setEvents(undefined)
+    setTrees(undefined)
     // Also drop the previous run's trace error: the fetch effect early-returns while selected is ''
     // and would otherwise never clear it, leaving a stale error shown for the whole window the new
     // run's record loads (instead of the loading state).
@@ -281,24 +281,25 @@ export function TraceView({ runId, record, recordLoading, recordError }: TraceVi
     setSelected(sessions[0])
   }
 
-  // Fetch the selected session's trace. The server already filters to that session; we only group.
+  // Fetch the selected session's trace tree. The server filters to that session AND groups it
+  // (build_trace_trees); the client renders the served shape verbatim.
   useEffect(() => {
     if (runId === undefined || selected === '') {
-      setEvents(undefined)
+      setTrees(undefined)
       return
     }
     let cancelled = false
     setLoading(true)
     setTraceError(undefined)
-    getTrace(runId, selected)
+    getTraceTree(runId, selected)
       .then((res) => {
         if (!cancelled) {
-          setEvents(res.events)
+          setTrees(res.trees)
         }
       })
       .catch((e: unknown) => {
         if (!cancelled) {
-          setEvents(undefined)
+          setTrees(undefined)
           setTraceError(errorMessage(e))
         }
       })
@@ -311,10 +312,6 @@ export function TraceView({ runId, record, recordLoading, recordError }: TraceVi
       cancelled = true
     }
   }, [runId, selected])
-
-  // Memoize the pure grouping so it only recomputes when `events` changes (not on every render).
-  // Declared before the early return to keep hook order unconditional (Rules of Hooks).
-  const trees = useMemo(() => (events === undefined ? [] : groupTrace(events)), [events])
 
   if (runId === undefined) {
     return <div className="trace trace--empty">Select a run to view its trace.</div>
@@ -351,16 +348,16 @@ export function TraceView({ runId, record, recordLoading, recordError }: TraceVi
         </div>
       ) : recordLoading || loading ? (
         <div className="trace trace--empty">Loading trace…</div>
-      ) : events !== undefined && events.length === 0 ? (
+      ) : trees !== undefined && trees.length === 0 ? (
         <div className="trace trace--empty">No trace for this session.</div>
       ) : (
-        trees.map((tree) => (
+        (trees ?? []).map((tree) => (
           <section key={tree.instant} className="trace__instant">
             <h4 className="trace__instant-title">{tree.instant}</h4>
             <ul className="trace__roots">
               {tree.roots.map((root) => (
                 <TraceNodeView
-                  key={`${root.componentPath.join('/')}/${root.nodeId}/${root.origin}`}
+                  key={`${root.component_path.join('/')}/${root.node_id}/${root.origin}`}
                   node={root}
                   depth={0}
                 />

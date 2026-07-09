@@ -8,6 +8,7 @@ import type {
   NodeCatalogResponse,
   RunRecordResponse,
   TraceResponse,
+  TraceTreeResponse,
   ValidateResponse,
 } from '@quantize/quantize-api'
 import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
@@ -17,6 +18,7 @@ import {
   getNodeCatalog,
   getRun,
   getTrace,
+  getTraceTree,
   listDatasets,
   listRuns,
   loadStrategyVersion,
@@ -157,6 +159,24 @@ describe('GET wrappers', () => {
 
     expect(lastCall()[0]).toBe('/v1/runs/r1/trace?session_date=2025-08-01')
     expect(result).toEqual(trace)
+  })
+
+  it('getTraceTree GETs the tree URL with an encoded session filter', async () => {
+    const payload: TraceTreeResponse = { trees: [] }
+    mockFetch(stubResponse(payload))
+
+    const result = await getTraceTree('run 1', '2026-05-15')
+
+    expect(lastCall()[0]).toBe('/v1/runs/run%201/trace-tree?session_date=2026-05-15')
+    expect(result).toEqual(payload)
+  })
+
+  it('getTraceTree omits the query when no session is given', async () => {
+    mockFetch(stubResponse({ trees: [] }))
+
+    await getTraceTree('run-1')
+
+    expect(lastCall()[0]).toBe('/v1/runs/run-1/trace-tree')
   })
 
   it('listRuns omits the query when no strategy id is given', async () => {
