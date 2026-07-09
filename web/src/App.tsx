@@ -10,7 +10,7 @@
 // second source of truth.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { DatasetStored, RunRecordResponse, TraceTreeDto, ValidateResponse } from '@quantize/quantize-api'
+import type { DatasetStored, RunRecordResponse, ValidateResponse } from '@quantize/quantize-api'
 import type { StrategyDocument } from '@quantize/quantize-ir'
 import {
   ApiClientError,
@@ -39,6 +39,8 @@ import { StrategyBar } from './components/StrategyBar'
 import { TraceView } from './components/TraceView'
 import { ValidatePanel } from './components/ValidatePanel'
 import type { HighlightTarget } from './validation/targets'
+import { selectTrace } from './trace/selectTrace'
+import type { TaggedTrace } from './trace/selectTrace'
 import { bumpStrategyVersion, newStrategyDocument, semanticKey, useStrategyDocument } from './document/store'
 import { computeNodeValidity } from './validity'
 import type { StampedVerdict } from './validity'
@@ -397,42 +399,48 @@ export function App(): ReactElement {
   // (a later task) the always-mounted Inspector — the Dock mounts only one panel at a time, so a
   // panel-local fetch could not be shared. Mirrors the runRecord effect's shape (cancelled flag,
   // reset-then-load, then/catch/finally); re-keys whenever the run OR the cursor changes.
-  const [traceTrees, setTraceTrees] = useState<TraceTreeDto[] | undefined>(undefined)
-  const [traceLoading, setTraceLoading] = useState(false)
-  const [traceError, setTraceError] = useState<string | undefined>(undefined)
+  // The fetched trace is TAGGED with the (run, session) it was fetched for; the effect only writes,
+  // never clears. What the panels see is derived by `selectTrace` (below), gated to the current
+  // selection — so the one-render window between a cursor/run change and this effect re-running never
+  // surfaces the previous session's trees under the new cursor (P2).
+  const [traceFetch, setTraceFetch] = useState<TaggedTrace | undefined>(undefined)
   useEffect(() => {
     // Gate on the cursor actually belonging to the CURRENT run's axis. On a run switch `setSessionCursor(null)`
     // is scheduled, not immediate, so this effect can run once with the previous run's cursor against the new
     // `selectedRunId`; `sessionDates` is the run_id-gated memo, so during that stale window it is the new
     // run's dates (or empty) and this guard is false — the wasted `getTraceTree(newRunId, oldCursor)` is never
-    // SENT (not merely cancelled). The `cancelled` cleanup below stays as defense-in-depth against any late tree.
+    // SENT. The `cancelled` cleanup drops a superseded in-flight fetch (a late resolve would also be gated out
+    // by its tag, but cancelling avoids the wasted state write).
     if (selectedRunId === undefined || sessionCursor === null || !sessionDates.includes(sessionCursor)) {
-      setTraceTrees(undefined)
-      setTraceError(undefined)
-      setTraceLoading(false)
       return
     }
     let cancelled = false
-    setTraceTrees(undefined)
-    setTraceError(undefined)
-    setTraceLoading(true)
-    getTraceTree(selectedRunId, sessionCursor)
+    // Capture the key this fetch is FOR, so the result is tagged with it (not with whatever the cursor
+    // happens to be when the promise resolves).
+    const runId = selectedRunId
+    const sessionDate = sessionCursor
+    getTraceTree(runId, sessionDate)
       .then((res) => {
-        if (!cancelled) setTraceTrees(res.trees)
+        if (!cancelled) setTraceFetch({ runId, sessionDate, trees: res.trees })
       })
       .catch((e: unknown) => {
-        if (!cancelled) {
-          setTraceTrees(undefined)
-          setTraceError(errorMessage(e))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setTraceLoading(false)
+        if (!cancelled) setTraceFetch({ runId, sessionDate, error: errorMessage(e) })
       })
     return () => {
       cancelled = true
     }
   }, [selectedRunId, sessionCursor, sessionDates])
+
+  // Gate the tagged fetch to the CURRENT selection. A mismatch (no run, an off-axis cursor, or the
+  // stale render before the effect re-fetches) never exposes the wrong session's trees: an on-axis
+  // selection whose fetch has not landed reads as loading, everything else as empty. Both the Trace
+  // panel and the Inspector "At session" section consume these gated values.
+  const { trees: traceTrees, loading: traceLoading, error: traceError } = selectTrace(
+    traceFetch,
+    selectedRunId,
+    sessionCursor,
+    sessionDates,
+  )
 
   // The live "At session" payload for the Inspector (M13.7): the App-owned trace tree at the shared
   // cursor, plus whether that session was evaluated and its no-eval note. Undefined until a run + cursor
@@ -565,6 +573,8 @@ export function App(): ReactElement {
         <TraceView
           runId={selectedRunId}
           record={runRecord}
+          recordLoading={runRecordLoading}
+          recordError={runRecordError}
           sessionCursor={sessionCursor}
           onCursorChange={setSessionCursor}
           trees={traceTrees}

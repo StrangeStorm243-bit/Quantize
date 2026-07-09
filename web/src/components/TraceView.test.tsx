@@ -149,6 +149,8 @@ const SERVED_TREE: TraceTreeResponse = {
 function renderTrace(props: {
   runId: string | undefined
   record?: RunRecordResponse | undefined
+  recordLoading?: boolean
+  recordError?: string | undefined
   sessionCursor?: string | null
   onCursorChange?: (date: string) => void
   trees?: TraceTreeResponse['trees'] | undefined
@@ -160,6 +162,8 @@ function renderTrace(props: {
     <TraceView
       runId={props.runId}
       record={props.record}
+      recordLoading={props.recordLoading ?? false}
+      recordError={props.recordError}
       sessionCursor={props.sessionCursor ?? null}
       onCursorChange={onCursorChange}
       trees={props.trees}
@@ -308,6 +312,29 @@ describe('TraceView', () => {
       treesError: 'trace boom',
     })
     expect(screen.getByRole('alert')).toHaveTextContent('trace boom')
+  })
+
+  it('surfaces a RECORD-fetch error (getRun failure), not a silent empty picker (P3)', () => {
+    // When the run record itself fails to load there are no sessions; the record error must be shown
+    // rather than the bare "No sessions" picker with no explanation.
+    renderTrace({ runId: 'run-1', record: undefined, recordError: 'record boom' })
+    expect(screen.getByRole('alert')).toHaveTextContent('record boom')
+  })
+
+  it('shows the loading state while the run record is being fetched (P3)', () => {
+    renderTrace({ runId: 'run-1', record: undefined, recordLoading: true })
+    expect(screen.getByText(/loading trace/i)).toBeInTheDocument()
+  })
+
+  it('prefers the record error over a trace error when both are present (P3)', () => {
+    renderTrace({
+      runId: 'run-1',
+      record: undefined,
+      recordError: 'record boom',
+      treesError: 'trace boom',
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('record boom')
+    expect(screen.queryByText('trace boom')).not.toBeInTheDocument()
   })
 
   it('renders nothing actionable when no run is selected', () => {

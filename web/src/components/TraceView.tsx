@@ -18,6 +18,10 @@ export interface TraceViewProps {
   runId: string | undefined
   /** The fetched run record (owned by the App); the session picker options come from its valuations. */
   record: RunRecordResponse | undefined
+  /** True while the App is fetching the run record (the picker options depend on it). */
+  recordLoading?: boolean
+  /** A record-fetch error message, or undefined. Surfaced here so a failed `getRun` is not silent. */
+  recordError?: string | undefined
   /** The shared session cursor (App-owned), or `null` when there is no run/axis. */
   sessionCursor: string | null
   /** Report a picker change up to the App (it re-keys the shared fetch). */
@@ -291,6 +295,8 @@ function TraceNodeView({
 export function TraceView({
   runId,
   record,
+  recordLoading,
+  recordError,
   sessionCursor,
   onCursorChange,
   trees,
@@ -332,6 +338,12 @@ export function TraceView({
       ? record.record.notes.find((n) => n.session_date === sessionCursor)
       : undefined
 
+  // A record-fetch failure (getRun, App-owned) surfaces here too — otherwise a failed record silently
+  // leaves the picker empty ("No sessions") with no explanation. The record error takes precedence
+  // over a trace error, and either fetch being in flight shows the loading state.
+  const error = recordError ?? treesError
+  const loading = (recordLoading ?? false) || treesLoading
+
   return (
     <div className="trace">
       <div className="trace__head">
@@ -354,11 +366,11 @@ export function TraceView({
         </select>
       </div>
 
-      {treesError !== undefined ? (
+      {error !== undefined ? (
         <div className="trace__error" role="alert">
-          {treesError}
+          {error}
         </div>
-      ) : treesLoading ? (
+      ) : loading ? (
         <div className="trace trace--empty">Loading trace…</div>
       ) : trees !== undefined && trees.length === 0 ? (
         cursorEvaluated ? (
