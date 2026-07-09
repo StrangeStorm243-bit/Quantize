@@ -67,13 +67,13 @@ the product thesis instead of a utilitarian dashboard.
       unknown/reserved categories roll into an "Advanced" bucket (never silently dropped),
       component instances appear as their own chip, and the Engine segment is visually outside
       the graph.
-- [ ] A **global session cursor** (strategy-bar readout + prev/next stepping over the run's
+- [x] A **global session cursor** (strategy-bar readout + prev/next stepping over the run's
       sessions) is set by chart hover/click and evaluation/fill rows, opens the trace at its
       session, and drives the inspector's "At session" section — client state over
-      server-supplied dates only; absent without a run, cleared on run switch.
-- [ ] The inspector has an **"At session" section** rendering the selected node's served trace
+      server-supplied dates only; absent without a run, cleared on run switch. *(M13.7)*
+- [x] The inspector has an **"At session" section** rendering the selected node's served trace
       events (and reconciliation rows at the engine boundary) at the cursor — the designed slot
-      for the future Node Value Tap (contract in this plan; **not implemented**).
+      for the future Node Value Tap (contract in this plan; **not implemented**). *(M13.7)*
 - [ ] Run controls carry the **execution-mode frame**: Backtest / Paper replay available,
       Live/broker explicitly labeled deferred, plus a persistent "all runs are simulations over
       local data" notice — no real-money implication anywhere.
@@ -94,7 +94,8 @@ the product thesis instead of a utilitarian dashboard.
 - [ ] Trace rows are clickable → select/center the node on canvas (into components via
       breadcrumb); equity chart is interactive (hover crosshair, click session → trace);
       evaluation/fill rows link to their session trace; engine output is grouped under an
-      explicit "Engine" heading.
+      explicit "Engine" heading. *(M13.7 done except in-component breadcrumb drill-down, which
+      awaits M13.8 — an in-component trace row currently selects the ComponentRef instance node.)*
 - [ ] Component drill-down is in-canvas breadcrumb navigation (read-only); the modal
       `ComponentDrawer` is removed; marquee multi-select feeds extraction.
 - [ ] Dark theme (default) + light theme via design tokens; all styles consume tokens.

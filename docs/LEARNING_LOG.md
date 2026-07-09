@@ -1156,3 +1156,83 @@ ComponentDrawer/Palette/flow/extraction suites).
 or migrations (E14) — the IR/API bundles are byte-unchanged. This is the LAST milestone: the MVP is
 complete (cross-cutting acceptance audited in the plan's `## Closeout`). The branch awaits founder
 review; the product then enters founder-led validation (plan §13).
+
+---
+
+## M13.7 — The debug loop: one session cursor, shared by every view (2026-07-09)
+
+M13.7 is a frontend-only slice of the M13 IDE-reorientation sprint. It closes the *debugging loop* —
+"what happened → where in my graph → why" — by giving the app **one global session cursor** that the
+equity chart, the trace view, the evaluation/fill rows, a prev/next stepper, and the inspector's "At
+session" section all read from and write to. Click a point on the equity curve and the trace jumps to
+that session; step the cursor and every surface moves together; click a trace row and the emitting
+node selects and centers on the canvas.
+
+**Concepts introduced:**
+
+- **Derived client state over a server-owned axis.** The cursor is a single `string | null` in
+  `App.tsx` — never written into the strategy document, never used to *compute* anything. Its only
+  legal values are dates the server already returned (`record.valuations`). This is the practical
+  shape of CLAUDE.md invariant 5 ("no business logic in the frontend"): the cursor *selects among*
+  server facts; it does not derive them. The stepper is pure `array.indexOf` navigation.
+  *Where:* `web/src/App.tsx` (`sessionCursor`, `sessionDates`/`evaluatedSessions` memos),
+  `web/src/components/StrategyBar.tsx`.
+- **Lifting shared state to the common owner.** In M13.6 the trace-tree fetch lived *inside*
+  `TraceView`. M13.7 needed the *inspector* to show the same session's trace too — but the bottom
+  Dock mounts only one panel at a time, so a panel-local fetch could never be shared with the
+  always-mounted inspector. The fix is the classic React "lift state up": the fetch moved to `App`
+  (keyed on `[selectedRunId, sessionCursor]`, mirroring the existing `runRecord` fetch), and both
+  `TraceView` and `Inspector` now consume the *one* fetched tree. This is the same principle behind
+  invariant 2's "one engine": when two consumers need the same fact, compute it once, in the place
+  that owns both. *Where:* `web/src/App.tsx` (`traceTrees`/`traceLoading`/`traceError` effect).
+- **Async race discipline.** Two effects (run-record and trace-tree) now depend on cursor/run state
+  that changes together. The trace effect is gated on `sessionDates.includes(sessionCursor)` so a
+  run switch never *sends* a request for the old cursor against the new run (not merely cancels it),
+  and every fetch keeps the `cancelled`-closure guard as defense-in-depth. The cursor is cleared to
+  `null` on run switch and re-defaulted to the new run's **last** session (decision D-12).
+  *Where:* `web/src/App.tsx`; regression test in `web/src/App.cursor.test.tsx` (deferred-promise
+  race).
+- **Honest empty states as first-class UI.** A cursor can land on a warm-up/no-eval session that has
+  no trace. Rather than a blank panel, the trace view and the inspector cite the run record's served
+  `notes[]` reason verbatim ("no evaluation this session: warm-up requires more than N sessions").
+  The stepper visually distinguishes evaluated from non-evaluated sessions. Absence is *explained*,
+  never shown as nothing. *Where:* `TraceView.tsx`, `Inspector.tsx`.
+- **Addressing for a future capability (the Node Value Tap).** The inspector's "At session" section
+  (an inert shell since M13.5) now renders the selected node's served trace events, addressed by
+  `(node_id, component_path)` with the cursor supplying `session_date` — deliberately the exact shape
+  a future `GET /v1/runs/{id}/values` endpoint would take. The slot is live now with *trace* facts;
+  when per-node output *values* are captured later, they render in the same slot with no relayout.
+  *Where:* `web/src/components/Inspector.tsx` (`AtSessionSection`, `findRoot`/`engineRoots`).
+
+**Reading path:** `docs/plans/2026-07-06-m13-ide-reorientation-design.md` §4 W4 (the debug-loop
+design + the Node Value Tap contract) → `web/src/App.tsx` (cursor state, the two lifted fetches, the
+`atSession`/`focusRequest` wiring) → `web/src/components/StrategyBar.tsx` (the stepper) →
+`web/src/components/TraceView.tsx` (cursor-controlled picker, engine grouping, the exported
+`TraceEventBody`) → `web/src/components/Inspector.tsx` (the "At session" section reusing that
+renderer).
+
+**Exercise (implement by hand, scratch branch):** the engine is drawn but is **not** a graph node
+(invariant 2). Confirm the debug loop honors this end to end. (1) In `Inspector.tsx`, read `findRoot`
+and note it matches `r.origin === 'node'` — predict what would render in "At session" if you *removed*
+that `origin` check and selected a strategy node a user happened to name `engine`. (2) In
+`TraceView.tsx`, find where engine-origin rows are rendered as a plain `<div>` while node-origin rows
+are `<button>`s; add a test to `TraceView.test.tsx` asserting the engine root's head is **not** a
+button (the trace→canvas click must never target the engine). *Prediction to make first:* before
+running it, will `getByRole('button', { name: /engine/ })` find anything? (answer: no — and that is
+the invariant, encoded as an accessibility fact.)
+
+**Verification status (honest, per CLAUDE.md).** The full canonical gate is green:
+`./scripts/gate.ps1` → **985 Python tests + 459 web (vitest) tests across 49 files**, plus ruff,
+format, mypy, Node-24, codegen check, and both typecheck stages. No backend, DTO, codegen, or IR
+changes — M13.7 is pure frontend presentation over the M13.6 trace-tree endpoint. Every debug-loop
+interaction is covered headlessly (`App.cursor`/`App.traceNav`/`App.resultsNav`, `StrategyBar`,
+`TraceView`, `SvgLineChart`, `ResultsView`, `Inspector.atsession`). The **live GUI click-through
+remains a founder step** and is currently blocked on data: `quantize-demo.db` has **no seeded run**
+(the M13.4 reseed dropped the old one; `*.db` is gitignored), so re-run the demo backtest
+(`seed_demo.py` then a backtest via the UI or API) before walking the loop. The scripted 30-second
+legibility walkthrough is formally M13.9's closeout instrument.
+
+**Status:** M13.7 implemented on `feat/m13.7-debug-loop` (10 commits, TDD, two-stage review per
+slice). Gate green. Remaining M13 slices: M13.8 (component breadcrumb navigation + extraction polish)
+→ M13.9 (arrival, journey checklist, the scripted legibility test, and the consolidated M13
+README/LEARNING_LOG/plan closeout).
