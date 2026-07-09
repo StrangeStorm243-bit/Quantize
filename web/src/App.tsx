@@ -329,11 +329,14 @@ export function App(): ReactElement {
     setRunRecord(undefined)
     setRunRecordError(undefined)
     setRunRecordLoading(true)
-    // Clear on run switch — the new run's axis is not known until it loads. Clearing to null (rather
-    // than TraceView's render-time reset pattern) is safe BECAUSE no effect depends on `sessionCursor`:
-    // it is consumed only by StrategyBar's render, and the axis it indexes (`sessionDates`) is a
-    // run_id-gated memo, so a stale cursor is masked (`hasRun`/index -1) rather than acted upon. If a
-    // future effect ever read `sessionCursor`, reconsider — TraceView resets at render for that reason.
+    // Clear on run switch — the new run's axis is not known until it loads. NOTE (M13.7 Task 2): the
+    // trace-tree effect below now DOES depend on `sessionCursor`. Because this `setSessionCursor(null)`
+    // is a SCHEDULED update (not a same-pass mutation), the trace effect can still observe the previous
+    // run's cursor for one pass after `selectedRunId` changes. Two guards make that harmless: (1) the
+    // trace effect fetches only when the cursor belongs to the CURRENT run's axis (`sessionDates`, a
+    // run_id-gated memo) — during the stale window that axis is the new run's/empty, so no wasted
+    // `getTraceTree(newRunId, oldCursor)` is ever sent; (2) its `cancelled` cleanup guard prevents any
+    // late-resolving stale tree from rendering. StrategyBar's readout is likewise masked by `hasRun`.
     setSessionCursor(null)
     getRun(selectedRunId)
       .then((res) => {
@@ -387,7 +390,12 @@ export function App(): ReactElement {
   const [traceLoading, setTraceLoading] = useState(false)
   const [traceError, setTraceError] = useState<string | undefined>(undefined)
   useEffect(() => {
-    if (selectedRunId === undefined || sessionCursor === null) {
+    // Gate on the cursor actually belonging to the CURRENT run's axis. On a run switch `setSessionCursor(null)`
+    // is scheduled, not immediate, so this effect can run once with the previous run's cursor against the new
+    // `selectedRunId`; `sessionDates` is the run_id-gated memo, so during that stale window it is the new
+    // run's dates (or empty) and this guard is false — the wasted `getTraceTree(newRunId, oldCursor)` is never
+    // SENT (not merely cancelled). The `cancelled` cleanup below stays as defense-in-depth against any late tree.
+    if (selectedRunId === undefined || sessionCursor === null || !sessionDates.includes(sessionCursor)) {
       setTraceTrees(undefined)
       setTraceError(undefined)
       setTraceLoading(false)
@@ -413,7 +421,7 @@ export function App(): ReactElement {
     return () => {
       cancelled = true
     }
-  }, [selectedRunId, sessionCursor])
+  }, [selectedRunId, sessionCursor, sessionDates])
 
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
   useEffect(() => {

@@ -1745,6 +1745,22 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* The engine stage (M13.7): the served engine-origin root, grouped distinctly below the node roots.
+   A subtle left accent + tinted heading (reusing --engine-accent, as the engine node id does) marks
+   it as the reconciliation stage — targets → orders → fills — without a heavy container. */
+.trace__engine {
+  margin-top: 0.5rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--engine-accent);
+}
+
+.trace__engine-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.72rem;
+  color: var(--engine-accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .trace__roots,
 .trace-node__children {
   list-style: none;
