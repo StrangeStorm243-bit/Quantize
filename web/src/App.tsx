@@ -442,13 +442,17 @@ export function App(): ReactElement {
   // node, the cursor supplies session_date.
   const atSession = useMemo(() => {
     if (selectedRunId === undefined || sessionCursor === null) return undefined
+    // Gate the note lookup on the record's OWN run_id matching the selection (as sessionDates /
+    // evaluatedSessions / TraceView already do): during a run switch the App briefly still holds the
+    // previous run's record, and an ungated lookup would surface the stale run's note for this session.
+    const recordMatches = runRecord !== undefined && runRecord.record.run_id === selectedRunId
     return {
       cursor: sessionCursor,
       trees: traceTrees,
       loading: traceLoading,
       error: traceError,
       evaluated: evaluatedSessions.has(sessionCursor),
-      note: runRecord?.record.notes.find((n) => n.session_date === sessionCursor),
+      note: recordMatches ? runRecord.record.notes.find((n) => n.session_date === sessionCursor) : undefined,
     }
   }, [selectedRunId, sessionCursor, traceTrees, traceLoading, traceError, evaluatedSessions, runRecord])
 

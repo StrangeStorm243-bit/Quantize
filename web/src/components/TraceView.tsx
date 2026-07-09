@@ -328,7 +328,7 @@ export function TraceView({
   // blank). The note is a structural read — no prose parsing (invariant 5).
   const cursorEvaluated = sessionCursor !== null && evaluated.has(sessionCursor)
   const note =
-    record !== undefined && sessionCursor !== null
+    record !== undefined && record.record.run_id === runId && sessionCursor !== null
       ? record.record.notes.find((n) => n.session_date === sessionCursor)
       : undefined
 

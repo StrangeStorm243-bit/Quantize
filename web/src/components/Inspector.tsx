@@ -160,8 +160,13 @@ function AtSessionSection({
     )
   }
 
-  // The live body, in the precedence loading → error → no-eval → evaluated. Every branch is a
-  // structural read of served state (or a filter of the served trees); nothing is derived.
+  // The live body. Precedence: loading → error → (the node-events part + the engine part). The node
+  // part and the engine part are INDEPENDENT: under the D+1 policy a fill lands at the next session's
+  // open, typically a NON-evaluated session — so an output node may show "No evaluation this session"
+  // for its own graph part while the engine still reconciled yesterday's orders (fills) below it. That
+  // matches TraceView, which shows engine fills whenever the served trees are non-empty regardless of
+  // evaluation. Every branch is a structural read of served state (or a filter of the trees); nothing
+  // is derived (invariant 5).
   let body: ReactElement
   if (atSession.loading) {
     body = <p className="inspector__empty-note">Loading trace…</p>
@@ -171,34 +176,31 @@ function AtSessionSection({
         {atSession.error}
       </p>
     )
-  } else if (!atSession.evaluated) {
-    // Honest no-evaluation state; surface the run's note for this session verbatim when one exists.
-    body = (
-      <>
-        <p className="inspector__empty-note">No evaluation this session.</p>
-        {atSession.note !== undefined ? (
-          <p className="inspector__at-note">
-            <code className="trace-event__token">{atSession.note.code}</code> {atSession.note.message}
-          </p>
-        ) : null}
-      </>
-    )
   } else {
-    // Evaluated: locate the selected node among the served roots and render its events. A ComponentRef
-    // instance carries children (its internal nodes) — flatten ONE level so the instance shows what its
-    // internal nodes did. The engine subsection appears only at the output boundary (category 'output').
     const trees = atSession.trees ?? []
-    const found = findRoot(trees, nodeId)
-    const children = found?.children ?? []
-    const hasOwnEvents = found !== undefined && found.events.length > 0
-    // KNOWN LIMITATION (deferred to M13.8+): this flattens exactly ONE level, so a nested-component
-    // child that emits nothing itself but whose OWN children (grandchildren) did is dropped here.
-    const childrenWithEvents = children.filter((c) => c.events.length > 0)
-    const engine = componentCategory === 'output' ? engineRoots(trees) : []
-
-    body = (
-      <>
-        {!hasOwnEvents && childrenWithEvents.length === 0 ? (
+    // (a) The NODE-EVENTS part. When evaluated: locate the selected node among the served roots and
+    // render its events (a ComponentRef instance carries children — flatten ONE level so the instance
+    // shows what its internal nodes did). When NOT evaluated: the honest no-eval line + the served note.
+    let nodePart: ReactElement
+    if (!atSession.evaluated) {
+      nodePart = (
+        <>
+          <p className="inspector__empty-note">No evaluation this session.</p>
+          {atSession.note !== undefined ? (
+            <p className="inspector__at-note">
+              <code className="trace-event__token">{atSession.note.code}</code> {atSession.note.message}
+            </p>
+          ) : null}
+        </>
+      )
+    } else {
+      const found = findRoot(trees, nodeId)
+      const hasOwnEvents = found !== undefined && found.events.length > 0
+      // KNOWN LIMITATION (deferred to M13.8+): this flattens exactly ONE level, so a nested-component
+      // child that emits nothing itself but whose OWN children (grandchildren) did is dropped here.
+      const childrenWithEvents = (found?.children ?? []).filter((c) => c.events.length > 0)
+      nodePart =
+        !hasOwnEvents && childrenWithEvents.length === 0 ? (
           <p className="inspector__empty-note">This node emitted no events at this session.</p>
         ) : (
           <>
@@ -212,7 +214,17 @@ function AtSessionSection({
               </div>
             ))}
           </>
-        )}
+        )
+    }
+
+    // (b) The ENGINE subsection — only at the output boundary (category 'output'), and INDEPENDENT of
+    // evaluation: whenever the served trees carry engine reconciliation rows, show them (the guard also
+    // suppresses an empty "Engine" heading). ComponentRef instances pass `undefined` → never rendered.
+    const engine = componentCategory === 'output' ? engineRoots(trees) : []
+
+    body = (
+      <>
+        {nodePart}
         {engine.length > 0 ? (
           <div className="inspector__at-engine">
             <h4 className="inspector__at-subhead">Engine</h4>

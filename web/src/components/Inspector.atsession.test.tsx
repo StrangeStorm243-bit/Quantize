@@ -405,6 +405,50 @@ describe('Inspector — "At session" live section (M13.7)', () => {
     expect(within(shell).getByText('engine.orders_filled')).toBeInTheDocument()
   })
 
+  it('shows the no-eval line AND the engine fills for an output node on a fill-only non-evaluated session', () => {
+    // The D+1 case: fills land at the NEXT session's open — typically a NON-evaluated session. The
+    // graph did not run (no-eval line), but the engine reconciled yesterday's orders (fills), so the
+    // output node's engine subsection must render INDEPENDENT of evaluation — matching TraceView.
+    const fillOnlyTrees: TraceTreeDto[] = [
+      {
+        run_id: 'run-1',
+        instant: '2025-08-29T14:30:00+00:00',
+        roots: [
+          treeNode({
+            node_id: 'engine',
+            origin: 'engine',
+            events: [
+              event({
+                node_id: 'engine', event_type: 'engine.orders_filled',
+                payload: { v: 1, fills: [['buy', 'SPY', 100, 500.0, 0, 0, false]] },
+              }),
+            ],
+          }),
+        ],
+      },
+    ]
+    const note: PersistedNote = {
+      code: 'fill_outside_window',
+      message: 'fill lands outside the backtest window',
+      session_date: '2025-08-29',
+    }
+    render(
+      <Inspector
+        doc={docWith('tp', 'output.target_portfolio')}
+        selectedNodeId="tp"
+        actions={stubActions()}
+        atSession={atSession({ cursor: '2025-08-29', trees: fillOnlyTrees, evaluated: false, note })}
+      />,
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    // The graph part is honestly no-eval (with the served note)…
+    expect(within(shell).getByText(/No evaluation this session/i)).toBeInTheDocument()
+    expect(within(shell).getByText('fill_outside_window')).toBeInTheDocument()
+    // …AND the engine reconciliation (fills) still renders below it.
+    expect(within(shell).getByText('Engine')).toBeInTheDocument()
+    expect(within(shell).getByText('engine.orders_filled')).toBeInTheDocument()
+  })
+
   it('renders BOTH instants\' engine events for an output node without duplicate React keys', () => {
     // Two served instants, each with an engine root sharing node_id 'engine' — the production case.
     // A colliding key here would emit React's "same key" warning via console.error, so spy and assert it.
