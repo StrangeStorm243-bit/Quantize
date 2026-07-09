@@ -28,6 +28,14 @@ export interface TraceViewProps {
   treesLoading: boolean
   /** A trace-fetch error message, or undefined. */
   treesError: string | undefined
+  /**
+   * Click-through to the canvas (M13.7): a NODE-origin trace row reports its emitting node up to the
+   * App, which selects + centers it. Passed `(node_id, component_path)`; a row inside a component sends
+   * the component path so the App can resolve the on-canvas ComponentRef instance (component_path[0])
+   * until M13.8's breadcrumb navigation lands. Engine-origin rows are NEVER clickable (the engine is
+   * not a graph node, invariant 2). Optional so the view renders standalone (no navigation).
+   */
+  onNodeClick?: (nodeId: string, componentPath: string[]) => void
 }
 
 // --- Structural payload accessors (NEVER prose parsing) -------------------------------------------
@@ -219,14 +227,42 @@ function EventBody({ event }: { event: TraceEvent }): ReactElement {
 
 // One served node's events plus its nested children, indented by `depth` to show the component
 // hierarchy. The nesting is SERVED from /trace-tree (M13.6) — the fields are the wire DTO's
-// snake_case shape; nothing is regrouped here.
-function TraceNodeView({ node, depth }: { node: TraceTreeNodeDto; depth: number }): ReactElement {
+// snake_case shape; nothing is regrouped here. A NODE-origin head is a button that reports the emitting
+// node up via `onNodeClick` (trace→canvas, M13.7); an ENGINE-origin head stays a plain non-interactive
+// `<div>` because the engine is not a graph node (invariant 2) and has nothing to select on canvas. The
+// callback is threaded down to every descendant unchanged, so each node's OWN origin decides its head.
+function TraceNodeView({
+  node,
+  depth,
+  onNodeClick,
+}: {
+  node: TraceTreeNodeDto
+  depth: number
+  onNodeClick?: ((nodeId: string, componentPath: string[]) => void) | undefined
+}): ReactElement {
+  const headStyle = { paddingLeft: `${depth * 1.25}rem` }
+  const headContent = (
+    <>
+      <span className="trace-node__id">{node.node_id}</span>
+      <span className="trace-node__origin">{node.origin}</span>
+    </>
+  )
   return (
     <li className={`trace-node ${node.origin === 'engine' ? 'trace-node--engine' : ''}`}>
-      <div className="trace-node__head" style={{ paddingLeft: `${depth * 1.25}rem` }}>
-        <span className="trace-node__id">{node.node_id}</span>
-        <span className="trace-node__origin">{node.origin}</span>
-      </div>
+      {node.origin === 'engine' ? (
+        <div className="trace-node__head" style={headStyle}>
+          {headContent}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="trace-node__head"
+          style={headStyle}
+          onClick={() => onNodeClick?.(node.node_id, node.component_path)}
+        >
+          {headContent}
+        </button>
+      )}
       {node.events.map((event, i) => (
         <div key={i} className="trace-event" style={{ paddingLeft: `${depth * 1.25}rem` }}>
           <span className="trace-event__type">{event.event_type}</span>
@@ -236,7 +272,12 @@ function TraceNodeView({ node, depth }: { node: TraceTreeNodeDto; depth: number 
       {node.children.length > 0 ? (
         <ul className="trace-node__children">
           {node.children.map((child) => (
-            <TraceNodeView key={`${child.component_path.join('/')}/${child.node_id}`} node={child} depth={depth + 1} />
+            <TraceNodeView
+              key={`${child.component_path.join('/')}/${child.node_id}`}
+              node={child}
+              depth={depth + 1}
+              onNodeClick={onNodeClick}
+            />
           ))}
         </ul>
       ) : null}
@@ -252,6 +293,7 @@ export function TraceView({
   trees,
   treesLoading,
   treesError,
+  onNodeClick,
 }: TraceViewProps): ReactElement {
   // The picker offers ALL of the run's sessions (from the record's valuations), so the cursor can rest
   // on a session the engine did not evaluate (warm-up / skipped). They come from the App-owned record
@@ -344,6 +386,7 @@ export function TraceView({
                     key={`${root.component_path.join('/')}/${root.node_id}/${root.origin}`}
                     node={root}
                     depth={0}
+                    onNodeClick={onNodeClick}
                   />
                 ))}
               </ul>
@@ -356,6 +399,7 @@ export function TraceView({
                         key={`${root.component_path.join('/')}/${root.node_id}/${root.origin}`}
                         node={root}
                         depth={0}
+                        onNodeClick={onNodeClick}
                       />
                     ))}
                   </ul>

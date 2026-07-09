@@ -76,6 +76,9 @@ export function App(): ReactElement {
   const dirty = savedDoc !== null && doc !== savedDoc
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  // A canvas focus request: a nonce-keyed imperative "center this node" signal (React-idiomatic vs a
+  // ref handle) — bumped per click so re-clicking the same row re-centers.
+  const [focusRequest, setFocusRequest] = useState<{ nodeId: string; nonce: number } | null>(null)
   const [highlightedEdgeIndex, setHighlightedEdgeIndex] = useState<number | null>(null)
   const [dockTab, setDockTab] = useState<DockTab>('problems')
   const [datasetId, setDatasetId] = useState<string | undefined>(initialDatasetId)
@@ -459,6 +462,15 @@ export function App(): ReactElement {
     setHighlightedEdgeIndex(null)
   }, [doc])
 
+  // Trace→canvas click-through (M13.7): a node-origin trace row selects + centers its emitting node.
+  const onTraceNodeClick = (nodeId: string, componentPath: string[]): void => {
+    // Until M13.8's breadcrumb navigation lands, a row INSIDE a component selects the ComponentRef
+    // INSTANCE node — component_path[0] is that instance's node id in this document.
+    const target = componentPath.length > 0 ? componentPath[0] : nodeId
+    setSelectedNodeId(target)
+    setFocusRequest((prev) => ({ nodeId: target, nonce: (prev?.nonce ?? 0) + 1 }))
+  }
+
   // Resolve a structured validate target to a selection / edge highlight — the App owns both.
   const onHighlight = (target: HighlightTarget): void => {
     if (target.kind === 'nodeId') {
@@ -527,6 +539,7 @@ export function App(): ReactElement {
           trees={traceTrees}
           treesLoading={traceLoading}
           treesError={traceError}
+          onNodeClick={onTraceNodeClick}
         />
       ),
     },
@@ -627,6 +640,7 @@ export function App(): ReactElement {
                     datasetMeta={datasetMeta}
                     nodeValidity={nodeValidity}
                     onEngineClick={handleEngine}
+                    focusRequest={focusRequest}
                   />
                   {viewedComponent !== null ? (
                     <ComponentDrawer

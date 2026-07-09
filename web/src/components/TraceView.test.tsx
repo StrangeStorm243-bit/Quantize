@@ -315,4 +315,39 @@ describe('TraceView', () => {
     expect(screen.getByText(/select a run/i)).toBeInTheDocument()
     expect(screen.queryByLabelText('trace session')).not.toBeInTheDocument()
   })
+
+  // --- Click-through to the canvas (M13.7 Task 3) -----------------------------------------------
+  // A node-origin trace row head is a BUTTON that reports (node_id, component_path) up to the App,
+  // which selects + centers the emitting node. The engine is not a graph node (invariant 2) → its
+  // head stays a non-interactive element and is never clickable.
+  it('makes node-origin row heads clickable and reports (node_id, component_path); engine stays non-navigable', () => {
+    const onNodeClick = vi.fn()
+    render(
+      <TraceView
+        runId="run-1"
+        record={runResponse(['2026-05-15'])}
+        sessionCursor="2026-05-15"
+        onCursorChange={vi.fn()}
+        trees={SERVED_TREE.trees}
+        treesLoading={false}
+        treesError={undefined}
+        onNodeClick={onNodeClick}
+      />,
+    )
+
+    // A nested node inside the 'mom' component reports its own node_id + component_path.
+    fireEvent.click(screen.getByRole('button', { name: /sel/ }))
+    expect(onNodeClick).toHaveBeenLastCalledWith('sel', ['mom'])
+
+    // A top-level node reports an empty component_path.
+    fireEvent.click(screen.getByRole('button', { name: /^x node$/ }))
+    expect(onNodeClick).toHaveBeenLastCalledWith('x', [])
+
+    // The engine root's head is NOT a button (the engine is not a canvas node) — its id text is still
+    // present, but there is no clickable control for it, so it can never be navigated to.
+    expect(screen.queryByRole('button', { name: /engine/ })).not.toBeInTheDocument()
+    // The engine head is still rendered (id + origin both read 'engine'), just not as a control.
+    const engineSection = screen.getByRole('region', { name: 'engine stage' })
+    expect(within(engineSection).getAllByText('engine').length).toBeGreaterThan(0)
+  })
 })

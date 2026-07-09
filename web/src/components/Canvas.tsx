@@ -341,6 +341,12 @@ export interface CanvasProps {
    * Results/Trace (or Runs when no run is selected). Optional so the canvas renders standalone.
    */
   onEngineClick?: () => void
+  /**
+   * An external "center this node" request (trace→canvas, M13.7): the App bumps the nonce per trace-row
+   * click so re-clicking the same node re-centers. The Canvas fitView-focuses the single node; selection
+   * itself already flows through `selectedNodeId`. Optional so the canvas renders standalone.
+   */
+  focusRequest?: { nodeId: string; nonce: number } | null
 }
 
 export function Canvas({
@@ -356,6 +362,7 @@ export function Canvas({
   datasetMeta,
   nodeValidity,
   onEngineClick,
+  focusRequest,
 }: CanvasProps): ReactElement {
   const { catalog, loading, error } = useCatalog()
   const { defs: componentDefs, ensure: ensureComponent } = useComponentDefs()
@@ -426,6 +433,14 @@ export function Canvas({
     setRfNodes(flow.nodes)
     setRfEdges(flow.edges)
   }, [project, setRfNodes, setRfEdges])
+
+  // Center on an external focus request (trace→canvas, M13.7). The App bumps the nonce per trace-row
+  // click, so this re-runs — and re-centers — even when the same node is clicked twice. fitView on a
+  // single node id pans/zooms it into view; selection is already handled via `selectedNodeId`.
+  useEffect(() => {
+    if (focusRequest == null || rfInstance === null) return
+    void rfInstance.fitView({ nodes: [{ id: focusRequest.nodeId }], duration: 300, maxZoom: 1.2 })
+  }, [focusRequest, rfInstance])
 
   const nodeTypes = useMemo(() => ({ [STRATEGY_NODE_TYPE]: StrategyNode }), [])
 
