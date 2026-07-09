@@ -1778,6 +1778,22 @@ body {
   gap: 0.4rem;
 }
 
+/* Node-origin heads render as a <button> (trace→canvas click-through, M13.7). Strip the default
+   browser button chrome so the row looks identical to the old <div>, but keep the pointer cursor so
+   the click affordance is visible. The `padding: 0` reset is overridden per-row by the inline
+   `paddingLeft` (a longhand always wins over the shorthand reset), so nested rows stay indented. */
+button.trace-node__head {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .trace-node__id {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 600;

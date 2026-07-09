@@ -335,12 +335,13 @@ describe('TraceView', () => {
       />,
     )
 
-    // A nested node inside the 'mom' component reports its own node_id + component_path.
-    fireEvent.click(screen.getByRole('button', { name: /sel/ }))
+    // A nested node inside the 'mom' component reports its own node_id + component_path. The head's
+    // accessible name conveys the ACTION ("Show <id> on canvas"), not just the id.
+    fireEvent.click(screen.getByRole('button', { name: 'Show sel on canvas' }))
     expect(onNodeClick).toHaveBeenLastCalledWith('sel', ['mom'])
 
     // A top-level node reports an empty component_path.
-    fireEvent.click(screen.getByRole('button', { name: /^x node$/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show x on canvas' }))
     expect(onNodeClick).toHaveBeenLastCalledWith('x', [])
 
     // The engine root's head is NOT a button (the engine is not a canvas node) — its id text is still

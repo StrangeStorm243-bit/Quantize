@@ -258,6 +258,7 @@ function TraceNodeView({
           type="button"
           className="trace-node__head"
           style={headStyle}
+          aria-label={`Show ${node.node_id} on canvas`}
           onClick={() => onNodeClick?.(node.node_id, node.component_path)}
         >
           {headContent}
