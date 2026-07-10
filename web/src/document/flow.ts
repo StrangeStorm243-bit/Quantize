@@ -142,7 +142,7 @@ export function componentCacheKey(componentId: string, version: string): string 
 /**
  * Find a pinned `ComponentRef` by its node-local `ref` id — the FIRST step of resolving a
  * `ComponentRefNode`. Kept separate from {@link resolveComponentDef} because a consumer (the
- * Inspector) needs the ref ITSELF — to show `component_id@version` and offer "Inspect internals" —
+ * Inspector) needs the ref ITSELF — to show `component_id@version` and offer "Enter component" —
  * even when the definition has not been fetched yet (a cache miss). Returns `undefined` when no ref
  * carries that id.
  */

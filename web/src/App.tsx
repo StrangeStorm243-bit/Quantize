@@ -36,6 +36,7 @@ import { StrategyBar } from './components/StrategyBar'
 import { TraceView } from './components/TraceView'
 import { ValidatePanel } from './components/ValidatePanel'
 import type { HighlightTarget } from './validation/targets'
+import type { ComponentTrailEntry } from './document/flow'
 import { useDebugLoopState } from './run/useDebugLoopState'
 import { bumpStrategyVersion, newStrategyDocument, semanticKey, useStrategyDocument } from './document/store'
 import { computeNodeValidity } from './validity'
@@ -58,7 +59,21 @@ function initialDatasetId(): string | undefined {
   }
 }
 
+// The exported App is a thin wrapper that mounts the app-wide providers around the real shell. The split
+// exists so `AppShell` sits INSIDE its own providers and can therefore call `useCatalog`/`useComponentDefs`
+// (M13.8: the shell resolves component-trace paths against the definition cache) — a hook can only read a
+// provider mounted ABOVE its component, and the shell used to be the provider host itself.
 export function App(): ReactElement {
+  return (
+    <CatalogProvider>
+      <ComponentsProvider>
+        <AppShell />
+      </ComponentsProvider>
+    </CatalogProvider>
+  )
+}
+
+function AppShell(): ReactElement {
   // Best-effort boot check: warn (never crash) if the server's schema version has drifted.
   useSchemaVersionCheck()
   // Theme is a pure client preference (dark default, light opt-in), applied to the document root.
@@ -148,6 +163,14 @@ export function App(): ReactElement {
   const [extractDialogOpen, setExtractDialogOpen] = useState(false)
   const [componentsRefreshKey, setComponentsRefreshKey] = useState(0)
 
+  // Component-navigation trail (M13.8): an App-OWNED breadcrumb into component internals. Empty = the
+  // strategy editing view; each entry descends one pinned `(componentId, version)`. A non-empty trail
+  // flips the Canvas into its read-only component view. `componentSelectedNodeId` marks a node INSIDE
+  // that view (the M13.7 trace→breadcrumb hook, wired in a later task) — distinct from `selectedNodeId`,
+  // which only ever references strategy-doc nodes.
+  const [componentTrail, setComponentTrail] = useState<ComponentTrailEntry[]>([])
+  const [componentSelectedNodeId, setComponentSelectedNodeId] = useState<string | null>(null)
+
   // --- Strategy CRUD (lifted so Home + the strategy bar share it) -------------------------------
 
   // Apply the non-document editor state for a freshly opened document (the caller already made `next`
@@ -160,6 +183,10 @@ export function App(): ReactElement {
     setDockTab('problems')
     setShellError(undefined)
     setSaving(false) // a freshly opened document is not mid-save (a prior save belongs to the old doc)
+    // A freshly opened/created document starts at the strategy view (its own graph), never mid-navigation
+    // through some previous document's components.
+    setComponentTrail([])
+    setComponentSelectedNodeId(null)
     setView('editor')
   }
 
@@ -330,6 +357,22 @@ export function App(): ReactElement {
     return true
   }
 
+  // --- Component navigation (M13.8) ------------------------------------------------------------
+
+  // Descend one level: append the entry (the Inspector's "Enter component" button AND a canvas
+  // double-click both route here). Clear any in-component node emphasis — it belonged to the level we
+  // are leaving.
+  const onEnterComponent = (entry: ComponentTrailEntry): void => {
+    setComponentTrail((prev) => [...prev, entry])
+    setComponentSelectedNodeId(null)
+  }
+  // Jump the trail to a depth (0 = strategy view, i = keep the first i entries): breadcrumb crumb clicks
+  // and Escape (a one-level pop) both route here. `slice(0, depth)` yields `[]` at depth 0.
+  const onNavigateToDepth = (depth: number): void => {
+    setComponentTrail((prev) => prev.slice(0, depth))
+    setComponentSelectedNodeId(null)
+  }
+
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
   useEffect(() => {
     if (datasetId === undefined) {
@@ -456,146 +499,151 @@ export function App(): ReactElement {
   ]
 
   return (
-    <CatalogProvider>
-      <ComponentsProvider>
-        <div className="app">
-          <header className="app-header">
-            <h1>Quantize</h1>
-            <span className="app-header__spacer" />
-            <button
-              type="button"
-              className="theme-toggle"
-              onClick={toggleTheme}
-              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-            >
-              {theme === 'dark' ? '☀' : '☾'}
-            </button>
-          </header>
+    <div className="app">
+      <header className="app-header">
+        <h1>Quantize</h1>
+        <span className="app-header__spacer" />
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={toggleTheme}
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+        >
+          {theme === 'dark' ? '☀' : '☾'}
+        </button>
+      </header>
 
-          {/* Shell-level error — rendered OUTSIDE the Home/editor branch so a failed open (which
-              leaves the user on Home) is visible, as well as a failed save in the editor. */}
-          {shellError !== undefined ? (
-            <div className="sbar__error" role="alert">
-              {shellError}
-            </div>
-          ) : null}
+      {/* Shell-level error — rendered OUTSIDE the Home/editor branch so a failed open (which
+          leaves the user on Home) is visible, as well as a failed save in the editor. */}
+      {shellError !== undefined ? (
+        <div className="sbar__error" role="alert">
+          {shellError}
+        </div>
+      ) : null}
 
-          {view === 'home' ? (
-            <Home
-              onNew={handleNew}
-              onOpen={(id) => void handleOpen(id)}
-              datasetId={datasetId}
-              onSelectDataset={setDatasetId}
-            />
-          ) : (
-            <>
-              <StrategyBar
+      {view === 'home' ? (
+        <Home
+          onNew={handleNew}
+          onOpen={(id) => void handleOpen(id)}
+          datasetId={datasetId}
+          onSelectDataset={setDatasetId}
+        />
+      ) : (
+        <>
+          <StrategyBar
+            doc={doc}
+            dirty={dirty}
+            saving={saving}
+            datasetId={datasetId}
+            datasetMeta={datasetMeta}
+            sessionCursor={sessionCursor}
+            sessionDates={sessionDates}
+            evaluatedSessions={evaluatedSessions}
+            onCursorChange={setSessionCursor}
+            onValidate={handleValidate}
+            onRun={handleRun}
+            onSave={() => void handleSave()}
+            onChooseDataset={() => setDatasetPickerOpen(true)}
+            onHome={handleHome}
+          />
+
+          <main className="app-body">
+            <aside className="app-region app-region--left" aria-label="library">
+              <Palette refreshKey={componentsRefreshKey} />
+            </aside>
+            <section className="app-region app-region--center" aria-label="canvas">
+              {/* The extraction toolbar edits the STRATEGY document, so it is hidden in a component view
+                  (a non-empty trail): a definition is immutable — there is nothing to extract there. */}
+              {componentTrail.length === 0 ? (
+                <div className="extract-toolbar">
+                  {extractionMode ? (
+                    <div className="extract-banner" role="status">
+                      <span className="extract-banner__count">
+                        Extraction mode — {extractionSelection.size} node
+                        {extractionSelection.size === 1 ? '' : 's'} selected
+                      </span>
+                      <button
+                        type="button"
+                        className="pform__btn pform__btn--primary"
+                        disabled={extractionSelection.size === 0}
+                        onClick={() => setExtractDialogOpen(true)}
+                      >
+                        Create component…
+                      </button>
+                      <button type="button" className="pform__btn" onClick={cancelExtraction}>
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" className="pform__btn" onClick={enterExtractionMode}>
+                      Extract component
+                    </button>
+                  )}
+                </div>
+              ) : null}
+              <Canvas
                 doc={doc}
-                dirty={dirty}
-                saving={saving}
+                actions={actions}
+                onNodeClick={(id) => setSelectedNodeId(id)}
+                selectedNodeId={selectedNodeId}
+                selectedNodeIds={extractionMode ? extractionSelection : undefined}
+                extractionMode={extractionMode}
+                onToggleExtractionNode={toggleExtractionNode}
+                highlightedEdgeIndex={highlightedEdgeIndex}
                 datasetId={datasetId}
                 datasetMeta={datasetMeta}
-                sessionCursor={sessionCursor}
-                sessionDates={sessionDates}
-                evaluatedSessions={evaluatedSessions}
-                onCursorChange={setSessionCursor}
-                onValidate={handleValidate}
-                onRun={handleRun}
-                onSave={() => void handleSave()}
-                onChooseDataset={() => setDatasetPickerOpen(true)}
-                onHome={handleHome}
+                nodeValidity={nodeValidity}
+                onEngineClick={handleEngine}
+                focusRequest={focusRequest}
+                componentTrail={componentTrail}
+                componentSelectedNodeId={componentSelectedNodeId}
+                onEnterComponent={onEnterComponent}
+                onNavigateToDepth={onNavigateToDepth}
               />
-
-              <main className="app-body">
-                <aside className="app-region app-region--left" aria-label="library">
-                  <Palette refreshKey={componentsRefreshKey} />
-                </aside>
-                <section className="app-region app-region--center" aria-label="canvas">
-                  <div className="extract-toolbar">
-                    {extractionMode ? (
-                      <div className="extract-banner" role="status">
-                        <span className="extract-banner__count">
-                          Extraction mode — {extractionSelection.size} node
-                          {extractionSelection.size === 1 ? '' : 's'} selected
-                        </span>
-                        <button
-                          type="button"
-                          className="pform__btn pform__btn--primary"
-                          disabled={extractionSelection.size === 0}
-                          onClick={() => setExtractDialogOpen(true)}
-                        >
-                          Create component…
-                        </button>
-                        <button type="button" className="pform__btn" onClick={cancelExtraction}>
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <button type="button" className="pform__btn" onClick={enterExtractionMode}>
-                        Extract component
+              {extractDialogOpen ? (
+                <ExtractDialog
+                  doc={doc}
+                  selection={extractionSelection}
+                  onCommit={commitExtraction}
+                  onCancel={() => setExtractDialogOpen(false)}
+                />
+              ) : null}
+              {datasetPickerOpen ? (
+                <div className="dpicker" role="dialog" aria-label="choose dataset">
+                  <div className="dpicker__panel">
+                    <div className="dpicker__head">
+                      <span className="dpicker__title">Choose dataset</span>
+                      <button
+                        type="button"
+                        className="dpicker__close"
+                        aria-label="close dataset picker"
+                        onClick={() => setDatasetPickerOpen(false)}
+                      >
+                        ×
                       </button>
-                    )}
-                  </div>
-                  <Canvas
-                    doc={doc}
-                    actions={actions}
-                    onNodeClick={(id) => setSelectedNodeId(id)}
-                    selectedNodeId={selectedNodeId}
-                    selectedNodeIds={extractionMode ? extractionSelection : undefined}
-                    extractionMode={extractionMode}
-                    onToggleExtractionNode={toggleExtractionNode}
-                    highlightedEdgeIndex={highlightedEdgeIndex}
-                    datasetId={datasetId}
-                    datasetMeta={datasetMeta}
-                    nodeValidity={nodeValidity}
-                    onEngineClick={handleEngine}
-                    focusRequest={focusRequest}
-                  />
-                  {extractDialogOpen ? (
-                    <ExtractDialog
-                      doc={doc}
-                      selection={extractionSelection}
-                      onCommit={commitExtraction}
-                      onCancel={() => setExtractDialogOpen(false)}
-                    />
-                  ) : null}
-                  {datasetPickerOpen ? (
-                    <div className="dpicker" role="dialog" aria-label="choose dataset">
-                      <div className="dpicker__panel">
-                        <div className="dpicker__head">
-                          <span className="dpicker__title">Choose dataset</span>
-                          <button
-                            type="button"
-                            className="dpicker__close"
-                            aria-label="close dataset picker"
-                            onClick={() => setDatasetPickerOpen(false)}
-                          >
-                            ×
-                          </button>
-                        </div>
-                        <DatasetPanel activeDatasetId={datasetId} onSelectDataset={setDatasetId} />
-                      </div>
                     </div>
-                  ) : null}
-                </section>
-                <aside className="app-region app-region--right" aria-label="inspector">
-                  <Inspector
-                    doc={doc}
-                    selectedNodeId={selectedNodeId}
-                    actions={actions}
-                    atSession={atSession}
-                  />
-                </aside>
-              </main>
+                    <DatasetPanel activeDatasetId={datasetId} onSelectDataset={setDatasetId} />
+                  </div>
+                </div>
+              ) : null}
+            </section>
+            <aside className="app-region app-region--right" aria-label="inspector">
+              <Inspector
+                doc={doc}
+                selectedNodeId={selectedNodeId}
+                actions={actions}
+                atSession={atSession}
+                onEnterComponent={onEnterComponent}
+              />
+            </aside>
+          </main>
 
-              <footer className="app-region app-region--bottom" aria-label="dock">
-                <Dock tab={dockTab} onTab={(id) => setDockTab(id as DockTab)} panels={dockPanels} />
-              </footer>
-            </>
-          )}
-        </div>
-      </ComponentsProvider>
-    </CatalogProvider>
+          <footer className="app-region app-region--bottom" aria-label="dock">
+            <Dock tab={dockTab} onTab={(id) => setDockTab(id as DockTab)} panels={dockPanels} />
+          </footer>
+        </>
+      )}
+    </div>
   )
 }

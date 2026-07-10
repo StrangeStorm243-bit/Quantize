@@ -1,6 +1,8 @@
-// Inspector — ComponentRefNode branch (M12.4, E10). A selected component instance edits its EXPOSED
-// params via the same ParamForm over a synthesized object schema, and offers a read-only "Inspect
-// internals" affordance. We mock the catalog + component-definition cache so this is a pure unit test:
+// Inspector — ComponentRefNode branch (M12.4, E10; M13.8). A selected component instance edits its
+// EXPOSED params via the same ParamForm over a synthesized object schema, and offers an "Enter
+// component" affordance that navigates the main canvas into the definition's read-only internal view
+// (the M13.8 breadcrumb, replacing the E11 drawer). We mock the catalog + component-definition cache so
+// this is a pure unit test:
 // the cache's `get` returns a controllable definition (or undefined for the cache-miss path). NO network.
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -128,19 +130,34 @@ describe('Inspector — ComponentRefNode branch', () => {
     expect(screen.getByText(/not loaded/i)).toBeInTheDocument()
   })
 
-  it('calls onInspectComponent with the ref\'s component id and version', () => {
+  it('calls onEnterComponent with the ref\'s component id and version (cached definition)', () => {
     state.def = makeDef([])
-    const onInspect = vi.fn()
+    const onEnter = vi.fn()
     render(
       <Inspector
         doc={makeDoc()}
         selectedNodeId="mom"
         actions={stubActions()}
-        onInspectComponent={onInspect}
+        onEnterComponent={onEnter}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: /inspect internals/i }))
-    expect(onInspect).toHaveBeenCalledWith({ componentId: CID, version: '1.0.0' })
+    fireEvent.click(screen.getByRole('button', { name: /enter component/i }))
+    expect(onEnter).toHaveBeenCalledWith({ componentId: CID, version: '1.0.0' })
+  })
+
+  it('calls onEnterComponent even on a cache miss (the ref alone pins componentId/version)', () => {
+    state.def = undefined // the definition is not loaded yet — the ref still names the entry
+    const onEnter = vi.fn()
+    render(
+      <Inspector
+        doc={makeDoc()}
+        selectedNodeId="mom"
+        actions={stubActions()}
+        onEnterComponent={onEnter}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /enter component/i }))
+    expect(onEnter).toHaveBeenCalledWith({ componentId: CID, version: '1.0.0' })
   })
 
   it('renders the "At session" shell for a component instance (value-tap slot, M13.5)', () => {
