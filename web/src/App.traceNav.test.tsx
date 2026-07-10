@@ -1,28 +1,37 @@
-// App trace→canvas navigation (M13.7, Task 3): clicking a node-origin trace row selects and centers
-// the emitting node on the canvas. The App receives (node_id, component_path) from TraceView and (1)
-// sets `selectedNodeId`, (2) bumps a nonce-keyed `focusRequest` so re-clicking the same row re-centers
-// the canvas. A row INSIDE a component selects the ComponentRef INSTANCE node (component_path[0]) until
-// M13.8's breadcrumb navigation lands. The engine is not a graph node (invariant 2) → engine rows are
-// never clickable, so there is nothing to test for them here (covered in TraceView.test).
+// App trace→canvas/breadcrumb navigation (M13.7 hook, closed in M13.8): clicking a node-origin trace
+// row navigates to its emitting node. A TOP-LEVEL row (empty component_path) lands in the strategy view
+// — trail cleared, node selected + centered. A row INSIDE a component walks the breadcrumb as deep as the
+// served `component_path` resolves (`resolveTrailFromPath`): the strategy-doc ComponentRef instance
+// (component_path[0]) stays selected for Inspector continuity, and when the path fully resolves the
+// emitting leaf is emphasized (`componentSelectedNodeId`) and centered in the component view. A malformed
+// path falls back to selecting the ref instance. The engine is not a graph node (invariant 2) → engine
+// rows are never clickable, so there is nothing to test for them here (covered in TraceView.test).
 //
-// We STUB Canvas (to expose selectedNodeId + focusRequest), TraceView (to fire onNodeClick), and the
-// Dock (to render every panel's node) so the Trace panel's callback is reachable without driving the
-// real run-selection + tab-switch flow — the least-fragile shape for asserting pure event plumbing.
+// We STUB Canvas (to expose selection, focus, trail, and in-component emphasis), TraceView (to fire
+// onNodeClick), and the Dock (to render every panel's node) so the Trace panel's callback is reachable
+// without driving the real run-selection + tab-switch flow — the least-fragile shape for asserting pure
+// event plumbing.
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { StrategyDocument } from '@quantize/quantize-ir'
 import { newStrategyDocument } from './document/store'
 
-// A document that CONTAINS the two nodes a trace row can target, so the App's clear-stale-selection
-// effect (which drops a selection whose node is absent) keeps the selection — mirroring the real app,
-// where the emitting node always exists in the open document. 'mom' stands in for the on-canvas
-// ComponentRef instance a nested-component row resolves to (component_path[0]); 'n1' is a top-level node.
+// A component id the seeded ComponentRef instance pins (matches the `component_refs` entry below).
+const CID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+
+// A document that CONTAINS the nodes a trace row can target, so the App's clear-stale-selection effect
+// (which drops a selection whose node is absent) keeps the selection — mirroring the real app, where the
+// emitting node always exists in the open document. 'mom' is a real on-canvas ComponentRef INSTANCE
+// (component_path[0] for a nested-component row); 'n1' is a top-level node; 'plain' is a plain registered
+// node used to exercise the malformed-path fallback (a non-component element in component_path).
 const seededDoc: StrategyDocument = {
   ...newStrategyDocument('Seed'),
   nodes: [
-    { id: 'mom', type_id: 'x.y', type_version: '1.0.0', params: {}, ui: { position: { x: 0, y: 0 } } },
+    { id: 'mom', type_id: 'component', ref: 'r1', params: {}, ui: { position: { x: 0, y: 0 } } },
     { id: 'n1', type_id: 'x.y', type_version: '1.0.0', params: {}, ui: { position: { x: 0, y: 0 } } },
+    { id: 'plain', type_id: 'x.y', type_version: '1.0.0', params: {}, ui: { position: { x: 0, y: 0 } } },
   ],
+  component_refs: [{ id: 'r1', component_id: CID, version: '1.0.0' }],
 }
 
 vi.mock('./api/client', async (importOriginal) => {
@@ -50,21 +59,26 @@ vi.mock('./api/client', async (importOriginal) => {
   }
 })
 
-// Canvas stub: surface the App-passed selection + the focus request (id + nonce) so the plumbing is
-// observable, and expose a `seed-doc` button that replaces the document with one CONTAINING the nodes a
-// trace row targets ('mom', 'n1'). Seeding matters because the App clears a selection whose node is not
-// in the document — in the real app the emitting node always exists, so the seed reproduces that. The
-// real fitView viewport call cannot be meaningfully asserted in jsdom (Task 3 note).
+// Canvas stub: surface the App-passed selection, focus request (id + nonce), the component-navigation
+// trail length, and the in-component emphasis so the plumbing is observable, and expose a `seed-doc`
+// button that replaces the document with one CONTAINING the targeted nodes ('mom', 'n1', 'plain').
+// Seeding matters because the App clears a selection whose node is not in the document — in the real app
+// the emitting node always exists, so the seed reproduces that. The real fitView viewport call cannot be
+// meaningfully asserted in jsdom (Task 3 note).
 vi.mock('./components/Canvas', () => ({
   Canvas: (props: {
     actions: { replace: (doc: StrategyDocument) => void }
     selectedNodeId: string | null
     focusRequest: { nodeId: string; nonce: number } | null
+    componentTrail?: { componentId: string; version: string }[]
+    componentSelectedNodeId?: string | null
   }) => (
     <div>
       <span data-testid="sel-node">{String(props.selectedNodeId)}</span>
       <span data-testid="focus">{props.focusRequest?.nodeId ?? 'none'}</span>
       <span data-testid="focus-nonce">{String(props.focusRequest?.nonce ?? 0)}</span>
+      <span data-testid="trail-len">{String(props.componentTrail?.length ?? 0)}</span>
+      <span data-testid="comp-sel">{String(props.componentSelectedNodeId ?? null)}</span>
       <button type="button" onClick={() => props.actions.replace(seededDoc)}>
         seed-doc
       </button>
@@ -72,8 +86,9 @@ vi.mock('./components/Canvas', () => ({
   ),
 }))
 
-// TraceView stub: two buttons that drive the App's onNodeClick — one for a row INSIDE component 'mom'
-// (component_path[0] === 'mom'), one for a top-level node (empty component_path).
+// TraceView stub: buttons that drive the App's onNodeClick — a row INSIDE component 'mom'
+// (component_path[0] === 'mom'), a top-level node (empty component_path), and a row whose component_path
+// names a PLAIN node (malformed → fallback).
 vi.mock('./components/TraceView', () => ({
   TraceView: (props: { onNodeClick?: (nodeId: string, componentPath: string[]) => void }) => (
     <div>
@@ -82,6 +97,9 @@ vi.mock('./components/TraceView', () => ({
       </button>
       <button type="button" onClick={() => props.onNodeClick?.('n1', [])}>
         trace-click-toplevel
+      </button>
+      <button type="button" onClick={() => props.onNodeClick?.('leaf', ['plain'])}>
+        trace-click-plain
       </button>
     </div>
   ),
@@ -123,23 +141,44 @@ async function flush(): Promise<void> {
   })
 }
 
-describe('App trace→canvas navigation (M13.7)', () => {
-  it('selects the ComponentRef instance (component_path[0]) for a row inside a component', async () => {
+describe('App trace→breadcrumb navigation (M13.8)', () => {
+  it('navigates the breadcrumb for a row inside a component (path fully resolves)', async () => {
     renderEditor()
-    fireEvent.click(screen.getByText('seed-doc')) // put 'mom' + 'n1' in the document
+    fireEvent.click(screen.getByText('seed-doc')) // put 'mom' + 'n1' + 'plain' in the document
     fireEvent.click(screen.getByText('trace-click-component'))
-    // Until M13.8, a nested-component row selects the ref INSTANCE node, not the inner leaf.
+    // The single-level path resolves off the ref alone (no cache needed) → trail set to that component.
+    expect(screen.getByTestId('trail-len')).toHaveTextContent('1')
+    // The strategy-doc ComponentRef instance stays selected for Inspector continuity...
     expect(screen.getByTestId('sel-node')).toHaveTextContent('mom')
-    expect(screen.getByTestId('focus')).toHaveTextContent('mom')
+    // ...and the emitting leaf is emphasized + centered inside the component view.
+    expect(screen.getByTestId('comp-sel')).toHaveTextContent('sel')
+    expect(screen.getByTestId('focus')).toHaveTextContent('sel')
     await flush()
   })
 
-  it('selects the node itself for a top-level row (empty component_path)', async () => {
+  it('clears the trail and lands in the strategy view for a top-level row (empty component_path)', async () => {
     renderEditor()
     fireEvent.click(screen.getByText('seed-doc'))
+    // First open a trail, then a top-level row must return to the strategy view.
+    fireEvent.click(screen.getByText('trace-click-component'))
+    expect(screen.getByTestId('trail-len')).toHaveTextContent('1')
     fireEvent.click(screen.getByText('trace-click-toplevel'))
+    expect(screen.getByTestId('trail-len')).toHaveTextContent('0')
+    expect(screen.getByTestId('comp-sel')).toHaveTextContent('null')
     expect(screen.getByTestId('sel-node')).toHaveTextContent('n1')
     expect(screen.getByTestId('focus')).toHaveTextContent('n1')
+    await flush()
+  })
+
+  it('falls back to selecting component_path[0] for a malformed (non-component) path', async () => {
+    renderEditor()
+    fireEvent.click(screen.getByText('seed-doc'))
+    fireEvent.click(screen.getByText('trace-click-plain'))
+    // 'plain' is not a component → the path does not resolve → pre-breadcrumb fallback: no trail, the
+    // named strategy node is selected + centered.
+    expect(screen.getByTestId('trail-len')).toHaveTextContent('0')
+    expect(screen.getByTestId('sel-node')).toHaveTextContent('plain')
+    expect(screen.getByTestId('focus')).toHaveTextContent('plain')
     await flush()
   })
 

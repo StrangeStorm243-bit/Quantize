@@ -47,11 +47,11 @@ export interface TraceViewProps {
   /** A trace-fetch error message, or undefined. */
   treesError: string | undefined
   /**
-   * Click-through to the canvas (M13.7): a NODE-origin trace row reports its emitting node up to the
-   * App, which selects + centers it. Passed `(node_id, component_path)`; a row inside a component sends
-   * the component path so the App can resolve the on-canvas ComponentRef instance (component_path[0])
-   * until M13.8's breadcrumb navigation lands. Engine-origin rows are NEVER clickable (the engine is
-   * not a graph node, invariant 2). Optional so the view renders standalone (no navigation).
+   * Click-through to the canvas (M13.7, breadcrumb-complete in M13.8): a NODE-origin trace row reports
+   * its emitting node up to the App, which navigates to it. Passed `(node_id, component_path)`; a row
+   * inside a component sends the component path so the App can walk the breadcrumb to the emitting node's
+   * nesting level. Engine-origin rows are NEVER clickable (the engine is not a graph node, invariant 2).
+   * Optional so the view renders standalone (no navigation).
    */
   onNodeClick?: (nodeId: string, componentPath: string[]) => void
 }

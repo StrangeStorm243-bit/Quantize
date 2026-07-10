@@ -21,7 +21,7 @@ import {
   saveStrategy,
 } from './api/client'
 import { CatalogProvider } from './catalog'
-import { ComponentsProvider } from './components-cache'
+import { ComponentsProvider, useComponentDefs } from './components-cache'
 import { Canvas } from './components/Canvas'
 import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
 import { Dock } from './components/Dock'
@@ -37,6 +37,7 @@ import { TraceView } from './components/TraceView'
 import { ValidatePanel } from './components/ValidatePanel'
 import type { HighlightTarget } from './validation/targets'
 import type { ComponentTrailEntry } from './document/flow'
+import { resolveTrailFromPath } from './document/flow'
 import { useDebugLoopState } from './run/useDebugLoopState'
 import { bumpStrategyVersion, newStrategyDocument, semanticKey, useStrategyDocument } from './document/store'
 import { computeNodeValidity } from './validity'
@@ -171,6 +172,10 @@ function AppShell(): ReactElement {
   // which only ever references strategy-doc nodes.
   const [componentTrail, setComponentTrail] = useState<ComponentTrailEntry[]>([])
   const [componentSelectedNodeId, setComponentSelectedNodeId] = useState<string | null>(null)
+  // The definition cache (read-only): a served component-trace `component_path` resolves against it to a
+  // breadcrumb trail (`resolveTrailFromPath`). AppShell sits inside `ComponentsProvider`, so this hook is
+  // legal here; it drives the trace→breadcrumb navigation below.
+  const { defs: componentDefs } = useComponentDefs()
 
   // --- Strategy CRUD (lifted so Home + the strategy bar share it) -------------------------------
 
@@ -440,13 +445,41 @@ function AppShell(): ReactElement {
     setHighlightedEdgeIndex(null)
   }, [doc])
 
-  // Trace→canvas click-through (M13.7): a node-origin trace row selects + centers its emitting node.
+  // Trace→canvas/breadcrumb click-through (M13.7 hook, closed in M13.8): a node-origin trace row
+  // navigates to its emitting node, wherever it lives in the component hierarchy.
   const onTraceNodeClick = (nodeId: string, componentPath: string[]): void => {
-    // Until M13.8's breadcrumb navigation lands, a row INSIDE a component selects the ComponentRef
-    // INSTANCE node — component_path[0] is that instance's node id in this document.
-    const target = componentPath.length > 0 ? componentPath[0] : nodeId
-    setSelectedNodeId(target)
-    setFocusRequest((prev) => ({ nodeId: target, nonce: (prev?.nonce ?? 0) + 1 }))
+    // Top-level row: always the strategy view. Drop any open trail + in-component emphasis, then select +
+    // center the emitting node on the strategy canvas.
+    if (componentPath.length === 0) {
+      setComponentTrail([])
+      setComponentSelectedNodeId(null)
+      setSelectedNodeId(nodeId)
+      setFocusRequest((prev) => ({ nodeId, nonce: (prev?.nonce ?? 0) + 1 }))
+      return
+    }
+    // A row INSIDE a component: walk the served path to the deepest provable breadcrumb level.
+    const trail = resolveTrailFromPath(doc, componentPath, componentDefs)
+    if (trail.length === 0) {
+      // Unresolvable (malformed path, or the ref has left the document): fall back to the pre-breadcrumb
+      // behaviour — select + center the ComponentRef INSTANCE node (component_path[0]) in the strategy view.
+      const target = componentPath[0]
+      setSelectedNodeId(target)
+      setFocusRequest((prev) => ({ nodeId: target, nonce: (prev?.nonce ?? 0) + 1 }))
+      return
+    }
+    // Navigate the breadcrumb. Keep the top-level ComponentRef instance selected so the Inspector still
+    // describes it (`selectedNodeId` only ever references strategy-doc nodes).
+    setComponentTrail(trail)
+    setSelectedNodeId(componentPath[0])
+    if (trail.length === componentPath.length) {
+      // Fully resolved: the emitting leaf's own level is in view — emphasize + center it there.
+      setComponentSelectedNodeId(nodeId)
+      setFocusRequest((prev) => ({ nodeId, nonce: (prev?.nonce ?? 0) + 1 }))
+    } else {
+      // Partial: the leaf's level isn't cached yet, so there is nothing to emphasize here — the tip
+      // view's `ensure` loads the rest. Clear any stale emphasis carried over from a prior navigation.
+      setComponentSelectedNodeId(null)
+    }
   }
 
   // Resolve a structured validate target to a selection / edge highlight — the App owns both.
