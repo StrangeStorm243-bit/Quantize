@@ -2,8 +2,8 @@
 // record (invariant 5). The record is now OWNED BY THE APP and passed in as a prop (M11.9, F7); the
 // view is presentational (no fetch of its own). An ok:false record still renders (a valid run to
 // inspect, not an error).
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import type { PersistedRunRecord, RunRecordResponse } from '@quantize/quantize-api'
 import { ResultsView } from './ResultsView'
 
@@ -123,5 +123,93 @@ describe('ResultsView', () => {
   it('renders nothing actionable when no run is selected', () => {
     render(<ResultsView runId={undefined} record={undefined} loading={false} error={undefined} />)
     expect(screen.getByText(/select a run/i)).toBeInTheDocument()
+  })
+})
+
+describe('ResultsView interactivity (M13.7)', () => {
+  it('clicking an evaluation row session button selects that session', () => {
+    const onSelectSession = vi.fn()
+    render(
+      <ResultsView
+        runId="run-1"
+        record={response(record())}
+        loading={false}
+        error={undefined}
+        onSelectSession={onSelectSession}
+      />,
+    )
+    // The evaluation row's session date (2025-07-31) is wrapped in a button; clicking it selects it.
+    fireEvent.click(screen.getByRole('button', { name: '2025-07-31' }))
+    expect(onSelectSession).toHaveBeenCalledWith('2025-07-31')
+  })
+
+  it('clicking a fill row session button selects the fill session', () => {
+    const onSelectSession = vi.fn()
+    render(
+      <ResultsView
+        runId="run-1"
+        record={response(record())}
+        loading={false}
+        error={undefined}
+        onSelectSession={onSelectSession}
+      />,
+    )
+    // The fill's session date (2025-08-01) is a row button; clicking it selects that session.
+    fireEvent.click(screen.getByRole('button', { name: '2025-08-01' }))
+    expect(onSelectSession).toHaveBeenCalledWith('2025-08-01')
+  })
+
+  it('groups the fills under an explicit Engine section with targets → orders → fills framing', () => {
+    render(
+      <ResultsView
+        runId="run-1"
+        record={response(record())}
+        loading={false}
+        error={undefined}
+        onSelectSession={() => {}}
+      />,
+    )
+    const engine = screen.getByRole('region', { name: 'engine stage' })
+    // The engine framing copy and the Fills table both live inside the Engine section.
+    expect(within(engine).getByText(/targets → orders → fills/i)).toBeInTheDocument()
+    expect(within(engine).getByText(/^Fills/)).toBeInTheDocument()
+  })
+
+  it('passes chart clicks through: clicking the chart selects the server date at that index', () => {
+    // Pin the svg box so a clientX maps to a deterministic index over the two valuations.
+    vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 120,
+      top: 0,
+      left: 0,
+      right: 100,
+      bottom: 120,
+      toJSON: () => ({}),
+    })
+    const onSelectSession = vi.fn()
+    const { container } = render(
+      <ResultsView
+        runId="run-1"
+        record={response(record())}
+        loading={false}
+        error={undefined}
+        onSelectSession={onSelectSession}
+      />,
+    )
+    const svg = container.querySelector('.chart__svg')!
+    fireEvent.click(svg, { clientX: 100 }) // → last valuation index → its server date
+    expect(onSelectSession).toHaveBeenCalledWith('2025-08-29')
+    vi.restoreAllMocks()
+  })
+
+  it('without onSelectSession, rows render plain dates (no session buttons)', () => {
+    render(<ResultsView runId="run-1" record={response(record())} loading={false} error={undefined} />)
+    // No row-select buttons exist; the dates are plain text as before.
+    expect(screen.queryByRole('button', { name: '2025-07-31' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '2025-08-01' })).toBeNull()
+    // The dates still render as plain text (the evaluation row's session date + the chart axis label).
+    expect(screen.getAllByText('2025-07-31').length).toBeGreaterThan(0)
   })
 })

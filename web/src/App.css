@@ -777,6 +777,62 @@ body {
   line-height: 1.5;
 }
 
+/* --- Inspector "At session" live section (M13.7) --------------------------------------------- */
+
+/* The cursor date, sitting under the "At session" heading so live values read as "this node, at this
+   session". Rendered inline-block so it never disturbs the slot's block layout when data arrives. */
+.inspector__cursor-date {
+  display: inline-block;
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.inspector__at-error {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+.inspector__at-note {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* One flattened child of a ComponentRef instance: its node id labels the events its internal node emitted. */
+.inspector__at-child {
+  margin-top: var(--space-2);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--border-faint);
+}
+
+.inspector__at-child-id {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+}
+
+/* The engine reconciliation subsection at the output boundary — a subtle divider from the node's events. */
+.inspector__at-engine {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border-faint);
+}
+
+.inspector__at-subhead {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--engine-accent);
+}
+
 /* --- Component detail drawer (M12.4) ---------------------------------------------------------- */
 
 /* A modal overlay pinned over the canvas region (`.app-region--center` is `position: relative`). */
@@ -1709,6 +1765,60 @@ body {
   margin-top: 0.2rem;
 }
 
+/* Interactive chart (M13.7): a hover crosshair + a readout of the hovered point. Both are presentation
+   over the served points — the readout value is the verbatim record number (invariant 5). */
+.chart__crosshair {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.chart__readout {
+  position: absolute;
+  top: 0.2rem;
+  right: 0.2rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-muted);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+
+/* A clickable SESSION cell in the fills/evaluations tables — an inline, link-like button that keeps
+   the table layout unchanged while staying keyboard-reachable (M13.7). */
+.results__rowbtn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-strong);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.results__rowbtn:hover {
+  text-decoration: underline;
+}
+
+/* The explicit Engine stage (invariant 2): the engine — not the graph — reconciles targets into orders
+   and fills. Set off from the graph's evaluations above it with a leading rule. */
+.results__section--engine {
+  border-top: 1px solid var(--border-faint);
+  padding-top: 0.4rem;
+}
+
+.results__engine-note {
+  margin: 0 0 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
 /* --- Trace explorer (M11.7) --------------------------------------------------------------------- */
 
 .trace {
@@ -1745,6 +1855,22 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* The engine stage (M13.7): the served engine-origin root, grouped distinctly below the node roots.
+   A subtle left accent + tinted heading (reusing --engine-accent, as the engine node id does) marks
+   it as the reconciliation stage — targets → orders → fills — without a heavy container. */
+.trace__engine {
+  margin-top: 0.5rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--engine-accent);
+}
+
+.trace__engine-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.72rem;
+  color: var(--engine-accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .trace__roots,
 .trace-node__children {
   list-style: none;
@@ -1760,6 +1886,22 @@ body {
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
+}
+
+/* Node-origin heads render as a <button> (trace→canvas click-through, M13.7). Strip the default
+   browser button chrome so the row looks identical to the old <div>, but keep the pointer cursor so
+   the click affordance is visible. The `padding: 0` reset is overridden per-row by the inline
+   `paddingLeft` (a longhand always wins over the shorthand reset), so nested rows stay indented. */
+button.trace-node__head {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .trace-node__id {
@@ -1904,11 +2046,46 @@ body {
 }
 
 .sbar__cursor {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   min-width: 6rem;
-  text-align: right;
+  justify-content: flex-end;
+}
+
+.sbar__cursor-step {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1;
+  padding: 0.15rem 0.3rem;
+  cursor: pointer;
+}
+
+.sbar__cursor-step:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.sbar__cursor-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.sbar__cursor-date {
+  white-space: nowrap;
+}
+
+.sbar__cursor-eval {
+  color: var(--accent);
+}
+
+.sbar__cursor-noeval {
+  color: var(--text-muted);
 }
 
 .sbar__error {

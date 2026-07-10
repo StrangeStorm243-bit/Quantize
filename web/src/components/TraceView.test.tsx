@@ -1,12 +1,17 @@
-// TraceView: the session-date picker (from the run record's evaluations) drives a getTraceTree
-// fetch; the SERVED per-instant tree (grouped server-side by build_trace_trees, M13.6) is rendered
-// verbatim — component nesting shown as indentation, the engine root labeled. Tailored renderers
-// show the structured fields for select.selected / transform.excluded / engine.orders_proposed
-// (with a dust/hold omitted row); an UNKNOWN event type falls back to the generic key/value
-// renderer; an empty session shows the empty state. The api client is mocked (no network).
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+// TraceView (M13.7): the view is now CURSOR-CONTROLLED — it no longer fetches. The App owns the
+// single trace-tree fetch (keyed on run + cursor) and passes the served trees + loading/error in as
+// props; the session picker lists ALL sessions (from the run record's valuations, evaluated ones
+// unmarked, non-evaluated ones flagged " — no evaluation") and reports changes via onCursorChange.
+// The SERVED per-instant tree (grouped server-side by build_trace_trees, M13.6) is rendered verbatim:
+// node-origin roots first, then the engine-origin root under a distinct "engine stage" section.
+// Tailored renderers show the structured fields for select.selected / transform.excluded /
+// engine.orders_proposed (with a dust/hold omitted row); an UNKNOWN event type falls back to the
+// generic key/value renderer. An evaluated-but-empty session shows "No trace for this session."; a
+// non-evaluated cursor shows an honest "No evaluation this session." plus the run's note verbatim.
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import type {
+  PersistedNote,
   PersistedRunRecord,
   RunRecordResponse,
   TraceEvent,
@@ -15,23 +20,21 @@ import type {
 } from '@quantize/quantize-api'
 import { TraceView } from './TraceView'
 
-vi.mock('../api/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../api/client')>()
-  return { ...actual, getTraceTree: vi.fn() }
-})
-
-// eslint-disable-next-line import/first
-import { getTraceTree } from '../api/client'
-
-const mockGetTraceTree = vi.mocked(getTraceTree)
-
-// A minimal record carrying just the evaluation session dates the picker needs (two distinct dates).
-// The record is OWNED BY THE APP and passed in (M11.9, F7); `run_id` must match the `runId` prop
-// (the view gates session derivation on that identity to ignore a previous run's record mid-switch).
-function runResponse(sessionDates: string[], runId = 'run-1'): RunRecordResponse {
+// A minimal record carrying the sessions the picker needs. `evaluationDates` become evaluations
+// (marked as having a trace); `valuations` (defaulting to the evaluations) are the FULL option list
+// — pass a superset to include a non-evaluated session. `run_id` must match the `runId` prop (the
+// view gates session derivation on that identity to ignore a previous run's record mid-switch).
+function runResponse(
+  evaluationDates: string[],
+  runId = 'run-1',
+  opts: { valuations?: string[]; notes?: PersistedNote[] } = {},
+): RunRecordResponse {
+  const valuationDates = opts.valuations ?? evaluationDates
   const record = {
     run_id: runId,
-    evaluations: sessionDates.map((session_date) => ({
+    valuations: valuationDates.map((d) => [d, 1_000_000] as [string, number]),
+    notes: opts.notes ?? [],
+    evaluations: evaluationDates.map((session_date) => ({
       session_date,
       evaluation_instant: `${session_date}T21:00:00Z`,
       ok: true,
@@ -142,26 +145,46 @@ const SERVED_TREE: TraceTreeResponse = {
   ],
 }
 
-beforeEach(() => {
-  mockGetTraceTree.mockReset()
-})
-
-// A helper: render with the App-owned record prop (loading/error default to idle).
-function renderTrace(runId: string | undefined, record: RunRecordResponse | undefined): void {
-  render(<TraceView runId={runId} record={record} recordLoading={false} recordError={undefined} />)
+// A helper mirroring the App's prop contract; overrides drive each case.
+function renderTrace(props: {
+  runId: string | undefined
+  record?: RunRecordResponse | undefined
+  recordLoading?: boolean
+  recordError?: string | undefined
+  sessionCursor?: string | null
+  onCursorChange?: (date: string) => void
+  trees?: TraceTreeResponse['trees'] | undefined
+  treesLoading?: boolean
+  treesError?: string | undefined
+}): { onCursorChange: ReturnType<typeof vi.fn> } {
+  const onCursorChange = vi.fn(props.onCursorChange)
+  render(
+    <TraceView
+      runId={props.runId}
+      record={props.record}
+      recordLoading={props.recordLoading ?? false}
+      recordError={props.recordError}
+      sessionCursor={props.sessionCursor ?? null}
+      onCursorChange={onCursorChange}
+      trees={props.trees}
+      treesLoading={props.treesLoading ?? false}
+      treesError={props.treesError}
+    />,
+  )
+  return { onCursorChange }
 }
 
 describe('TraceView', () => {
-  it('drives the fetch from the picker and renders the served nested tree + tailored/generic renderers', async () => {
-    mockGetTraceTree.mockResolvedValue(SERVED_TREE)
-
-    renderTrace('run-1', runResponse(['2026-05-15', '2026-05-16']))
-
-    // Auto-selects the first session and fetches its tree.
-    await waitFor(() => expect(mockGetTraceTree).toHaveBeenCalledWith('run-1', '2026-05-15'))
+  it('renders the served nested tree for the cursor session with tailored + generic renderers', () => {
+    renderTrace({
+      runId: 'run-1',
+      record: runResponse(['2026-05-15', '2026-05-16']),
+      sessionCursor: '2026-05-15',
+      trees: SERVED_TREE.trees,
+    })
 
     // Served nesting renders: the 'mom' instance head and its internal children appear.
-    expect(await screen.findByText('mom')).toBeInTheDocument()
+    expect(screen.getByText('mom')).toBeInTheDocument()
     expect(screen.getByText('sel')).toBeInTheDocument()
     expect(screen.getByText('ret')).toBeInTheDocument()
 
@@ -182,34 +205,177 @@ describe('TraceView', () => {
     expect(screen.getByText('gizmo')).toBeInTheDocument()
     expect(screen.getByText('widget')).toBeInTheDocument()
     expect(screen.getByText('42')).toBeInTheDocument()
-
-    // The engine root's event type appears — the server placed engine after node roots.
-    expect(screen.getByText('engine.orders_proposed')).toBeInTheDocument()
   })
 
-  it('re-fetches when the picker changes and shows the empty state for a session with no trees', async () => {
-    mockGetTraceTree.mockImplementation((_runId: string, sessionDate?: string) =>
-      Promise.resolve(sessionDate === '2026-05-16' ? { trees: [] } : SERVED_TREE),
-    )
+  it('lists ALL sessions, flags non-evaluated ones, reflects the cursor, and reports changes', () => {
+    const { onCursorChange } = renderTrace({
+      runId: 'run-1',
+      record: runResponse(['2026-05-15'], 'run-1', { valuations: ['2026-05-15', '2026-05-16'] }),
+      sessionCursor: '2026-05-15',
+      trees: undefined,
+    })
 
-    renderTrace('run-1', runResponse(['2026-05-15', '2026-05-16']))
-    await waitFor(() => expect(mockGetTraceTree).toHaveBeenCalledWith('run-1', '2026-05-15'))
+    const select = screen.getByLabelText('trace session') as HTMLSelectElement
+    // The select is controlled by the cursor.
+    expect(select.value).toBe('2026-05-15')
 
-    fireEvent.change(screen.getByLabelText('trace session'), { target: { value: '2026-05-16' } })
+    // Both valuations dates are offered; the non-evaluated one is flagged (value stays the bare date).
+    const evaluatedOption = screen.getByRole('option', { name: '2026-05-15' }) as HTMLOptionElement
+    const noEvalOption = screen.getByRole('option', { name: '2026-05-16 — no evaluation' }) as HTMLOptionElement
+    expect(evaluatedOption.value).toBe('2026-05-15')
+    expect(noEvalOption.value).toBe('2026-05-16')
 
-    await waitFor(() => expect(mockGetTraceTree).toHaveBeenCalledWith('run-1', '2026-05-16'))
-    expect(await screen.findByText(/no trace for this session/i)).toBeInTheDocument()
+    // Changing the picker reports the bare date up to the App.
+    fireEvent.change(select, { target: { value: '2026-05-16' } })
+    expect(onCursorChange).toHaveBeenCalledWith('2026-05-16')
   })
 
-  it('surfaces a record-fetch error passed from the App (no tree fetch attempted)', () => {
-    render(<TraceView runId="run-1" record={undefined} recordLoading={false} recordError="record boom" />)
+  it('groups the engine-origin root under a distinct "engine stage" section, node roots first', () => {
+    renderTrace({
+      runId: 'run-1',
+      record: runResponse(['2026-05-15']),
+      sessionCursor: '2026-05-15',
+      trees: SERVED_TREE.trees,
+    })
+
+    const engineSection = screen.getByRole('region', { name: 'engine stage' })
+    expect(within(engineSection).getByText('Engine — targets → orders → fills')).toBeInTheDocument()
+    // The engine root's event lives inside the engine section…
+    expect(within(engineSection).getByText('engine.orders_proposed')).toBeInTheDocument()
+    // …and the node-origin roots do NOT.
+    expect(within(engineSection).queryByText('mom')).not.toBeInTheDocument()
+    expect(within(engineSection).queryByText('mystery.unknown')).not.toBeInTheDocument()
+  })
+
+  it('shows an honest no-evaluation state with the run note verbatim for a non-evaluated cursor', () => {
+    renderTrace({
+      runId: 'run-1',
+      record: runResponse(['2026-05-15'], 'run-1', {
+        valuations: ['2026-05-14', '2026-05-15'],
+        notes: [
+          {
+            code: 'warmup_not_satisfied',
+            message: 'warm-up requires more than 60 sessions; only 42 visible',
+            session_date: '2026-05-14',
+          },
+        ],
+      }),
+      sessionCursor: '2026-05-14',
+      trees: [],
+    })
+
+    expect(screen.getByText(/No evaluation this session/i)).toBeInTheDocument()
+    expect(screen.getByText('warmup_not_satisfied')).toBeInTheDocument()
+    expect(screen.getByText(/warm-up requires more than 60 sessions; only 42 visible/)).toBeInTheDocument()
+    // It is NOT the evaluated-empty message.
+    expect(screen.queryByText(/no trace for this session/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the no-evaluation line without a note (and without crashing) when none matches', () => {
+    renderTrace({
+      runId: 'run-1',
+      record: runResponse(['2026-05-15'], 'run-1', { valuations: ['2026-05-14', '2026-05-15'] }),
+      sessionCursor: '2026-05-14',
+      trees: [],
+    })
+
+    expect(screen.getByText(/No evaluation this session/i)).toBeInTheDocument()
+  })
+
+  it('keeps the evaluated-empty message for an evaluated session with no trees', () => {
+    renderTrace({
+      runId: 'run-1',
+      record: runResponse(['2026-05-15', '2026-05-16']),
+      sessionCursor: '2026-05-15',
+      trees: [],
+    })
+
+    expect(screen.getByText(/no trace for this session/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no evaluation this session/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the loading state driven by treesLoading', () => {
+    renderTrace({
+      runId: 'run-1',
+      record: runResponse(['2026-05-15']),
+      sessionCursor: '2026-05-15',
+      treesLoading: true,
+    })
+    expect(screen.getByText(/loading trace/i)).toBeInTheDocument()
+  })
+
+  it('surfaces a trace-fetch error passed from the App in the alert slot', () => {
+    renderTrace({
+      runId: 'run-1',
+      record: runResponse(['2026-05-15']),
+      sessionCursor: '2026-05-15',
+      treesError: 'trace boom',
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('trace boom')
+  })
+
+  it('surfaces a RECORD-fetch error (getRun failure), not a silent empty picker (P3)', () => {
+    // When the run record itself fails to load there are no sessions; the record error must be shown
+    // rather than the bare "No sessions" picker with no explanation.
+    renderTrace({ runId: 'run-1', record: undefined, recordError: 'record boom' })
     expect(screen.getByRole('alert')).toHaveTextContent('record boom')
-    expect(mockGetTraceTree).not.toHaveBeenCalled()
+  })
+
+  it('shows the loading state while the run record is being fetched (P3)', () => {
+    renderTrace({ runId: 'run-1', record: undefined, recordLoading: true })
+    expect(screen.getByText(/loading trace/i)).toBeInTheDocument()
+  })
+
+  it('prefers the record error over a trace error when both are present (P3)', () => {
+    renderTrace({
+      runId: 'run-1',
+      record: undefined,
+      recordError: 'record boom',
+      treesError: 'trace boom',
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('record boom')
+    expect(screen.queryByText('trace boom')).not.toBeInTheDocument()
   })
 
   it('renders nothing actionable when no run is selected', () => {
-    renderTrace(undefined, undefined)
-    expect(mockGetTraceTree).not.toHaveBeenCalled()
+    renderTrace({ runId: undefined, record: undefined })
     expect(screen.getByText(/select a run/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('trace session')).not.toBeInTheDocument()
+  })
+
+  // --- Click-through to the canvas (M13.7 Task 3) -----------------------------------------------
+  // A node-origin trace row head is a BUTTON that reports (node_id, component_path) up to the App,
+  // which selects + centers the emitting node. The engine is not a graph node (invariant 2) → its
+  // head stays a non-interactive element and is never clickable.
+  it('makes node-origin row heads clickable and reports (node_id, component_path); engine stays non-navigable', () => {
+    const onNodeClick = vi.fn()
+    render(
+      <TraceView
+        runId="run-1"
+        record={runResponse(['2026-05-15'])}
+        sessionCursor="2026-05-15"
+        onCursorChange={vi.fn()}
+        trees={SERVED_TREE.trees}
+        treesLoading={false}
+        treesError={undefined}
+        onNodeClick={onNodeClick}
+      />,
+    )
+
+    // A nested node inside the 'mom' component reports its own node_id + component_path. The head's
+    // accessible name conveys the ACTION ("Show <id> on canvas"), not just the id.
+    fireEvent.click(screen.getByRole('button', { name: 'Show sel on canvas' }))
+    expect(onNodeClick).toHaveBeenLastCalledWith('sel', ['mom'])
+
+    // A top-level node reports an empty component_path.
+    fireEvent.click(screen.getByRole('button', { name: 'Show x on canvas' }))
+    expect(onNodeClick).toHaveBeenLastCalledWith('x', [])
+
+    // The engine root's head is NOT a button (the engine is not a canvas node) — its id text is still
+    // present, but there is no clickable control for it, so it can never be navigated to.
+    expect(screen.queryByRole('button', { name: /engine/ })).not.toBeInTheDocument()
+    // The engine head is still rendered (id + origin both read 'engine'), just not as a control.
+    const engineSection = screen.getByRole('region', { name: 'engine stage' })
+    expect(within(engineSection).getAllByText('engine').length).toBeGreaterThan(0)
   })
 })
