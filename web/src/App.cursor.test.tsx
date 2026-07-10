@@ -1,9 +1,12 @@
-// App session-cursor lifecycle (M13.7, Task 1): the App owns ONE `sessionCursor` drawn exclusively
-// from the selected run's server session dates. On run select it defaults to that run's LAST session
-// (D-12); on a run switch it is cleared and re-defaulted to the new run's last session; without a run
-// it is absent (—). The cursor derives nothing (invariant 5) — the strategy bar only navigates by
-// list index over the served date array. We mock the API client + all children that would hit the
-// network, but keep the REAL StrategyBar mounted so we can assert on its cursor readout + stepper.
+// App session-cursor lifecycle (M13.7, Task 1; default amended M13.7.5): the App owns ONE
+// `sessionCursor` drawn exclusively from the selected run's server session dates. On run select it
+// defaults to that run's LAST EVALUATED session (D-12 as amended — the old last-session default
+// stranded monthly strategies on a no-evaluation session), falling back to the last session for a
+// run with no evaluations; on a run switch it is cleared and re-defaulted from the new run's record;
+// without a run it is absent (—). The cursor derives nothing and NEVER touches the document
+// (invariant 5 / D-12) — the strategy bar only navigates by list index over the served date array.
+// We mock the API client + all children that would hit the network, but keep the REAL StrategyBar
+// mounted so we can assert on its cursor readout + stepper.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { PersistedRunRecord, RunRecordResponse } from '@quantize/quantize-api'
@@ -30,17 +33,20 @@ function record(overrides: Partial<PersistedRunRecord> = {}): RunRecordResponse 
     max_drawdown: 0.0,
     final_cash: 0,
     final_positions: [],
+    // The ONLY evaluation is on the MIDDLE session (2026-05-14), so the last evaluated session
+    // differs from the last session (2026-05-15) — the fixture can therefore distinguish the amended
+    // D-12 default (last evaluated) from the old one (last session).
     evaluations: [
       {
-        session_date: '2026-05-15',
-        evaluation_instant: '2026-05-15T20:00:00Z',
+        session_date: '2026-05-14',
+        evaluation_instant: '2026-05-14T20:00:00Z',
         ok: true,
         orders: [],
         plans: [],
-        portfolio_value: 1_000_200,
+        portfolio_value: 1_000_100,
         projected_cash: 0,
-        scheduled_fill_instant: '2026-05-18T13:30:00Z',
-        fill_session: '2026-05-18',
+        scheduled_fill_instant: '2026-05-15T13:30:00Z',
+        fill_session: '2026-05-15',
         target_cash: 0,
         target_weights: [],
       },
@@ -161,10 +167,37 @@ async function flush(): Promise<void> {
 }
 
 describe('App session cursor (M13.7)', () => {
-  it("sets the cursor to the run's LAST session when the record arrives (D-12)", async () => {
+  it("defaults the cursor to the run's LAST EVALUATED session when the record arrives (D-12 amended)", async () => {
+    // run-1's only evaluation is on the MIDDLE session (2026-05-14); the amended D-12 default lands
+    // there (the most recent DECISION), NOT on the last session (2026-05-15) the old default stranded on.
     renderEditor()
     selectRun('run-1')
-    await waitFor(() => expect(cursorReadout()).toHaveTextContent('2026-05-15'))
+    await waitFor(() => expect(cursorReadout()).toHaveTextContent('2026-05-14'))
+    expect(cursorReadout()).not.toHaveTextContent('2026-05-15')
+  })
+
+  it("falls back to the run's LAST session when the run has NO evaluated sessions", async () => {
+    // run-2 evaluated nothing, so there is no "last decision" to land on; the cursor defaults to the
+    // last server session (2026-06-02) — a served-date selection, never a computed date.
+    renderEditor()
+    selectRun('run-2')
+    await waitFor(() => expect(cursorReadout()).toHaveTextContent('2026-06-02'))
+  })
+
+  it('never writes the cursor into the document: defaulting + stepping leaves the doc clean (D-12)', async () => {
+    // The cursor is app-level presentation state; it must never touch the strategy document (invariant
+    // 5 / D-12). A freshly created doc is clean, and every mutation returns a NEW object, so if a cursor
+    // change reached the document the dirty ("unsaved changes") indicator would appear. It must not.
+    renderEditor()
+    selectRun('run-1')
+    await waitFor(() => expect(cursorReadout()).toHaveTextContent('2026-05-14'))
+    expect(screen.queryByLabelText('unsaved changes')).not.toBeInTheDocument()
+
+    // Stepping the cursor over the served axis still leaves the document clean.
+    fireEvent.click(screen.getByLabelText('previous session'))
+    expect(cursorReadout()).toHaveTextContent('2026-05-13')
+    expect(screen.queryByLabelText('unsaved changes')).not.toBeInTheDocument()
+    await flush()
   })
 
   it('clears the cursor on run switch, then re-defaults; a late-resolving prior fetch is ignored', async () => {
@@ -196,7 +229,8 @@ describe('App session cursor (M13.7)', () => {
   it("steps the cursor with ◀ / ▶ bounded by the run's session list", async () => {
     renderEditor()
     selectRun('run-1')
-    await waitFor(() => expect(cursorReadout()).toHaveTextContent('2026-05-15'))
+    // The cursor defaults to the last EVALUATED session (2026-05-14, the middle of the axis).
+    await waitFor(() => expect(cursorReadout()).toHaveTextContent('2026-05-14'))
 
     const prev = (): HTMLElement => screen.getByLabelText('previous session')
     const next = (): HTMLElement => screen.getByLabelText('next session')

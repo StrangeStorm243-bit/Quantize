@@ -7,6 +7,7 @@
 import type { ReactElement } from 'react'
 import type { DatasetStored } from '@quantize/quantize-api'
 import type { StrategyDocument } from '@quantize/quantize-ir'
+import { scheduleSummary } from '../document/schedule'
 
 export interface StrategyBarProps {
   doc: StrategyDocument
@@ -69,6 +70,13 @@ export function StrategyBar(props: StrategyBarProps): ReactElement {
           ● unsaved
         </span>
       ) : null}
+
+      {/* The strategy's evaluation cadence, read straight from the document (M13.7.5). It explains the
+          no-evaluation sessions the cursor steps across — a monthly strategy only decides on rebalance
+          days — so the "no evaluation this session" state is not mysterious. Pure display (invariant 5). */}
+      <span className="sbar__schedule" aria-label="evaluation schedule">
+        {scheduleSummary(doc.schedule.kind)}
+      </span>
 
       <div className="sbar__verbs">
         <button type="button" className="pform__btn" onClick={onValidate}>

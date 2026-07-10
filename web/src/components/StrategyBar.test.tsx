@@ -85,6 +85,20 @@ describe('StrategyBar', () => {
     expect(screen.getByLabelText('unsaved changes')).toBeInTheDocument()
   })
 
+  it('summarises the strategy evaluation schedule from the document (monthly)', () => {
+    renderBar({ doc: { ...newStrategyDocument('X'), schedule: { kind: 'monthly' } } })
+    expect(screen.getByText(/evaluates monthly/i)).toBeInTheDocument()
+  })
+
+  it('falls back safely for an unrecognised schedule kind', () => {
+    renderBar({
+      doc: { ...newStrategyDocument('X'), schedule: { kind: 'quarterly' } } as never,
+    })
+    // No crash and no bogus "Evaluates …" phrase; the neutral fallback stands in.
+    expect(screen.getByText(/custom schedule/i)).toBeInTheDocument()
+    expect(screen.queryByText(/evaluates/i)).not.toBeInTheDocument()
+  })
+
   it('wires the Validate / Run / Save verbs', () => {
     const props = renderBar()
     fireEvent.click(screen.getByRole('button', { name: 'Validate' }))

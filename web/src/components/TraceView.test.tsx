@@ -1,7 +1,9 @@
 // TraceView (M13.7): the view is now CURSOR-CONTROLLED — it no longer fetches. The App owns the
 // single trace-tree fetch (keyed on run + cursor) and passes the served trees + loading/error in as
-// props; the session picker lists ALL sessions (from the run record's valuations, evaluated ones
-// unmarked, non-evaluated ones flagged " — no evaluation") and reports changes via onCursorChange.
+// props; the session axis, the evaluated subset, and the cursor session's note are ALSO props
+// (M13.7.5 — the App computes them once through `run/projections`). The session picker lists ALL
+// sessions (evaluated ones unmarked, non-evaluated ones flagged " — no evaluation") and reports
+// changes via onCursorChange.
 // The SERVED per-instant tree (grouped server-side by build_trace_trees, M13.6) is rendered verbatim:
 // node-origin roots first, then the engine-origin root under a distinct "engine stage" section.
 // Tailored renderers show the structured fields for select.selected / transform.excluded /
@@ -12,44 +14,11 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type {
   PersistedNote,
-  PersistedRunRecord,
-  RunRecordResponse,
   TraceEvent,
   TraceTreeNodeDto,
   TraceTreeResponse,
 } from '@quantize/quantize-api'
 import { TraceView } from './TraceView'
-
-// A minimal record carrying the sessions the picker needs. `evaluationDates` become evaluations
-// (marked as having a trace); `valuations` (defaulting to the evaluations) are the FULL option list
-// — pass a superset to include a non-evaluated session. `run_id` must match the `runId` prop (the
-// view gates session derivation on that identity to ignore a previous run's record mid-switch).
-function runResponse(
-  evaluationDates: string[],
-  runId = 'run-1',
-  opts: { valuations?: string[]; notes?: PersistedNote[] } = {},
-): RunRecordResponse {
-  const valuationDates = opts.valuations ?? evaluationDates
-  const record = {
-    run_id: runId,
-    valuations: valuationDates.map((d) => [d, 1_000_000] as [string, number]),
-    notes: opts.notes ?? [],
-    evaluations: evaluationDates.map((session_date) => ({
-      session_date,
-      evaluation_instant: `${session_date}T21:00:00Z`,
-      ok: true,
-      orders: [],
-      plans: [],
-      portfolio_value: 1_000_000,
-      projected_cash: 0,
-      scheduled_fill_instant: null,
-      fill_session: null,
-      target_cash: 0,
-      target_weights: [],
-    })),
-  } as unknown as PersistedRunRecord
-  return { record, replay_verifiable: true }
-}
 
 function event(overrides: Partial<TraceEvent>): TraceEvent {
   return {
@@ -145,10 +114,15 @@ const SERVED_TREE: TraceTreeResponse = {
   ],
 }
 
-// A helper mirroring the App's prop contract; overrides drive each case.
+// A helper mirroring the App's prop contract; overrides drive each case. `sessions` is the full
+// axis (the App's run_id-gated `sessionAxis` projection) and `evaluated` its evaluated subset —
+// pass a strict subset to include a non-evaluated session.
 function renderTrace(props: {
   runId: string | undefined
-  record?: RunRecordResponse | undefined
+  sessions?: string[]
+  evaluated?: string[]
+  note?: PersistedNote
+  scheduleKind?: string
   recordLoading?: boolean
   recordError?: string | undefined
   sessionCursor?: string | null
@@ -161,9 +135,12 @@ function renderTrace(props: {
   render(
     <TraceView
       runId={props.runId}
-      record={props.record}
       recordLoading={props.recordLoading ?? false}
       recordError={props.recordError}
+      sessions={props.sessions ?? []}
+      evaluatedSessions={new Set(props.evaluated ?? props.sessions ?? [])}
+      note={props.note}
+      scheduleKind={props.scheduleKind}
       sessionCursor={props.sessionCursor ?? null}
       onCursorChange={onCursorChange}
       trees={props.trees}
@@ -178,7 +155,7 @@ describe('TraceView', () => {
   it('renders the served nested tree for the cursor session with tailored + generic renderers', () => {
     renderTrace({
       runId: 'run-1',
-      record: runResponse(['2026-05-15', '2026-05-16']),
+      sessions: ['2026-05-15', '2026-05-16'],
       sessionCursor: '2026-05-15',
       trees: SERVED_TREE.trees,
     })
@@ -210,7 +187,8 @@ describe('TraceView', () => {
   it('lists ALL sessions, flags non-evaluated ones, reflects the cursor, and reports changes', () => {
     const { onCursorChange } = renderTrace({
       runId: 'run-1',
-      record: runResponse(['2026-05-15'], 'run-1', { valuations: ['2026-05-15', '2026-05-16'] }),
+      sessions: ['2026-05-15', '2026-05-16'],
+      evaluated: ['2026-05-15'],
       sessionCursor: '2026-05-15',
       trees: undefined,
     })
@@ -233,7 +211,7 @@ describe('TraceView', () => {
   it('groups the engine-origin root under a distinct "engine stage" section, node roots first', () => {
     renderTrace({
       runId: 'run-1',
-      record: runResponse(['2026-05-15']),
+      sessions: ['2026-05-15'],
       sessionCursor: '2026-05-15',
       trees: SERVED_TREE.trees,
     })
@@ -250,16 +228,13 @@ describe('TraceView', () => {
   it('shows an honest no-evaluation state with the run note verbatim for a non-evaluated cursor', () => {
     renderTrace({
       runId: 'run-1',
-      record: runResponse(['2026-05-15'], 'run-1', {
-        valuations: ['2026-05-14', '2026-05-15'],
-        notes: [
-          {
-            code: 'warmup_not_satisfied',
-            message: 'warm-up requires more than 60 sessions; only 42 visible',
-            session_date: '2026-05-14',
-          },
-        ],
-      }),
+      sessions: ['2026-05-14', '2026-05-15'],
+      evaluated: ['2026-05-15'],
+      note: {
+        code: 'warmup_not_satisfied',
+        message: 'warm-up requires more than 60 sessions; only 42 visible',
+        session_date: '2026-05-14',
+      },
       sessionCursor: '2026-05-14',
       trees: [],
     })
@@ -271,10 +246,39 @@ describe('TraceView', () => {
     expect(screen.queryByText(/no trace for this session/i)).not.toBeInTheDocument()
   })
 
+  it('explains a non-evaluated session with the strategy cadence when scheduleKind is provided', () => {
+    // A monthly strategy only decides on rebalance days; the no-eval state names that cadence so the
+    // empty session is self-explanatory (M13.7.5) — a pure phrasing of the served schedule kind.
+    renderTrace({
+      runId: 'run-1',
+      sessions: ['2026-05-14', '2026-05-15'],
+      evaluated: ['2026-05-15'],
+      scheduleKind: 'monthly',
+      sessionCursor: '2026-05-14',
+      trees: [],
+    })
+    expect(
+      screen.getByText('No evaluation this session — this strategy evaluates monthly.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the bare no-evaluation line when the schedule kind is unknown/absent (safe fallback)', () => {
+    renderTrace({
+      runId: 'run-1',
+      sessions: ['2026-05-14', '2026-05-15'],
+      evaluated: ['2026-05-15'],
+      scheduleKind: 'quarterly', // unrecognised → no cadence tail, no crash
+      sessionCursor: '2026-05-14',
+      trees: [],
+    })
+    expect(screen.getByText('No evaluation this session.')).toBeInTheDocument()
+  })
+
   it('shows the no-evaluation line without a note (and without crashing) when none matches', () => {
     renderTrace({
       runId: 'run-1',
-      record: runResponse(['2026-05-15'], 'run-1', { valuations: ['2026-05-14', '2026-05-15'] }),
+      sessions: ['2026-05-14', '2026-05-15'],
+      evaluated: ['2026-05-15'],
       sessionCursor: '2026-05-14',
       trees: [],
     })
@@ -285,7 +289,7 @@ describe('TraceView', () => {
   it('keeps the evaluated-empty message for an evaluated session with no trees', () => {
     renderTrace({
       runId: 'run-1',
-      record: runResponse(['2026-05-15', '2026-05-16']),
+      sessions: ['2026-05-15', '2026-05-16'],
       sessionCursor: '2026-05-15',
       trees: [],
     })
@@ -297,7 +301,7 @@ describe('TraceView', () => {
   it('shows the loading state driven by treesLoading', () => {
     renderTrace({
       runId: 'run-1',
-      record: runResponse(['2026-05-15']),
+      sessions: ['2026-05-15'],
       sessionCursor: '2026-05-15',
       treesLoading: true,
     })
@@ -307,7 +311,7 @@ describe('TraceView', () => {
   it('surfaces a trace-fetch error passed from the App in the alert slot', () => {
     renderTrace({
       runId: 'run-1',
-      record: runResponse(['2026-05-15']),
+      sessions: ['2026-05-15'],
       sessionCursor: '2026-05-15',
       treesError: 'trace boom',
     })
@@ -317,19 +321,18 @@ describe('TraceView', () => {
   it('surfaces a RECORD-fetch error (getRun failure), not a silent empty picker (P3)', () => {
     // When the run record itself fails to load there are no sessions; the record error must be shown
     // rather than the bare "No sessions" picker with no explanation.
-    renderTrace({ runId: 'run-1', record: undefined, recordError: 'record boom' })
+    renderTrace({ runId: 'run-1', recordError: 'record boom' })
     expect(screen.getByRole('alert')).toHaveTextContent('record boom')
   })
 
   it('shows the loading state while the run record is being fetched (P3)', () => {
-    renderTrace({ runId: 'run-1', record: undefined, recordLoading: true })
+    renderTrace({ runId: 'run-1', recordLoading: true })
     expect(screen.getByText(/loading trace/i)).toBeInTheDocument()
   })
 
   it('prefers the record error over a trace error when both are present (P3)', () => {
     renderTrace({
       runId: 'run-1',
-      record: undefined,
       recordError: 'record boom',
       treesError: 'trace boom',
     })
@@ -338,7 +341,7 @@ describe('TraceView', () => {
   })
 
   it('renders nothing actionable when no run is selected', () => {
-    renderTrace({ runId: undefined, record: undefined })
+    renderTrace({ runId: undefined })
     expect(screen.getByText(/select a run/i)).toBeInTheDocument()
     expect(screen.queryByLabelText('trace session')).not.toBeInTheDocument()
   })
@@ -352,7 +355,9 @@ describe('TraceView', () => {
     render(
       <TraceView
         runId="run-1"
-        record={runResponse(['2026-05-15'])}
+        sessions={['2026-05-15']}
+        evaluatedSessions={new Set(['2026-05-15'])}
+        note={undefined}
         sessionCursor="2026-05-15"
         onCursorChange={vi.fn()}
         trees={SERVED_TREE.trees}
@@ -377,5 +382,31 @@ describe('TraceView', () => {
     // The engine head is still rendered (id + origin both read 'engine'), just not as a control.
     const engineSection = screen.getByRole('region', { name: 'engine stage' })
     expect(within(engineSection).getAllByText('engine').length).toBeGreaterThan(0)
+  })
+
+  it('gives node-origin heads a visible clickable affordance class; engine heads lack it', () => {
+    // Idle affordance (M13.7.5): clickable heads carry a modifier class so CSS shows a hover
+    // underline/tint and they read as clickable BEFORE hover-discovery. Engine heads (not canvas
+    // nodes, invariant 2) never get it, staying visually distinct and non-navigable.
+    render(
+      <TraceView
+        runId="run-1"
+        sessions={['2026-05-15']}
+        evaluatedSessions={new Set(['2026-05-15'])}
+        note={undefined}
+        sessionCursor="2026-05-15"
+        onCursorChange={vi.fn()}
+        trees={SERVED_TREE.trees}
+        treesLoading={false}
+        treesError={undefined}
+        onNodeClick={vi.fn()}
+      />,
+    )
+    const clickable = document.querySelectorAll('.trace-node__head--clickable')
+    expect(clickable.length).toBeGreaterThan(0)
+    clickable.forEach((el) => expect(el.tagName).toBe('BUTTON'))
+    // The engine head is present but NOT marked clickable.
+    const engineSection = screen.getByRole('region', { name: 'engine stage' })
+    expect(engineSection.querySelector('.trace-node__head--clickable')).toBeNull()
   })
 })

@@ -1715,6 +1715,20 @@ body {
   font-size: 0.78rem;
 }
 
+/* The served target-weight / order lists inside an evaluation row (M13.7.5): a compact, un-bulleted
+   stack of monospace rows so several weights/orders fit a single table cell without derivation. */
+.results__cells {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+
+.results__muted {
+  color: var(--text-muted);
+}
+
 .results__code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--danger-strong);
@@ -1737,6 +1751,16 @@ body {
   border: 1px solid var(--border-muted);
   border-radius: 5px;
   background: var(--surface);
+}
+
+/* Idle click affordance (M13.7.5): an interactive chart shows a pointer cursor and a subtle
+   accent-tinted border so it reads as clickable BEFORE the hover crosshair appears. */
+.chart__svg--interactive {
+  cursor: pointer;
+}
+
+.chart__svg--interactive:hover {
+  border-color: var(--accent);
 }
 
 .chart__line {
@@ -1788,6 +1812,14 @@ body {
   font-size: 0.72rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   pointer-events: none;
+}
+
+/* The static "click a point" hint under an interactive chart (M13.7.5) — the idle affordance that
+   makes clickability discoverable without hovering. */
+.chart__hint {
+  margin: 0.2rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
 }
 
 /* A clickable SESSION cell in the fills/evaluations tables — an inline, link-like button that keeps
@@ -1902,6 +1934,19 @@ button.trace-node__head {
   color: inherit;
   text-align: left;
   cursor: pointer;
+  border-radius: 3px;
+}
+
+/* Idle + hover affordance for a clickable (node-origin) head (M13.7.5): a subtle accent tint on
+   hover/focus and an underlined id so the row visibly reads as navigable BEFORE hover-discovery.
+   Engine heads (plain <div>, not `--clickable`) never get this, staying visually distinct. */
+button.trace-node__head--clickable:hover,
+button.trace-node__head--clickable:focus-visible {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.12));
+}
+
+button.trace-node__head--clickable:hover .trace-node__id {
+  text-decoration: underline;
 }
 
 .trace-node__id {
@@ -2016,6 +2061,13 @@ button.trace-node__head {
 
 .sbar__dirty {
   color: var(--warning);
+  font-size: var(--text-xs);
+}
+
+/* The evaluation-cadence readout (M13.7.5) — a quiet label that explains the no-evaluation sessions
+   the cursor steps across (a monthly strategy only decides on rebalance days). */
+.sbar__schedule {
+  color: var(--text-muted);
   font-size: var(--text-xs);
 }
 
