@@ -72,6 +72,8 @@ vi.mock('./components/Canvas', () => ({
     focusRequest: { nodeId: string; nonce: number } | null
     componentTrail?: { componentId: string; version: string }[]
     componentSelectedNodeId?: string | null
+    onEnterComponent?: (entry: { componentId: string; version: string }) => void
+    onNavigateToDepth?: (depth: number) => void
   }) => (
     <div>
       <span data-testid="sel-node">{String(props.selectedNodeId)}</span>
@@ -81,6 +83,15 @@ vi.mock('./components/Canvas', () => ({
       <span data-testid="comp-sel">{String(props.componentSelectedNodeId ?? null)}</span>
       <button type="button" onClick={() => props.actions.replace(seededDoc)}>
         seed-doc
+      </button>
+      <button
+        type="button"
+        onClick={() => props.onEnterComponent?.({ componentId: 'cid-nested', version: '1.0.0' })}
+      >
+        canvas-enter
+      </button>
+      <button type="button" onClick={() => props.onNavigateToDepth?.(0)}>
+        nav-0
       </button>
     </div>
   ),
@@ -179,6 +190,43 @@ describe('App trace→breadcrumb navigation (M13.8)', () => {
     expect(screen.getByTestId('trail-len')).toHaveTextContent('0')
     expect(screen.getByTestId('sel-node')).toHaveTextContent('plain')
     expect(screen.getByTestId('focus')).toHaveTextContent('plain')
+    await flush()
+  })
+
+  it('a malformed-path fallback fired from INSIDE a component returns to the strategy view', async () => {
+    renderEditor()
+    fireEvent.click(screen.getByText('seed-doc'))
+    // First open a trail, then a malformed row must NOT leave the breadcrumb open with a focus targeting
+    // a strategy node absent from the component projection — it lands back in the strategy view.
+    fireEvent.click(screen.getByText('trace-click-component'))
+    expect(screen.getByTestId('trail-len')).toHaveTextContent('1')
+    fireEvent.click(screen.getByText('trace-click-plain'))
+    expect(screen.getByTestId('trail-len')).toHaveTextContent('0')
+    expect(screen.getByTestId('comp-sel')).toHaveTextContent('null')
+    expect(screen.getByTestId('sel-node')).toHaveTextContent('plain')
+    expect(screen.getByTestId('focus')).toHaveTextContent('plain')
+    await flush()
+  })
+
+  it('clears the pending focus request when exiting the breadcrumb (no stale re-center)', async () => {
+    renderEditor()
+    fireEvent.click(screen.getByText('seed-doc'))
+    fireEvent.click(screen.getByText('trace-click-component')) // sets a focus request → 'sel'
+    expect(screen.getByTestId('focus')).toHaveTextContent('sel')
+    fireEvent.click(screen.getByText('nav-0')) // crumb-jump to the strategy view
+    // The stale trace focus must not survive the view switch — a colliding graph-local id would
+    // otherwise re-center the new projection when its nodes re-seed.
+    expect(screen.getByTestId('focus')).toHaveTextContent('none')
+    await flush()
+  })
+
+  it('clears the pending focus request when entering a nested component', async () => {
+    renderEditor()
+    fireEvent.click(screen.getByText('seed-doc'))
+    fireEvent.click(screen.getByText('trace-click-component')) // sets a focus request → 'sel'
+    expect(screen.getByTestId('focus')).toHaveTextContent('sel')
+    fireEvent.click(screen.getByText('canvas-enter')) // descend one level (no focus intent)
+    expect(screen.getByTestId('focus')).toHaveTextContent('none')
     await flush()
   })
 

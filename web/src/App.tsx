@@ -386,7 +386,14 @@ function AppShell(): ReactElement {
   }
 
   // --- Component navigation (M13.8) ------------------------------------------------------------
-  // Two entry paths, one shared clear of the in-component emphasis (it belonged to the level we leave).
+  // Two entry paths + a depth jump. Each clears BOTH the in-component emphasis and any pending focus
+  // request — both belonged to the level we leave. Dropping the focus request matters because the Canvas
+  // focus effect re-fires when a view switch re-seeds its nodes; a stale trace focus whose node id
+  // collides with a graph-local id in the new projection would otherwise unexpectedly re-center it.
+  const clearInComponentFocus = (): void => {
+    setComponentSelectedNodeId(null)
+    setFocusRequest(null)
+  }
 
   // From the INSPECTOR: its selected node is always a STRATEGY-DOC node (a top-level ComponentRef), so
   // entering from it starts fresh at the strategy → this component. REPLACE the trail with `[entry]`
@@ -394,19 +401,19 @@ function AppShell(): ReactElement {
   // trail is open) would push a duplicate crumb (Strategy ▸ X ▸ X).
   const enterComponentFromStrategy = (entry: ComponentTrailEntry): void => {
     setComponentTrail([entry])
-    setComponentSelectedNodeId(null)
+    clearInComponentFocus()
   }
   // From a CANVAS double-click: APPEND. In the strategy view the trail is empty (append ≡ replace); in a
   // component view a nested-ref double-click descends one more level, so append is the correct semantics.
   const enterComponentNested = (entry: ComponentTrailEntry): void => {
     setComponentTrail((prev) => [...prev, entry])
-    setComponentSelectedNodeId(null)
+    clearInComponentFocus()
   }
   // Jump the trail to a depth (0 = strategy view, i = keep the first i entries): breadcrumb crumb clicks
   // and Escape (a one-level pop) both route here. `slice(0, depth)` yields `[]` at depth 0.
   const onNavigateToDepth = (depth: number): void => {
     setComponentTrail((prev) => prev.slice(0, depth))
-    setComponentSelectedNodeId(null)
+    clearInComponentFocus()
   }
 
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
@@ -461,8 +468,13 @@ function AppShell(): ReactElement {
     const trail = resolveTrailFromPath(doc, componentPath, componentDefs)
     if (trail.length === 0) {
       // Unresolvable (malformed path, or the ref has left the document): fall back to the pre-breadcrumb
-      // behaviour — select + center the ComponentRef INSTANCE node (component_path[0]) in the strategy view.
+      // behaviour — return to the strategy view and select + center the ComponentRef INSTANCE node
+      // (component_path[0], always a strategy-doc node) there. Drop any open trail + in-component
+      // emphasis: fired from inside a component, the fallback must not leave the breadcrumb open with a
+      // focus targeting a node absent from the component projection.
       const target = componentPath[0]
+      setComponentTrail([])
+      setComponentSelectedNodeId(null)
       setSelectedNodeId(target)
       setFocusRequest((prev) => ({ nodeId: target, nonce: (prev?.nonce ?? 0) + 1 }))
       return
