@@ -11,7 +11,7 @@
 // SAME `toFlow`, mutating nothing (this replaced the modal drawer). The two modes render one ReactFlow
 // under a per-view `key` so React remounts on every transition and RF's store never latches a mode's
 // props (draggable/handlers/deleteKeyCode) into the other mode.
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import {
   Background,
@@ -538,12 +538,26 @@ export function Canvas({
   // Center on an external focus request (trace→canvas, M13.7). The App bumps the nonce per trace-row
   // click, so this re-runs — and re-centers — even when the same node is clicked twice. fitView on a
   // single node id pans/zooms it into view; selection is already handled via `selectedNodeId`.
+  //
+  // A focus request is ONE-SHOT: apply each distinct nonce exactly once. The effect must also depend on
+  // `rfNodes`/`rfInstance` — so a request whose target isn't in the projection yet applies once it
+  // arrives, and a post-mount request applies once `onInit` supplies the instance — but those same
+  // dependencies would otherwise REPLAY the last fitView on every UNRELATED re-seed (a plain node
+  // selection, a validity overlay, a stage highlight), yanking the viewport back to a stale
+  // trace-focused node. Tracking the applied nonce makes those re-seeds idempotent; a genuinely new
+  // request (a re-click bumps the nonce) still re-centers. The ref lives on the Canvas (which does not
+  // remount on a view switch — only the inner `<ReactFlow>` does), so a consumed nonce is remembered
+  // across mode changes too.
+  const appliedFocusNonceRef = useRef<number | null>(null)
   useEffect(() => {
     if (focusRequest == null || rfInstance === null) return
+    if (appliedFocusNonceRef.current === focusRequest.nonce) return // already applied this request
     // Guard against a node id not in the CURRENT projection: RF's `fitView` with a zero-match node set
     // computes a zero-rect and pans to the origin. A focus request that references a node absent from
-    // this view (a stale request across a mode switch) must be a no-op, not a jump to (0,0).
+    // this view (a stale request across a mode switch) must be a no-op, not a jump to (0,0). We do NOT
+    // mark the nonce applied here, so the request still fires if its target arrives on a later re-seed.
     if (!rfNodes.some((n) => n.id === focusRequest.nodeId)) return
+    appliedFocusNonceRef.current = focusRequest.nonce
     void rfInstance.fitView({ nodes: [{ id: focusRequest.nodeId }], duration: 300, maxZoom: 1.2 })
   }, [focusRequest, rfInstance, rfNodes])
 
