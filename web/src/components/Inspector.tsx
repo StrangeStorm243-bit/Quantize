@@ -19,7 +19,6 @@ import type { ReactElement } from 'react'
 import type {
   NodeCatalogResponse,
   NodeTypeDto,
-  PersistedNote,
   TraceTreeDto,
   TraceTreeNodeDto,
 } from '@quantize/quantize-api'
@@ -28,7 +27,10 @@ import { labelOf, nodeTypeById, useCatalog } from '../catalog'
 import { portColor } from '../catalog/colors'
 import { useComponentDefs } from '../components-cache'
 import { findComponentRef } from '../document/flow'
+import { noEvaluationLine } from '../document/schedule'
 import type { NodeParams, StrategyDocumentActions } from '../document/store'
+import type { AtSessionState } from '../run/useDebugLoopState'
+import { NoteLine } from './NoteLine'
 import type { ParameterSchema } from './ParamForm'
 import { ParamForm } from './ParamForm'
 import { TraceEventBody } from './TraceView'
@@ -86,17 +88,12 @@ function PortsSection({ nodeType, catalog }: { nodeType: NodeTypeDto; catalog: N
   )
 }
 
-/** Live data for the "At session" section (M13.7) — undefined until a run + cursor exist. */
-export interface AtSessionProps {
-  cursor: string
-  trees: TraceTreeDto[] | undefined
-  loading: boolean
-  error: string | undefined
-  /** Whether the cursor session has an evaluation; false → honest no-eval state. */
-  evaluated: boolean
-  /** The run record note for this session, when one exists (the served no-eval reason). */
-  note: PersistedNote | undefined
-}
+/**
+ * Live data for the "At session" section (M13.7) — undefined until a run + cursor exist. The SHAPE is
+ * owned by the run layer that builds it (`AtSessionState`, run/useDebugLoopState); this is the prop
+ * alias the Inspector consumes it under, so the run layer's payload type stays run-layer-owned.
+ */
+export type AtSessionProps = AtSessionState
 
 // --- Node Value Tap addressing (design W4) --------------------------------------------------------
 // The section renders SERVED facts addressed by (node_id, component_path); the cursor supplies the
@@ -185,11 +182,11 @@ function AtSessionSection({
     if (!atSession.evaluated) {
       nodePart = (
         <>
-          <p className="inspector__empty-note">No evaluation this session.</p>
+          {/* The SAME cadence-aware phrasing TraceView uses, sourced from the RUN's schedule kind — not
+              the live editor doc — so a post-run schedule edit can't make this line misdescribe the run. */}
+          <p className="inspector__empty-note">{noEvaluationLine(atSession.scheduleKind)}</p>
           {atSession.note !== undefined ? (
-            <p className="inspector__at-note">
-              <code className="trace-event__token">{atSession.note.code}</code> {atSession.note.message}
-            </p>
+            <NoteLine note={atSession.note} className="inspector__at-note" />
           ) : null}
         </>
       )

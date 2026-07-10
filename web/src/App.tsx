@@ -37,7 +37,6 @@ import { StrategyBar } from './components/StrategyBar'
 import { TraceView } from './components/TraceView'
 import { ValidatePanel } from './components/ValidatePanel'
 import type { HighlightTarget } from './validation/targets'
-import { noteFor } from './run/projections'
 import { useDebugLoopState } from './run/useDebugLoopState'
 import { bumpStrategyVersion, newStrategyDocument, semanticKey, useStrategyDocument } from './document/store'
 import { computeNodeValidity } from './validity'
@@ -93,6 +92,7 @@ export function App(): ReactElement {
     runRecord,
     runRecordLoading,
     runRecordError,
+    note,
     sessionCursor,
     setSessionCursor,
     sessionDates,
@@ -101,6 +101,7 @@ export function App(): ReactElement {
     traceLoading,
     traceError,
     atSession,
+    runScheduleKind,
   } = useDebugLoopState(selectedRunId)
   // The strategy bar's Validate verb bumps this to trigger a validation in the Problems panel.
   const [validateNonce, setValidateNonce] = useState(0)
@@ -447,8 +448,8 @@ export function App(): ReactElement {
           recordError={runRecordError}
           sessions={sessionDates}
           evaluatedSessions={evaluatedSessions}
-          note={noteFor(runRecord, selectedRunId, sessionCursor)}
-          scheduleKind={doc.schedule.kind}
+          note={note}
+          scheduleKind={runScheduleKind}
           sessionCursor={sessionCursor}
           onCursorChange={setSessionCursor}
           trees={traceTrees}

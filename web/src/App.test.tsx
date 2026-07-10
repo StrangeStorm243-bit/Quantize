@@ -29,6 +29,9 @@ vi.mock('./api/client', async (importOriginal) => {
     listComponents: vi.fn().mockResolvedValue({ components: [] }),
     // Per-test controllable: the App's lifted record fetch (M11.9 F7) is driven through this.
     getRun: vi.fn(),
+    // The debug-loop hook fetches the RUN's producing strategy version for its cadence (M13.7 fix pass);
+    // stub it so selecting a run never touches the network (a minimal doc — only `.schedule.kind` is read).
+    loadStrategyVersion: vi.fn().mockResolvedValue({ schedule: { kind: 'daily' } }),
   }
 })
 

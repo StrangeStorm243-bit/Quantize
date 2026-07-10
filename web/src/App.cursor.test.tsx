@@ -112,6 +112,9 @@ vi.mock('./api/client', async (importOriginal) => {
     // The App lifts the trace-tree fetch (M13.7 Task 2) and re-keys it on every cursor move; stub it so
     // stepping the cursor here neither hits the network nor leaves an async state update untested.
     getTraceTree: vi.fn().mockResolvedValue({ trees: [] }),
+    // The debug-loop hook fetches the RUN's producing strategy version for its cadence (M13.7 fix pass);
+    // stub it so selecting a run never touches the network (only `.schedule.kind` is read).
+    loadStrategyVersion: vi.fn().mockResolvedValue({ schedule: { kind: 'daily' } }),
   }
 })
 

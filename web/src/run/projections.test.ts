@@ -5,7 +5,7 @@
 // fixture so the change from the old default is actually asserted.
 import { describe, expect, it } from 'vitest'
 import type { PersistedNote, PersistedRunRecord, RunRecordResponse } from '@quantize/quantize-api'
-import { defaultCursor, evaluatedSet, matchesRun, noteFor, sessionAxis } from './projections'
+import { defaultCursor, evaluatedSet, gatedRecord, matchesRun, noteFor, sessionAxis } from './projections'
 
 // A minimal record carrying only the fields the projections read (run_id, valuations,
 // evaluations[].session_date, notes) — the cast keeps the fixture focused, mirroring TraceView.test.
@@ -46,6 +46,20 @@ describe('matchesRun', () => {
     expect(matchesRun(undefined, 'run-1')).toBe(false)
     expect(matchesRun(MATCHING, undefined)).toBe(false)
     expect(matchesRun(MATCHING, 'run-2')).toBe(false)
+  })
+})
+
+describe('gatedRecord (the sound-narrowing companion of matchesRun)', () => {
+  it('returns the record itself when it is the selected run’s', () => {
+    expect(gatedRecord(MATCHING, 'run-1')).toBe(MATCHING)
+  })
+
+  it('returns undefined for a mismatched, missing, or run-less record — never the stale record', () => {
+    // Unlike `matchesRun`'s plain-boolean false, this narrows the VALUE to undefined so a consumer
+    // (e.g. the hook's exposed record) can never keep holding the previous run's data through the gate.
+    expect(gatedRecord(MATCHING, 'run-2')).toBeUndefined()
+    expect(gatedRecord(MATCHING, undefined)).toBeUndefined()
+    expect(gatedRecord(undefined, 'run-1')).toBeUndefined()
   })
 })
 
@@ -96,5 +110,16 @@ describe('defaultCursor (D-12 as amended, M13.7.5)', () => {
 
   it('is null for an empty record (no evaluations, no valuations)', () => {
     expect(defaultCursor(response({}))).toBeNull()
+  })
+
+  it('falls back to the last valuation when the last evaluation is OFF the valuation axis', () => {
+    // Pins the on-axis guarantee: the cursor axis is the valuations, so an evaluation date absent
+    // from valuations (server maintains evaluations ⊆ valuations, so this is defensive) must NOT
+    // become the default — that would strand the whole loop (trace gate never fires, steppers disable).
+    const offAxis = response({
+      valuations: ['2026-07-01', '2026-07-02'],
+      evaluations: ['2026-07-01', '2026-07-09'],
+    })
+    expect(defaultCursor(offAxis)).toBe('2026-07-02')
   })
 })

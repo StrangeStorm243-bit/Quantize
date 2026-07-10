@@ -11,12 +11,34 @@
 // (invariant 5). No React: these are plain functions, unit-tested directly.
 import type { PersistedNote, RunRecordResponse } from '@quantize/quantize-api'
 
-/** True when the fetched record is the SELECTED run's — the single run-identity gate. */
+/**
+ * True when the fetched record is the SELECTED run's — the single run-identity gate. Deliberately a
+ * plain `boolean`, NOT a `record is RunRecordResponse` type guard: the false branch does NOT imply the
+ * record is absent. For a DEFINED-but-stale record (mismatched run_id) it returns false while `record`
+ * still holds the previous run's live data — a predicate would (unsoundly) narrow that record to
+ * `undefined` in the else branch, a compiler-blessed trap for future consumers. Callers that also need
+ * the gated record should use `gatedRecord`.
+ */
 export function matchesRun(
   record: RunRecordResponse | undefined,
   runId: string | undefined,
-): record is RunRecordResponse {
+): boolean {
   return record !== undefined && runId !== undefined && record.record.run_id === runId
+}
+
+/**
+ * The record when it is the SELECTED run's, else undefined — the SOUND-NARROWING companion of
+ * `matchesRun`. Where `matchesRun` is deliberately a plain boolean (its false branch does NOT imply
+ * the record is absent — a stale mismatched record is still defined), this returns the record ONLY
+ * when it matches, so a caller that needs the gated VALUE narrows it soundly (a stale record →
+ * undefined) instead of re-deriving the gate. Every record-shaped projection here routes through it,
+ * as does the hook's exposed record (`useDebugLoopState`, so consumers can never leak the gate).
+ */
+export function gatedRecord(
+  record: RunRecordResponse | undefined,
+  runId: string | undefined,
+): RunRecordResponse | undefined {
+  return matchesRun(record, runId) ? record : undefined
 }
 
 /** The run's session axis (ALL valuation dates, in served order); [] when the record doesn't match. */
@@ -24,10 +46,11 @@ export function sessionAxis(
   record: RunRecordResponse | undefined,
   runId: string | undefined,
 ): string[] {
-  if (!matchesRun(record, runId)) {
+  const gated = gatedRecord(record, runId)
+  if (gated === undefined) {
     return []
   }
-  return record.record.valuations.map(([date]) => date)
+  return gated.record.valuations.map(([date]) => date)
 }
 
 /** The evaluated subset (evaluations[].session_date); empty when the record doesn't match. */
@@ -35,10 +58,11 @@ export function evaluatedSet(
   record: RunRecordResponse | undefined,
   runId: string | undefined,
 ): Set<string> {
-  if (!matchesRun(record, runId)) {
+  const gated = gatedRecord(record, runId)
+  if (gated === undefined) {
     return new Set<string>()
   }
-  return new Set(record.record.evaluations.map((e) => e.session_date))
+  return new Set(gated.record.evaluations.map((e) => e.session_date))
 }
 
 /** The served note for one session, or undefined; gated on the same run identity. */
@@ -47,10 +71,11 @@ export function noteFor(
   runId: string | undefined,
   sessionDate: string | null,
 ): PersistedNote | undefined {
-  if (!matchesRun(record, runId) || sessionDate === null) {
+  const gated = gatedRecord(record, runId)
+  if (gated === undefined || sessionDate === null) {
     return undefined
   }
-  return record.record.notes.find((n) => n.session_date === sessionDate)
+  return gated.record.notes.find((n) => n.session_date === sessionDate)
 }
 
 /**
@@ -60,12 +85,22 @@ export function noteFor(
  * NO-EVALUATION session for monthly strategies over month-end windows. The last session remains
  * the fallback for a run with no evaluations; an empty record has no cursor (null). Server dates
  * only — this SELECTS a served date, it never computes one.
+ *
+ * Precondition: the cursor axis is the VALUATIONS, so the chosen default must be ON that axis — an
+ * off-axis cursor strands the whole loop (the trace fetch gate never fires; both StrategyBar steppers
+ * disable at indexOf === -1). The server maintains evaluations ⊆ valuations, so the last evaluation is
+ * normally on-axis; the explicit membership check is defensive hardening of that cross-array
+ * precondition, falling back to the last valuation if it is ever violated.
  */
 export function defaultCursor(record: RunRecordResponse): string | null {
+  const vals = record.record.valuations
+  const lastValuation = vals.length > 0 ? vals[vals.length - 1][0] : null
   const evals = record.record.evaluations
   if (evals.length > 0) {
-    return evals[evals.length - 1].session_date
+    const lastEvaluated = evals[evals.length - 1].session_date
+    if (vals.some(([date]) => date === lastEvaluated)) {
+      return lastEvaluated
+    }
   }
-  const vals = record.record.valuations
-  return vals.length > 0 ? vals[vals.length - 1][0] : null
+  return lastValuation
 }

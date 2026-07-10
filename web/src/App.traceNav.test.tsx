@@ -44,6 +44,9 @@ vi.mock('./api/client', async (importOriginal) => {
     listComponents: vi.fn().mockResolvedValue({ components: [] }),
     getRun: vi.fn(),
     getTraceTree: vi.fn().mockResolvedValue({ trees: [] }),
+    // The debug-loop hook fetches the RUN's producing strategy version for its cadence (M13.7 fix pass);
+    // stub it so selecting a run never touches the network (only `.schedule.kind` is read).
+    loadStrategyVersion: vi.fn().mockResolvedValue({ schedule: { kind: 'daily' } }),
   }
 })
 

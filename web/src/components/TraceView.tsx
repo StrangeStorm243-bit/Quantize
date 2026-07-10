@@ -13,7 +13,8 @@
 // served engine-origin root is grouped under a distinct "engine stage" section (display grouping only).
 import type { ReactElement } from 'react'
 import type { JsonValue, PersistedNote, TraceEvent, TraceTreeDto, TraceTreeNodeDto } from '@quantize/quantize-api'
-import { scheduleAdverb } from '../document/schedule'
+import { noEvaluationLine } from '../document/schedule'
+import { NoteLine } from './NoteLine'
 
 export interface TraceViewProps {
   /** The selected run id, or `undefined` when nothing is selected. */
@@ -30,9 +31,10 @@ export interface TraceViewProps {
   /** The served note for the cursor session (App-owned via `noteFor`), or undefined — the verbatim
    *  no-eval reason shown for a non-evaluated cursor. */
   note: PersistedNote | undefined
-  /** The strategy's schedule kind (App reads `doc.schedule.kind`), or undefined. Names the cadence in
-   *  the no-evaluation state ("this strategy evaluates monthly") so a skipped session is not mysterious.
-   *  An unrecognised/absent kind simply drops the cadence clause — a pure phrasing (invariant 5). */
+  /** The RUN's schedule kind (App threads `runScheduleKind` — the producing strategy version's cadence,
+   *  NOT the live editor doc's), or undefined. Names the cadence in the no-evaluation state ("this
+   *  strategy evaluates monthly") so a skipped session is not mysterious. An unrecognised/absent kind
+   *  simply drops the cadence clause — a pure phrasing (invariant 5). */
   scheduleKind?: string | undefined
   /** The shared session cursor (App-owned), or `null` when there is no run/axis. */
   sessionCursor: string | null
@@ -323,14 +325,10 @@ export function TraceView({
     return <div className="trace trace--empty">Select a run to view its trace.</div>
   }
 
-  // The no-evaluation line names the strategy's cadence when the schedule kind is recognised — a
-  // monthly strategy only decides on rebalance days, so a skipped session is expected, not an error.
-  // An unrecognised/absent kind drops the clause (safe fallback). Pure phrasing (invariant 5).
-  const cadence = scheduleKind !== undefined ? scheduleAdverb(scheduleKind) : undefined
-  const noEvalLine =
-    cadence !== undefined
-      ? `No evaluation this session — this strategy evaluates ${cadence}.`
-      : 'No evaluation this session.'
+  // The no-evaluation line names the RUN's cadence when the schedule kind is recognised — a monthly
+  // strategy only decides on rebalance days, so a skipped session is expected, not an error. An
+  // unrecognised/absent kind drops the clause. The SAME shared phrasing the Inspector uses (invariant 5).
+  const noEvalLine = noEvaluationLine(scheduleKind)
 
   // For an empty served result, distinguish an evaluated-but-traceless session from a session the
   // engine never evaluated; for the latter, the App-supplied `note` (the run's note for the cursor
@@ -377,11 +375,7 @@ export function TraceView({
         ) : (
           <div className="trace trace--empty">
             <p>{noEvalLine}</p>
-            {note !== undefined ? (
-              <p>
-                <code className="trace-event__token">{note.code}</code> {note.message}
-              </p>
-            ) : null}
+            {note !== undefined ? <NoteLine note={note} /> : null}
           </div>
         )
       ) : (

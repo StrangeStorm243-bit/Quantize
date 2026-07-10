@@ -105,15 +105,15 @@ describe('ResultsView', () => {
     expect(screen.getByText(/loading run/i)).toBeInTheDocument()
   })
 
-  it("never paints another run's record: a mismatched run_id renders as loading", () => {
-    // During a run switch the App briefly still holds the PREVIOUS run's record (its reset effect runs
-    // only after paint). The identity gate (`matchesRun`) must render that window as loading — never
-    // the stale run's numbers under the new runId.
+  it('is presentational: renders the record it is given (the run-identity gate moved upstream)', () => {
+    // The run-switch stale-window guard now lives in useDebugLoopState (run/projections gatedRecord):
+    // the App hands ResultsView the SELECTED run's record or `loading`, never a mismatch. ResultsView no
+    // longer re-gates on run_id — it renders the record it is passed, trusting that upstream contract.
     render(
-      <ResultsView runId="run-2" record={response(record())} loading={false} error={undefined} />,
+      <ResultsView runId="run-1" record={response(record())} loading={false} error={undefined} />,
     )
-    expect(screen.getByText(/loading run/i)).toBeInTheDocument()
-    expect(screen.queryByText('backtest')).not.toBeInTheDocument()
+    expect(screen.getByText('backtest')).toBeInTheDocument()
+    expect(screen.queryByText(/loading run/i)).not.toBeInTheDocument()
   })
 
   it('surfaces a record-fetch error passed from the App', () => {

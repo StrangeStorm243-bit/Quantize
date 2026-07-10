@@ -1236,3 +1236,107 @@ legibility walkthrough is formally M13.9's closeout instrument.
 slice). Gate green. Remaining M13 slices: M13.8 (component breadcrumb navigation + extraction polish)
 → M13.9 (arrival, journey checklist, the scripted legibility test, and the consolidated M13
 README/LEARNING_LOG/plan closeout).
+
+---
+
+## M13.7.5 — Debug-loop remediation + the Fable review fix pass (2026-07-09)
+
+A frontend-only hardening pass over the just-landed M13.7 debug loop, before M13.8 builds on it. Two
+sittings, both TDD: first the M13.7.5 remediation (a custom hook, a single-source projections module,
+and an amended cursor default), then a review fix pass answering ten Fable findings. No backend, DTO,
+codegen, or IR change — every fix is presentation over the same served facts.
+
+**Concepts introduced:**
+
+- **Custom-hook extraction of a COUPLED effect cluster.** The debug loop's run-record fetch, session
+  cursor, axis/evaluated-subset projections, tagged trace fetch, run-cadence fetch, and the "At
+  session" payload all moved out of a ~750-line `App.tsx` into one hook,
+  `web/src/run/useDebugLoopState.ts`. The reason to extract them *together* (not one hook each) is that
+  their correctness is **scheduling-coupled**: `setSessionCursor(null)` on a run switch is a
+  *scheduled* update, so the trace effect can run once with the previous run's cursor against the new
+  run — the guards that make that harmless (the run_id-gated axis, the `cancelled` cleanup) only read
+  as correct when the interacting effects sit side by side. The hook's boundary is deliberate: *run*
+  state only (run/cursor/trace); App keeps *editor* concerns (`selectedNodeId`, focus, trace→canvas
+  clicks). *Where:* `web/src/run/useDebugLoopState.ts` (read the module header, then the run-switch
+  `NOTE` inside the record effect).
+- **One run-identity gate instead of seven — and why the gate is a plain boolean, not a type guard.**
+  During a run switch the hook briefly still holds the *previous* run's record (its reset effect runs
+  after paint), so every view of that record — session axis, evaluated subset, a session's note — must
+  be gated on `record.run_id === selectedRunId`. That predicate had been hand-copied at ~7 sites (a
+  drift hazard); `web/src/run/projections.ts` makes `matchesRun` THE single gate and routes every
+  projection through it. The subtle part is the **type**: `matchesRun` returns `boolean`, *not*
+  `record is RunRecordResponse`. A type guard would be a compiler-blessed trap — its FALSE branch would
+  narrow a *defined-but-stale* record to `undefined`, which is a lie (the record is still there, just
+  the wrong run's). The sound-narrowing companion is a separate function, `gatedRecord`, which returns
+  the record only when it matches. *Where:* `web/src/run/projections.ts` (`matchesRun` vs
+  `gatedRecord`, and the docstrings explaining the split).
+- **The amended D-12 default cursor: the last EVALUATED session, with an on-axis precondition.** The
+  original D-12 default landed a freshly selected run on the last session of its axis — which for a
+  monthly strategy over a month-end window is systematically a NO-EVALUATION session, stranding the
+  first-time user on an empty trace. `defaultCursor` now selects the last *evaluated* session (the most
+  recent decision is the most interesting), falling back to the last valuation for a run with no
+  evaluations. The cursor axis is the VALUATIONS, so the chosen default must be ON that axis; the
+  server maintains `evaluations ⊆ valuations`, but the function still does a defensive membership check
+  (falling back if that cross-array precondition is ever violated) — an off-axis default would strand
+  the whole loop (the trace gate never fires; both steppers disable at `indexOf === -1`). *Where:*
+  `web/src/run/projections.ts` (`defaultCursor` + its precondition docstring).
+- **Gated boundaries: put the gate INSIDE the hook so a consumer cannot forget it.** The hook exposes
+  the *gated* record (`gatedRecord`), and folds the one-render stale-mismatch window (record defined,
+  gate undefined) into `runRecordLoading`. So a consumer sees a MATCHING record or loading — never a
+  mismatch — and can pair `runRecord` with the selection without re-gating. This is the M13.8 safety
+  argument in miniature: the next slice builds on this state, and a gate a caller *must remember* is a
+  gate a caller *will forget*. (The cursor itself is the deliberate exception — it can be non-null and
+  off-axis during the switch window, so its docstring tells consumers to gate it through
+  `isCursorOnAxis`, exactly as the trace fetch and the `atSession` memo do.) *Where:*
+  `useDebugLoopState.ts` (`runRecord: gated`, the `runRecordLoading || (…)` fold, and the
+  `sessionCursor` docstring warning).
+- **Run-sourced, not doc-sourced, explanations (an honesty argument).** A no-evaluation line names the
+  strategy's cadence ("… this strategy evaluates monthly"). That cadence must come from the strategy
+  version that PRODUCED the run — NOT the live editor document, which the user may have edited to
+  *daily* since running (a run survives doc edits). Otherwise the line would claim "evaluates daily"
+  directly above its own served "monthly cadence" note. Strategy versions are immutable once persisted,
+  so the producing version's schedule is the run's truth: the hook fetches it once per
+  `(strategy_id, strategy_version)` of the gated record, TAGs the result with the run it is for, and
+  gates the tag to the current selection (mirroring the trace fetch's tag/gate discipline). A fetch
+  failure is deliberately NON-FATAL: the tag carries an undefined kind and the cadence clause simply
+  drops. *Where:* `useDebugLoopState.ts` (`scheduleFetch`/`runScheduleKind`, the `loadStrategyVersion`
+  effect).
+- **Anti-drift presentation seams + a prototype-chain lookup guard.** Two surfaces (the Trace panel and
+  the Inspector "At session" section) render the same no-eval reason. The shared phrasing lives in ONE
+  function, `noEvaluationLine`, and the shared token+message markup in ONE component, `NoteLine` —
+  before this, the phrase and the `<code>…</code> message` markup were copy-pasted between the two and
+  drifted. `noEvaluationLine` maps the served `schedule.kind` to a phrase through `scheduleAdverb`,
+  which guards its lookup with `Object.hasOwn(ADVERB, kind)`: a bare `ADVERB[kind]` on a plain object
+  would resolve `Object.prototype` members, so a kind literally named `'constructor'` or `'toString'`
+  would return an inherited *function* instead of `undefined`, defeating the unrecognised-cadence
+  fallback. *Where:* `web/src/document/schedule.ts` (`noEvaluationLine`, `scheduleAdverb` + the
+  `Object.hasOwn` comment), `web/src/components/NoteLine.tsx`.
+
+**Reading path:** `web/src/run/projections.ts` first (the pure gate + the `matchesRun`/`gatedRecord`
+split + `defaultCursor`) — all plain functions, unit-tested directly — then `web/src/run/
+useDebugLoopState.ts` top to bottom (the module header names the six pieces; watch how every derived
+value routes through a projection and how `gated` is computed once and reused by both the exposed
+record and the cadence fetch). Then `web/src/trace/selectTrace.ts` (`isCursorOnAxis` as the ONE shared
+on-axis predicate the trace fetch, `selectTrace`, and the `atSession` memo all call) and finally
+`web/src/document/schedule.ts` + `web/src/components/NoteLine.tsx` (the two anti-drift seams).
+
+**Exercise (implement by hand, scratch branch):** in `web/src/run/projections.test.ts`, add a record
+whose LAST evaluation's `session_date` is NOT among its `valuations` (violating the `evaluations ⊆
+valuations` precondition the server upholds) and assert `defaultCursor` returns the last *valuation*,
+not that off-axis evaluation. *Prediction to make first:* which single line in `defaultCursor` catches
+it (answer: the `vals.some(([date]) => date === lastEvaluated)` membership check — remove it and the
+test fails, stranding the cursor off-axis). As a contrast, predict what `matchesRun` returns for a
+defined record whose `run_id` differs from `selectedRunId`, and why turning it into a
+`record is RunRecordResponse` type guard would make the false branch unsound. *Outcome:* … (left for
+the founder to run and record).
+
+**Verification status (honest, per CLAUDE.md).** Full canonical gate re-run AFTER the fix pass, green:
+`./scripts/gate.ps1` → **985 Python tests + 518 web (vitest) tests across 53 files**, plus ruff check,
+format check, mypy (185 files), Node-24 activation, codegen check, and both `tsc`/web typecheck stages.
+Frontend-only: no backend, DTO, codegen, or IR change. The live GUI click-through remains a founder
+step and is still blocked on data — `quantize-demo.db` has no seeded run (`*.db` is gitignored), so
+re-run the demo backtest before walking the loop.
+
+**Status:** M13.7.5 remediation + the Fable review fix pass implemented on `feat/m13.7-debug-loop`,
+TDD throughout (the pass opened on an inherited RED from stale cursor-test assertions, fixed first).
+Gate green. Next M13 slices unchanged: M13.8 (component breadcrumb navigation) → M13.9 (closeout).

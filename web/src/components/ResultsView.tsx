@@ -4,7 +4,6 @@
 // record is a valid run to inspect, not an error.
 import type { ReactElement } from 'react'
 import type { RunRecordResponse } from '@quantize/quantize-api'
-import { matchesRun } from '../run/projections'
 import { SvgLineChart } from './SvgLineChart'
 
 export interface ResultsViewProps {
@@ -37,10 +36,11 @@ export function ResultsView({
   if (runId === undefined) {
     return <div className="results results--empty">Select a run to view its results.</div>
   }
-  // During a run switch the App briefly still holds the PREVIOUS run's record (its reset effect
-  // runs only after paint), so also gate on the record's own run_id — never paint another run's
-  // numbers under this runId. `matchesRun` is the shared run-identity gate (run/projections).
-  if (loading || (data !== undefined && !matchesRun(data, runId))) {
+  // The run-identity gate lives UPSTREAM now (run/useDebugLoopState): the App hands ResultsView either
+  // the SELECTED run's record or `loading` — the post-switch stale window (the record effect resets
+  // only after paint) is folded into `loading` there. So this view no longer re-gates on run_id; it
+  // trusts a matching-or-loading record and simply shows the loading state when told to.
+  if (loading) {
     return <div className="results results--empty">Loading run…</div>
   }
   if (error !== undefined) {
