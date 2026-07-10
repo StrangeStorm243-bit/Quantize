@@ -190,6 +190,43 @@ export function componentPorts(def: ComponentDefinition): {
   }
 }
 
+/** One breadcrumb level: the pinned identity of an entered component (labels resolve from the cache). */
+export interface ComponentTrailEntry {
+  componentId: string
+  version: string
+}
+
+/**
+ * Resolve a served trace `component_path` (ComponentRef INSTANCE node ids, outermost first) into
+ * breadcrumb trail entries by walking doc → definition → definition. Returns the LONGEST resolvable
+ * prefix — an unknown node/ref stops the walk, and a definition cache miss stops it AFTER the entry
+ * the ref alone proves (the view ensures + loads that tip). Pure lookup; nothing is fetched here.
+ */
+export function resolveTrailFromPath(
+  doc: Pick<StrategyDocument, 'nodes' | 'component_refs'>,
+  componentPath: readonly string[],
+  components: ReadonlyMap<string, ComponentDefinition> | undefined,
+): ComponentTrailEntry[] {
+  const trail: ComponentTrailEntry[] = []
+  let nodes: StrategyDocument['nodes'] = doc.nodes
+  let refs: StrategyDocument['component_refs'] | undefined = doc.component_refs
+  for (const instanceId of componentPath) {
+    const node = nodes.find((n) => n.id === instanceId)
+    if (node === undefined || !('ref' in node)) break
+    const ref = findComponentRef(refs, node.ref)
+    if (ref === undefined) break
+    trail.push({ componentId: ref.component_id, version: ref.version })
+    // The ref proves this level; without the cached definition its body — and so any deeper level —
+    // is unknown, so the walk stops here with the tip the view then ensures + loads.
+    const def = components?.get(componentCacheKey(ref.component_id, ref.version))
+    if (def === undefined || def.implementation.kind !== 'graph') break
+    // A nested ref resolves against the DEFINITION's own scope, so swap both per level.
+    nodes = def.implementation.graph.nodes
+    refs = def.component_refs
+  }
+  return trail
+}
+
 /** A React Flow node whose `data` carries the mapped IR fields. */
 export type StrategyFlowNode = FlowNode<FlowNodeData>
 
