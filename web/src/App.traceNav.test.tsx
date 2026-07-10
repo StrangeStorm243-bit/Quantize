@@ -273,6 +273,21 @@ describe('App trace→breadcrumb navigation (M13.8)', () => {
     await flush()
   })
 
+  it('assigns a strictly increasing focus nonce across a clear (a re-focus after navigation still centers)', async () => {
+    renderEditor()
+    fireEvent.click(screen.getByText('seed-doc'))
+    fireEvent.click(screen.getByText('trace-click-component')) // focus request #1
+    const first = Number(screen.getByTestId('focus-nonce').textContent)
+    fireEvent.click(screen.getByText('nav-0')) // exit the breadcrumb — clears focusRequest to null
+    expect(screen.getByTestId('focus')).toHaveTextContent('none')
+    fireEvent.click(screen.getByText('trace-click-toplevel')) // focus request #2, after the clear
+    const second = Number(screen.getByTestId('focus-nonce').textContent)
+    // The nonce must NOT reset to 1 after the clear: the Canvas consumes each nonce once, so re-using an
+    // already-applied nonce would make it skip centering the newly-focused node.
+    expect(second).toBeGreaterThan(first)
+    await flush()
+  })
+
   it('bumps the focus nonce on each click so re-clicking the same row re-centers', async () => {
     renderEditor()
     fireEvent.click(screen.getByText('seed-doc'))

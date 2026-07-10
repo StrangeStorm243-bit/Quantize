@@ -92,8 +92,17 @@ function AppShell(): ReactElement {
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   // A canvas focus request: a nonce-keyed imperative "center this node" signal (React-idiomatic vs a
-  // ref handle) — bumped per click so re-clicking the same row re-centers.
+  // ref handle) — a fresh nonce per request so re-clicking the same row re-centers.
   const [focusRequest, setFocusRequest] = useState<{ nodeId: string; nonce: number } | null>(null)
+  // The nonce source. It MUST be globally monotonic — never reset — because the Canvas consumes each
+  // nonce exactly once (one-shot fitView). Deriving the next nonce from the current `focusRequest` would
+  // reset to 1 whenever the request is cleared to null (navigation/open), and the Canvas would then skip
+  // the reused nonce as already-applied. A ref that only ever increments keeps every request distinct.
+  const focusNonceRef = useRef(0)
+  const requestFocus = (nodeId: string): void => {
+    focusNonceRef.current += 1
+    setFocusRequest({ nodeId, nonce: focusNonceRef.current })
+  }
   const [highlightedEdgeIndex, setHighlightedEdgeIndex] = useState<number | null>(null)
   const [dockTab, setDockTab] = useState<DockTab>('problems')
   const [datasetId, setDatasetId] = useState<string | undefined>(initialDatasetId)
@@ -463,7 +472,7 @@ function AppShell(): ReactElement {
       setComponentTrail([])
       setComponentSelectedNodeId(null)
       setSelectedNodeId(nodeId)
-      setFocusRequest((prev) => ({ nodeId, nonce: (prev?.nonce ?? 0) + 1 }))
+      requestFocus(nodeId)
       return
     }
     // A row INSIDE a component: walk the served path to the deepest provable breadcrumb level.
@@ -478,7 +487,7 @@ function AppShell(): ReactElement {
       setComponentTrail([])
       setComponentSelectedNodeId(null)
       setSelectedNodeId(target)
-      setFocusRequest((prev) => ({ nodeId: target, nonce: (prev?.nonce ?? 0) + 1 }))
+      requestFocus(target)
       return
     }
     // Navigate the breadcrumb. Keep the top-level ComponentRef instance selected so the Inspector still
@@ -488,7 +497,7 @@ function AppShell(): ReactElement {
     if (trail.length === componentPath.length) {
       // Fully resolved: the emitting leaf's own level is in view — emphasize + center it there.
       setComponentSelectedNodeId(nodeId)
-      setFocusRequest((prev) => ({ nodeId, nonce: (prev?.nonce ?? 0) + 1 }))
+      requestFocus(nodeId)
     } else {
       // Partial: the leaf's level isn't cached yet, so there is nothing to emphasize OR center here —
       // the tip view's `ensure` loads the rest. Clear both the in-component emphasis and any pending
