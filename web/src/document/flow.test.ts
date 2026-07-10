@@ -484,6 +484,23 @@ describe('resolveTrailFromPath', () => {
     ])
   })
 
+  it('stops at a non-graph implementation kind (body exists but is not a navigable graph)', () => {
+    // Definition A cached but with a non-`graph` implementation: the ref proves level 1, yet its body
+    // is not a graph to descend into, so the walk stops exactly like the cache-miss sibling. The cast
+    // synthesizes a kind the generated GraphImplementation type does not (yet) admit.
+    const nonGraphA: ComponentDefinition = {
+      ...DEF_A,
+      implementation: { kind: 'sandboxed' } as unknown as ComponentDefinition['implementation'],
+    }
+    const map = new Map([
+      [componentCacheKey(CID_A, '1.0.0'), nonGraphA],
+      [componentCacheKey(CID_B, '2.0.0'), DEF_B],
+    ])
+    expect(resolveTrailFromPath(doc, ['mom', 'inner'], map)).toEqual([
+      { componentId: CID_A, version: '1.0.0' },
+    ])
+  })
+
   it('stops at a plain registered node (not a component)', () => {
     expect(resolveTrailFromPath(doc, ['ret'], fullMap)).toEqual([])
   })

@@ -216,8 +216,10 @@ export function resolveTrailFromPath(
     const ref = findComponentRef(refs, node.ref)
     if (ref === undefined) break
     trail.push({ componentId: ref.component_id, version: ref.version })
-    // The ref proves this level; without the cached definition its body — and so any deeper level —
-    // is unknown, so the walk stops here with the tip the view then ensures + loads.
+    // The ref proves this level; the walk can only descend into a cached, navigable-graph body. It
+    // stops here (tip = this entry) on either a cache miss — body unknown until the view loads it —
+    // or a non-`graph` implementation kind: a body exists but isn't a graph to walk (the component
+    // view shows the kind notice instead). Both leave the ref-proven entry as the trail's tip.
     const def = components?.get(componentCacheKey(ref.component_id, ref.version))
     if (def === undefined || def.implementation.kind !== 'graph') break
     // A nested ref resolves against the DEFINITION's own scope, so swap both per level.
