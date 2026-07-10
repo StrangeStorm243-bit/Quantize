@@ -205,6 +205,20 @@ body {
   color: var(--danger);
 }
 
+/* Component-view body status (loading / non-graph notice, M13.8): fills the region below the
+   breadcrumb, mirroring where React Flow would render. */
+.canvas__status {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
 .canvas__banner {
   position: absolute;
   top: 0.75rem;

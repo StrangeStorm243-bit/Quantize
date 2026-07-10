@@ -23,7 +23,6 @@ import {
 import { CatalogProvider } from './catalog'
 import { ComponentsProvider } from './components-cache'
 import { Canvas } from './components/Canvas'
-import { ComponentDrawer } from './components/ComponentDrawer'
 import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
 import { Dock } from './components/Dock'
 import type { DockPanel } from './components/Dock'
@@ -141,11 +140,6 @@ export function App(): ReactElement {
   // an in-flight open applies (or reports) ONLY if it is still the latest — so the user's LAST action
   // wins and a superseded request is dropped silently (never applied, never a spurious error).
   const openTicketRef = useRef(0)
-
-  // The component whose internals are open in the read-only detail drawer (M12.4, E11).
-  const [viewedComponent, setViewedComponent] = useState<{ componentId: string; version: string } | null>(
-    null,
-  )
 
   // Extraction mode (M12.5, E2): an App-OWNED selection set — NOT React Flow's transient multi-select
   // — so it survives every doc re-seed by construction.
@@ -558,13 +552,6 @@ export function App(): ReactElement {
                     onEngineClick={handleEngine}
                     focusRequest={focusRequest}
                   />
-                  {viewedComponent !== null ? (
-                    <ComponentDrawer
-                      componentId={viewedComponent.componentId}
-                      version={viewedComponent.version}
-                      onClose={() => setViewedComponent(null)}
-                    />
-                  ) : null}
                   {extractDialogOpen ? (
                     <ExtractDialog
                       doc={doc}
@@ -597,7 +584,6 @@ export function App(): ReactElement {
                     doc={doc}
                     selectedNodeId={selectedNodeId}
                     actions={actions}
-                    onInspectComponent={(target) => setViewedComponent(target)}
                     atSession={atSession}
                   />
                 </aside>

@@ -44,10 +44,17 @@ import type { PortType } from '../catalog'
 import { categoryColor, portColor } from '../catalog/colors'
 import { addComponentRefNode } from '../document/store'
 import type { EdgeSpec, StrategyDocumentActions } from '../document/store'
-import { componentPorts, resolveComponentDef, toFlow } from '../document/flow'
-import type { NodeValidity, StrategyFlowNode } from '../document/flow'
+import {
+  componentCacheKey,
+  componentPorts,
+  findComponentRef,
+  resolveComponentDef,
+  toFlow,
+} from '../document/flow'
+import type { ComponentTrailEntry, NodeValidity, StrategyFlowNode } from '../document/flow'
 import { useComponentDefs } from '../components-cache'
 import { CategoryIcon } from '../icons/categories'
+import { Breadcrumb } from './Breadcrumb'
 import { COMPONENT_DRAG_MIME, NODE_DRAG_MIME } from './Palette'
 import type { ComponentDragPayload, NodeDragPayload } from './Palette'
 import { DataSourceCard } from './DataSourceCard'
@@ -347,6 +354,28 @@ export interface CanvasProps {
    * itself already flows through `selectedNodeId`. Optional so the canvas renders standalone.
    */
   focusRequest?: { nodeId: string; nonce: number } | null
+  /**
+   * The component-navigation trail (M13.8). Empty/absent = the normal strategy editing view. A non-empty
+   * trail flips the canvas into a STRUCTURALLY read-only component-view mode: it projects the trail
+   * tip's `ComponentDefinition.implementation.graph` through the SAME `toFlow`, drops every dispatch
+   * handler, and puts the {@link Breadcrumb} in the StageStrip's slot. This replaced the modal drawer.
+   */
+  componentTrail?: ComponentTrailEntry[]
+  /**
+   * Push one level deeper: fired on a double-click of a ComponentRef card with that instance's pinned
+   * `(componentId, version)`. Gated off while `extractionMode` is active (nothing to enter mid-extract).
+   */
+  onEnterComponent?: (entry: ComponentTrailEntry) => void
+  /**
+   * Jump the trail to a depth (0 = strategy view, i = keep the first i entries). Breadcrumb crumb clicks
+   * route here; Escape routes here with `trail.length - 1` (a one-level pop). Component view only.
+   */
+  onNavigateToDepth?: (depth: number) => void
+  /**
+   * Visual emphasis for a node INSIDE a component view (trace→breadcrumb, M13.7 hook): marks that
+   * projected node RF-`selected`. Distinct from `selectedNodeId`, which references strategy-doc nodes.
+   */
+  componentSelectedNodeId?: string | null
 }
 
 export function Canvas({
@@ -363,9 +392,22 @@ export function Canvas({
   nodeValidity,
   onEngineClick,
   focusRequest,
+  componentTrail,
+  onEnterComponent,
+  onNavigateToDepth,
+  componentSelectedNodeId,
 }: CanvasProps): ReactElement {
   const { catalog, loading, error } = useCatalog()
   const { defs: componentDefs, ensure: ensureComponent } = useComponentDefs()
+
+  // Component-view mode (M13.8): a non-empty trail projects the trail TIP's definition graph read-only.
+  // `readOnly` gates every editing affordance below; `tip`/`tipDef` are the deepest entry and its cached
+  // (immutable) definition — `undefined` while it is still being fetched, the only "loading" degradation.
+  const trail = componentTrail ?? []
+  const readOnly = trail.length > 0
+  const tip = readOnly ? trail[trail.length - 1] : undefined
+  const tipDef =
+    tip === undefined ? undefined : componentDefs.get(componentCacheKey(tip.componentId, tip.version))
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance<StrategyFlowNode, FlowEdge> | null>(
     null,
   )
@@ -386,10 +428,49 @@ export function Canvas({
     }
   }, [doc.component_refs, ensureComponent])
 
+  // Component-view fetches (M13.8), generalizing the old drawer's on-demand fetch effect over the
+  // whole trail: ensure EVERY level (so intermediate crumbs resolve their names and the walk
+  // can descend), and — once the tip's own definition has loaded as a `graph` — ensure each of its
+  // nested `component_refs` so an inner ComponentRefNode resolves to its name/ports rather than a bare
+  // box. `ensure` is idempotent/cache-forever, so re-running on every render is free after the first fetch.
+  useEffect(() => {
+    if (componentTrail === undefined) return
+    for (const entry of componentTrail) {
+      ensureComponent(entry.componentId, entry.version)
+    }
+    if (tipDef !== undefined && tipDef.implementation.kind === 'graph') {
+      for (const ref of tipDef.component_refs) {
+        ensureComponent(ref.component_id, ref.version)
+      }
+    }
+  }, [componentTrail, tipDef, ensureComponent])
+
   // Project the document into the RF node/edge shapes, tagging each node with our custom type so
   // React Flow renders `StrategyNode`. `catalog`/`componentDefs` may be sparse early — `toFlow` handles
   // a missing catalog and a component cache miss (bare node) without crashing.
   const project = useCallback((): { nodes: StrategyFlowNode[]; edges: FlowEdge[] } => {
+    // Component-view projection (M13.8): the trail tip's internal graph through the SAME `toFlow`. A
+    // component `Graph` carries no `component_refs`, so splice the definition's onto the widened first
+    // arg (as the drawer did) or every nested ref would degrade to a bare box. No validity overlay and
+    // no stage highlight here — those are strategy-editing concerns; the only mark is the trace emphasis.
+    if (readOnly) {
+      if (tipDef === undefined || tipDef.implementation.kind !== 'graph') {
+        return { nodes: [], edges: [] }
+      }
+      const flow = toFlow(
+        { ...tipDef.implementation.graph, component_refs: tipDef.component_refs },
+        catalog,
+        componentDefs,
+      )
+      return {
+        nodes: flow.nodes.map((n) => ({
+          ...n,
+          type: STRATEGY_NODE_TYPE,
+          selected: n.id === componentSelectedNodeId,
+        })),
+        edges: flow.edges,
+      }
+    }
     const flow = toFlow(doc, catalog, componentDefs)
     return {
       // Mark the selected node(s): the extraction SET (when present) marks every member; otherwise the
@@ -417,6 +498,9 @@ export function Canvas({
     highlightedEdgeIndex,
     stageHighlight,
     nodeValidity,
+    readOnly,
+    tipDef,
+    componentSelectedNodeId,
   ])
 
   // React Flow owns LOCAL node/edge state so it can move nodes and draw edges interactively; the
@@ -441,6 +525,20 @@ export function Canvas({
     if (focusRequest == null || rfInstance === null) return
     void rfInstance.fitView({ nodes: [{ id: focusRequest.nodeId }], duration: 300, maxZoom: 1.2 })
   }, [focusRequest, rfInstance])
+
+  // Escape pops one component-navigation level (M13.8). A window listener — active ONLY while a trail
+  // is open — so a keypress anywhere in the workspace returns, mirroring the drawer's Escape-to-close.
+  // `trail.length - 1` keeps the first (length-1) entries: one level up (0 → the strategy view).
+  useEffect(() => {
+    if (!readOnly) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        onNavigateToDepth?.(trail.length - 1)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [readOnly, trail.length, onNavigateToDepth])
 
   const nodeTypes = useMemo(() => ({ [STRATEGY_NODE_TYPE]: StrategyNode }), [])
 
@@ -519,14 +617,47 @@ export function Canvas({
     [extractionMode, onToggleExtractionNode, onNodeClick],
   )
 
+  // Enter a ComponentRef card's internals on double-click (M13.8): resolve the double-clicked instance's
+  // pinned `(componentId, version)` in the CURRENT view's scope — the strategy doc, or the tip
+  // definition's own graph/refs inside a component view — and push it onto the trail. Disabled while
+  // extraction mode is active (nothing to enter mid-extract) and for non-component nodes.
+  const onNodeDoubleClickHandler = useCallback(
+    (_event: unknown, node: StrategyFlowNode) => {
+      if (extractionMode || onEnterComponent === undefined || !node.data.isComponent) {
+        return
+      }
+      const scopeNodes =
+        readOnly && tipDef !== undefined && tipDef.implementation.kind === 'graph'
+          ? tipDef.implementation.graph.nodes
+          : doc.nodes
+      const scopeRefs = readOnly ? tipDef?.component_refs : doc.component_refs
+      const irNode = scopeNodes.find((n) => n.id === node.id)
+      if (irNode === undefined || !('ref' in irNode)) {
+        return
+      }
+      const ref = findComponentRef(scopeRefs, irNode.ref)
+      if (ref === undefined) {
+        return
+      }
+      onEnterComponent({ componentId: ref.component_id, version: ref.version })
+    },
+    [extractionMode, onEnterComponent, readOnly, tipDef, doc],
+  )
+
   // A double-click on the empty pane opens the quick-add menu at the pointer. Guard on the pane class
-  // so double-clicking a node (or a control) never triggers it. The menu converts screen → flow
-  // coordinates through the RF instance on add, so the node lands where the user clicked.
-  const onCanvasDoubleClick = useCallback((event: ReactMouseEvent) => {
-    if ((event.target as HTMLElement).classList.contains('react-flow__pane')) {
-      setQuickAdd({ x: event.clientX, y: event.clientY })
-    }
-  }, [])
+  // so double-clicking a node (or a control) never triggers it. Inert in a read-only component view.
+  // The menu converts screen → flow coordinates through the RF instance on add.
+  const onCanvasDoubleClick = useCallback(
+    (event: ReactMouseEvent) => {
+      if (readOnly) {
+        return
+      }
+      if ((event.target as HTMLElement).classList.contains('react-flow__pane')) {
+        setQuickAdd({ x: event.clientX, y: event.clientY })
+      }
+    },
+    [readOnly],
+  )
 
   const onQuickAdd = useCallback(
     (nodeType: NodeTypeDto) => {
@@ -554,7 +685,8 @@ export function Canvas({
   const onDrop = useCallback(
     (event: DragEvent) => {
       event.preventDefault()
-      if (rfInstance === null) {
+      // A read-only component view accepts no drops — definitions are immutable (invariant 8).
+      if (readOnly || rfInstance === null) {
         return
       }
       // A dragged COMPONENT: mint a `ComponentRefNode` (no catalog needed — components resolve from the
@@ -603,7 +735,7 @@ export function Canvas({
         position,
       })
     },
-    [catalog, rfInstance, doc, actions],
+    [catalog, rfInstance, doc, actions, readOnly],
   )
 
   if (loading) {
@@ -617,7 +749,7 @@ export function Canvas({
   }
 
   return (
-    <CanvasChromeContext.Provider value={{ datasetId, datasetMeta, resolvable: true }}>
+    <CanvasChromeContext.Provider value={{ datasetId, datasetMeta, resolvable: !readOnly }}>
       {/* Capture-phase double-click so it fires BEFORE React Flow's own pane dblclick (which zooms and
           stops propagation); RF's zoom-on-double-click is disabled below so the two never fight. */}
       <div
@@ -626,13 +758,25 @@ export function Canvas({
         onDrop={onDrop}
         onDoubleClickCapture={onCanvasDoubleClick}
       >
-        {/* The pipeline stage strip — the "you are looking at a strategy machine" device. Above the
-            canvas; a segment click highlights its nodes. */}
-        <StageStrip
-          nodes={stripNodes}
-          onSelectSegment={(ids) => setStageHighlight(new Set(ids))}
-          onEngineClick={onEngineClick}
-        />
+        {/* The strip slot: in a component view the Breadcrumb REPLACES the stage strip (M13.8); in the
+            strategy view the pipeline stage strip is the "you are looking at a strategy machine" device
+            (a segment click highlights its nodes). */}
+        {readOnly ? (
+          <Breadcrumb
+            strategyName={doc.strategy.name}
+            trail={trail}
+            labels={trail.map(
+              (entry) => componentDefs.get(componentCacheKey(entry.componentId, entry.version))?.name,
+            )}
+            onNavigate={(depth) => onNavigateToDepth?.(depth)}
+          />
+        ) : (
+          <StageStrip
+            nodes={stripNodes}
+            onSelectSegment={(ids) => setStageHighlight(new Set(ids))}
+            onEngineClick={onEngineClick}
+          />
+        )}
 
         {rejection !== undefined ? (
           <div className="canvas__banner" role="alert">
@@ -647,43 +791,74 @@ export function Canvas({
             </button>
           </div>
         ) : null}
-        <ReactFlow<StrategyFlowNode, FlowEdge>
-          nodes={rfNodes}
-          edges={rfEdges}
-          nodeTypes={nodeTypes}
-          // The editor's selection model is SINGLE-element (App.selectedNodeId; one node/edge deleted at
-          // a time). RF's native multi-select (Shift box-select, Ctrl/Cmd multi-click — both on by
-          // default) would be collapsed by the doc-driven re-seed mid-interaction, so a later Delete
-          // could hit the wrong set. Disable both by nulling their key codes.
-          selectionKeyCode={null}
-          multiSelectionKeyCode={null}
-          // While extraction mode is active, disable Delete/Backspace: the App-owned selection set is
-          // highlighted via RF `selected`, and a stray keypress must NOT delete the picked subgraph.
-          // Off-mode the prop is OMITTED (spread), leaving RF's default delete keys in place.
-          {...(extractionMode ? { deleteKeyCode: null } : {})}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onInit={setRfInstance}
-          onConnect={onConnect}
-          onNodesDelete={onNodesDelete}
-          onEdgesDelete={onEdgesDelete}
-          onNodeDragStop={onNodeDragStop}
-          onNodeClick={onNodeClickHandler}
-          zoomOnDoubleClick={false}
-          fitView
-        >
-          <Background />
-          <Controls />
-          <MiniMap />
-          {/* The on-canvas port-type legend — data-driven from the catalog's lattice. A RF Panel
-              places it top-right so it never collides with Controls (bottom-left) / MiniMap. */}
-          <Panel position="top-right">
-            <Legend catalog={catalog} />
-          </Panel>
-        </ReactFlow>
+        {/* Component-view body states (M13.8), ported from the drawer: a cache miss shows a loading
+            status, a non-`graph` implementation kind shows the honest "not viewable" notice (the
+            future-kinds seam), and only a loaded `graph` renders the projected internal graph. */}
+        {readOnly && tipDef === undefined ? (
+          <div className="canvas__status">Loading component…</div>
+        ) : readOnly && tipDef !== undefined && tipDef.implementation.kind !== 'graph' ? (
+          <div className="canvas__status">
+            This component&apos;s implementation (kind: {tipDef.implementation.kind}) is not viewable.
+          </div>
+        ) : (
+          <ReactFlow<StrategyFlowNode, FlowEdge>
+            nodes={rfNodes}
+            edges={rfEdges}
+            nodeTypes={nodeTypes}
+            // The editor's selection model is SINGLE-element (App.selectedNodeId; one node/edge deleted
+            // at a time). RF's native multi-select (Shift box-select, Ctrl/Cmd multi-click — both on by
+            // default) would be collapsed by the doc-driven re-seed mid-interaction, so a later Delete
+            // could hit the wrong set. Disable both by nulling their key codes.
+            selectionKeyCode={null}
+            multiSelectionKeyCode={null}
+            // A read-only component view is STRUCTURALLY non-interactive: nodes are neither draggable,
+            // connectable, nor selectable, and Delete is nulled — and the mutation dispatchers are
+            // OMITTED entirely below. Otherwise, extraction mode alone nulls Delete; the plain editor
+            // leaves RF's defaults in place.
+            {...(readOnly
+              ? {
+                  nodesDraggable: false,
+                  nodesConnectable: false,
+                  elementsSelectable: false,
+                  deleteKeyCode: null,
+                }
+              : extractionMode
+                ? { deleteKeyCode: null }
+                : {})}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onInit={setRfInstance}
+            // The mutation dispatchers + single-select handler are ABSENT in a read-only component view
+            // (absent, not no-ops — so the view can change nothing), present in the strategy editor.
+            {...(readOnly
+              ? {}
+              : {
+                  onConnect,
+                  onNodesDelete,
+                  onEdgesDelete,
+                  onNodeDragStop,
+                  onNodeClick: onNodeClickHandler,
+                })}
+            // Double-click ENTERS a ComponentRef card — passed in both views (it mutates nothing, only
+            // pushes onto the App-owned trail).
+            onNodeDoubleClick={onNodeDoubleClickHandler}
+            zoomOnDoubleClick={false}
+            fitView
+          >
+            <Background />
+            <Controls />
+            <MiniMap />
+            {/* The on-canvas port-type legend — data-driven from the catalog's lattice. A RF Panel
+                places it top-right so it never collides with Controls (bottom-left) / MiniMap. */}
+            <Panel position="top-right">
+              <Legend catalog={catalog} />
+            </Panel>
+          </ReactFlow>
+        )}
 
-        {/* The double-click quick-add menu (fuzzy catalog search), anchored at the click. */}
-        {quickAdd !== null ? (
+        {/* The double-click quick-add menu (fuzzy catalog search), anchored at the click. Strategy view
+            only — the component view is read-only. */}
+        {quickAdd !== null && !readOnly ? (
           <QuickAdd
             catalog={catalog}
             position={quickAdd}
