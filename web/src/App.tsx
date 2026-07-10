@@ -190,9 +190,11 @@ function AppShell(): ReactElement {
     setShellError(undefined)
     setSaving(false) // a freshly opened document is not mid-save (a prior save belongs to the old doc)
     // A freshly opened/created document starts at the strategy view (its own graph), never mid-navigation
-    // through some previous document's components.
+    // through some previous document's components. Drop any pending trace focus too: it referenced the
+    // prior document's graph, and a colliding graph-local id in the new one would otherwise re-center it.
     setComponentTrail([])
     setComponentSelectedNodeId(null)
+    setFocusRequest(null)
     setView('editor')
   }
 

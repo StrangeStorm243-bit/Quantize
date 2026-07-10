@@ -127,6 +127,16 @@ vi.mock('./components/Dock', () => ({
   ),
 }))
 
+// StrategyBar stub: only `onHome` is exercised here (returning to Home so a fresh document — which
+// routes through `enterEditorWith` — can be created).
+vi.mock('./components/StrategyBar', () => ({
+  StrategyBar: (props: { onHome: () => void }) => (
+    <button type="button" onClick={props.onHome}>
+      go-home
+    </button>
+  ),
+}))
+
 vi.mock('./components/Palette', () => ({ Palette: () => <div /> }))
 vi.mock('./components/Inspector', () => ({ Inspector: () => <div /> }))
 vi.mock('./components/ValidatePanel', () => ({ ValidatePanel: () => <div /> }))
@@ -245,6 +255,20 @@ describe('App trace→breadcrumb navigation (M13.8)', () => {
     expect(screen.getByTestId('comp-sel')).toHaveTextContent('null')
     // The prior trace focus ('sel') must not survive the view switch — the tip view's `ensure` loads the
     // unresolved level; there is nothing to center here, and a colliding graph-local id would re-center.
+    expect(screen.getByTestId('focus')).toHaveTextContent('none')
+    await flush()
+  })
+
+  it('clears a pending focus request when a fresh document is opened', async () => {
+    renderEditor()
+    fireEvent.click(screen.getByText('seed-doc'))
+    fireEvent.click(screen.getByText('trace-click-component')) // sets a focus request → 'sel'
+    expect(screen.getByTestId('focus')).toHaveTextContent('sel')
+    // Home → New routes through `enterEditorWith`, which resets editor-nav state for a fresh document.
+    // A stale trace focus from the prior document must not survive into the new one (a colliding
+    // graph-local id in the opened strategy would otherwise re-center it).
+    fireEvent.click(screen.getByText('go-home'))
+    fireEvent.click(screen.getByText('home-new'))
     expect(screen.getByTestId('focus')).toHaveTextContent('none')
     await flush()
   })
