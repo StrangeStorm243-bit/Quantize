@@ -337,6 +337,13 @@ export interface CanvasProps {
   extractionMode?: boolean
   /** Toggle a node in/out of the extraction selection set (called on a node click while in mode). */
   onToggleExtractionNode?: (nodeId: string) => void
+  /**
+   * A completed marquee (Shift+drag box) in the strategy view reported its enclosed node ids (M13.8). The
+   * App mirrors them into its own extraction set — outside extraction mode it auto-enters the mode seeded
+   * with the box (design W5's "direct manipulation instead of click-toggling in a mode"), in the mode it
+   * unions. Fired via RF's `onSelectionEnd`; never in a read-only component view (nothing to extract).
+   */
+  onMarqueeSelection?: (nodeIds: string[]) => void
   /** A validate-highlighted edge INDEX (into `doc.edges`); marks the matching RF edge `selected`. */
   highlightedEdgeIndex?: number | null
   /** The active dataset binding (M13.4) — feeds the Data Source card via context. */
@@ -392,6 +399,7 @@ export function Canvas({
   selectedNodeIds,
   extractionMode,
   onToggleExtractionNode,
+  onMarqueeSelection,
   highlightedEdgeIndex,
   datasetId,
   datasetMeta,
@@ -650,6 +658,24 @@ export function Canvas({
     [extractionMode, onToggleExtractionNode, onNodeClick],
   )
 
+  // A completed marquee (Shift+drag box) in the strategy view (M13.8): read the CURRENT RF selection off
+  // the instance and report the enclosed node ids so the App can mirror them into its extraction set. We
+  // use RF's `onSelectionEnd` and read `getNodes()` — NOT `onSelectionChange`, which would ALSO fire for
+  // the doc re-seed's programmatic `selected: true` marks (see `project`) and echo them back as a phantom
+  // marquee. Report only a non-empty box: an empty drag is a deselect, never an extraction seed.
+  const onSelectionEnd = useCallback(() => {
+    if (rfInstance === null || onMarqueeSelection === undefined) {
+      return
+    }
+    const ids = rfInstance
+      .getNodes()
+      .filter((n) => n.selected)
+      .map((n) => n.id)
+    if (ids.length > 0) {
+      onMarqueeSelection(ids)
+    }
+  }, [rfInstance, onMarqueeSelection])
+
   // Enter a ComponentRef card's internals on double-click (M13.8): resolve the double-clicked instance's
   // pinned `(componentId, version)` in the CURRENT view's scope — the strategy doc, or the tip
   // definition's own graph/refs inside a component view — and push it onto the trail. Disabled while
@@ -843,11 +869,14 @@ export function Canvas({
             nodes={rfNodes}
             edges={rfEdges}
             nodeTypes={nodeTypes}
-            // The editor's selection model is SINGLE-element (App.selectedNodeId; one node/edge deleted
-            // at a time). RF's native multi-select (Shift box-select, Ctrl/Cmd multi-click — both on by
-            // default) would be collapsed by the doc-driven re-seed mid-interaction, so a later Delete
-            // could hit the wrong set. Disable both by nulling their key codes.
-            selectionKeyCode={null}
+            // Marquee (Shift+box) select is RESTORED in the strategy view (M13.8), OFF in a read-only
+            // component view. 'Shift' is RF's default selection key, stated explicitly for the reader. The
+            // M11.9 hazard — a doc re-seed collapsing a native multi-selection so a later Delete hits the
+            // wrong set — is CLOSED, not ignored: `onSelectionEnd` mirrors the box into the App-OWNED
+            // extraction set (which survives every re-seed by construction), and auto-entering extraction
+            // mode nulls the Delete key. `multiSelectionKeyCode` stays null — Ctrl/Cmd-click multi-select
+            // remains out of scope.
+            selectionKeyCode={readOnly ? null : 'Shift'}
             multiSelectionKeyCode={null}
             // A read-only component view is STRUCTURALLY non-interactive: the interactivity flags are
             // EXPLICIT booleans (not omitted) so RF's store applies them on every remount — a component
@@ -870,6 +899,9 @@ export function Canvas({
                   onEdgesDelete,
                   onNodeDragStop,
                   onNodeClick: onNodeClickHandler,
+                  // A completed Shift+drag marquee → mirror the box into the App-owned extraction set
+                  // (M13.8). Strategy view only; a read-only component view has nothing to extract.
+                  onSelectionEnd,
                 })}
             // Double-click ENTERS a ComponentRef card — passed in both views (it mutates nothing, only
             // pushes onto the App-owned trail).

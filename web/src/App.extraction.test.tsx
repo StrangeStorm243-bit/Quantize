@@ -29,12 +29,14 @@ vi.mock('./api/client', async (importOriginal) => {
   }
 })
 
-// Canvas mock: expose the extraction props and buttons that toggle nodes into/out of the set.
+// Canvas mock: expose the extraction props and buttons that toggle nodes into/out of the set, plus
+// buttons that fire `onMarqueeSelection` with a fixed id set (M13.8 — a completed marquee).
 vi.mock('./components/Canvas', () => ({
   Canvas: (props: {
     selectedNodeIds?: ReadonlySet<string>
     extractionMode?: boolean
     onToggleExtractionNode?: (id: string) => void
+    onMarqueeSelection?: (ids: string[]) => void
   }) => (
     <div>
       <span data-testid="ext-mode">{String(props.extractionMode)}</span>
@@ -47,6 +49,15 @@ vi.mock('./components/Canvas', () => ({
       </button>
       <button type="button" onClick={() => props.onToggleExtractionNode?.('n2')}>
         toggle-n2
+      </button>
+      <button type="button" onClick={() => props.onMarqueeSelection?.(['a', 'b'])}>
+        marquee-ab
+      </button>
+      <button type="button" onClick={() => props.onMarqueeSelection?.(['c'])}>
+        marquee-c
+      </button>
+      <button type="button" onClick={() => props.onMarqueeSelection?.(['b', 'c'])}>
+        marquee-bc
       </button>
     </div>
   ),
@@ -164,6 +175,39 @@ describe('App extraction mode', () => {
     renderEditor()
     fireEvent.click(screen.getByRole('button', { name: 'Extract component' }))
     expect(screen.getByRole('button', { name: 'Create component…' })).toBeDisabled()
+    await flush()
+  })
+})
+
+describe('App marquee → extraction (M13.8, Decision (a))', () => {
+  it('auto-enters extraction mode seeded with the marquee, then unions further marquees', async () => {
+    renderEditor()
+    // Not in mode: the entry affordance is visible, no banner yet.
+    expect(screen.getByTestId('ext-mode')).toHaveTextContent('false')
+
+    // A marquee OUTSIDE the mode auto-enters it, seeded with the box.
+    fireEvent.click(screen.getByRole('button', { name: 'marquee-ab' }))
+    expect(screen.getByTestId('ext-mode')).toHaveTextContent('true')
+    expect(screen.getByTestId('sel-ids')).toHaveTextContent('a,b')
+    expect(screen.getByRole('status')).toHaveTextContent('2 nodes selected')
+
+    // A marquee WHILE in the mode unions into the existing set.
+    fireEvent.click(screen.getByRole('button', { name: 'marquee-c' }))
+    expect(screen.getByTestId('sel-ids')).toHaveTextContent('a,b,c')
+    expect(screen.getByRole('status')).toHaveTextContent('3 nodes selected')
+    await flush()
+  })
+
+  it('unions an overlapping marquee without duplicating already-selected nodes', async () => {
+    renderEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'marquee-ab' }))
+    expect(screen.getByTestId('sel-ids')).toHaveTextContent('a,b')
+
+    // ['b','c'] overlaps 'b' — the union adds only 'c' (set semantics), so 3, not 4.
+    fireEvent.click(screen.getByRole('button', { name: 'marquee-bc' }))
+    expect(screen.getByTestId('sel-ids')).toHaveTextContent('a,b,c')
+    expect(screen.getByTestId('sel-count')).toHaveTextContent('3')
+    expect(screen.getByRole('status')).toHaveTextContent('3 nodes selected')
     await flush()
   })
 })

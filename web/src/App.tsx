@@ -357,6 +357,28 @@ function AppShell(): ReactElement {
     onExtracted(newNodeId)
     return true
   }
+  // A completed canvas marquee reports the enclosed node ids (M13.8, Decision (a)). Outside extraction
+  // mode this AUTO-ENTERS the mode seeded with the box — direct manipulation replacing click-toggling in a
+  // mode (design W5). The auto-enter immediately nulls the canvas Delete key (extractionMode → deleteKeyCode
+  // null), which is what makes restoring the RF marquee safe. Already in the mode → UNION into the set. The
+  // set is App-owned, so it survives every doc re-seed by construction (the M11.9 delete-safety worry, closed).
+  const onMarqueeSelection = (ids: string[]): void => {
+    if (extractionMode) {
+      setExtractionSelection((prev) => {
+        const next = new Set(prev)
+        for (const id of ids) {
+          next.add(id)
+        }
+        return next
+      })
+    } else {
+      // Mirror `enterExtractionMode`'s posture: seed the set, drop the single selection, close any dialog.
+      setExtractionSelection(new Set(ids))
+      setSelectedNodeId(null)
+      setExtractDialogOpen(false)
+      setExtractionMode(true)
+    }
+  }
 
   // --- Component navigation (M13.8) ------------------------------------------------------------
   // Two entry paths, one shared clear of the in-component emphasis (it belonged to the level we leave).
@@ -599,6 +621,7 @@ function AppShell(): ReactElement {
                 selectedNodeIds={extractionMode ? extractionSelection : undefined}
                 extractionMode={extractionMode}
                 onToggleExtractionNode={toggleExtractionNode}
+                onMarqueeSelection={onMarqueeSelection}
                 highlightedEdgeIndex={highlightedEdgeIndex}
                 datasetId={datasetId}
                 datasetMeta={datasetMeta}
