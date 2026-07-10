@@ -4,7 +4,7 @@
 // modal ComponentDrawer's guarantee, ported into the one canvas. We mock `@xyflow/react` to capture the
 // props handed `<ReactFlow>` (like Canvas.extraction.test) and the component cache (like the deleted
 // ComponentDrawer.test) so we can seed/omit definitions. Real catalog via CatalogProvider. NO network.
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
 import { addComponentRefNode, newStrategyDocument } from '../document/store'
@@ -13,6 +13,7 @@ import { componentCacheKey } from '../document/flow'
 import type { ComponentTrailEntry } from '../document/flow'
 import { CatalogProvider } from '../catalog'
 import { Canvas } from './Canvas'
+import { COMPONENT_DRAG_MIME } from './Palette'
 
 // The real catalog fetch resolves to the committed golden (transform.rank → "Rank"). No component
 // fetches happen: the cache is mocked below, so `loadComponentVersion` is never exercised here.
@@ -56,6 +57,9 @@ vi.mock('@xyflow/react', async () => {
       const onDbl = props.onNodeDoubleClick as ((e: unknown, n: unknown) => void) | undefined
       return (
         <div data-testid="rf">
+          {/* A stand-in for RF's own pane element: a pane double-click is what the Canvas quick-add
+              affordance keys on (`event.target.classList.contains('react-flow__pane')`). */}
+          <div className="react-flow__pane" data-testid="pane" />
           {nodes.map((n) => (
             <button key={n.id} data-testid={`node-${n.id}`} onDoubleClick={() => onDbl?.({}, n)}>
               {n.data.displayName ?? n.data.typeId}
@@ -215,18 +219,17 @@ describe('Canvas component-view mode', () => {
     expect(box.props?.onNodeDragStop).toBeUndefined()
   })
 
-  // 4
-  it('shows a loading state and ensures every trail level, plus the tip nested refs once loaded', async () => {
-    // (a) tip not cached → loading + ensure per trail level.
+  // 4a
+  it('shows a loading state and ensures every trail level when the tip is not cached', async () => {
     state.defs = new Map()
-    const { unmount } = renderCanvas({ componentTrail: trailOf(CID, SUB_CID) })
+    renderCanvas({ componentTrail: trailOf(CID, SUB_CID) })
     expect(await screen.findByText(/loading component/i)).toBeInTheDocument()
     expect(state.ensure).toHaveBeenCalledWith(CID, '1.0.0')
     expect(state.ensure).toHaveBeenCalledWith(SUB_CID, '1.0.0')
-    unmount()
-    vi.clearAllMocks()
+  })
 
-    // (b) tip cached with a nested ref → the nested ref's definition is ensured too.
+  // 4b
+  it('ensures the tip definition nested refs once the tip has loaded', async () => {
     seedDefs(makeParentWithNestedRef())
     renderCanvas({ componentTrail: trailOf(CID) })
     await waitFor(() => expect(state.ensure).toHaveBeenCalledWith(SUB_CID, '1.0.0'))
@@ -282,13 +285,37 @@ describe('Canvas component-view mode', () => {
     expect(screen.getByRole('navigation', { name: 'component breadcrumb' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Rank & Select/i })).not.toBeInTheDocument()
 
-    // A drop is inert: no node is added / document replaced in a read-only view.
+    // Hand the Canvas a WORKING RF instance so `onDrop` would proceed if the read-only guard were
+    // absent — then fire a REAL component-drag payload. The guard (not a null instance) is what makes
+    // the drop inert: no ComponentRefNode is minted.
+    act(() => {
+      ;(box.props?.onInit as (i: unknown) => void)({
+        screenToFlowPosition: (p: { x: number; y: number }) => p,
+      })
+    })
     const canvas = container.querySelector('.canvas') as HTMLElement
     fireEvent.drop(canvas, {
-      dataTransfer: { getData: () => '', dropEffect: 'copy' },
+      clientX: 20,
+      clientY: 20,
+      dataTransfer: {
+        getData: (mime: string) =>
+          mime === COMPONENT_DRAG_MIME ? JSON.stringify({ component_id: CID, version: '1.0.0' }) : '',
+      },
     })
-    expect(actions.addNode).not.toHaveBeenCalled()
     expect(actions.replace).not.toHaveBeenCalled()
+
+    // A pane double-click does not open the quick-add menu in a read-only view.
+    fireEvent.doubleClick(screen.getByTestId('pane'))
+    expect(screen.queryByLabelText('quick add search')).not.toBeInTheDocument()
+  })
+
+  // 7b — the same pane double-click DOES open quick-add in the strategy view, so the assertion above
+  // reflects the read-only guard, not a broken affordance.
+  it('opens the quick-add menu on a pane double-click in the strategy view', async () => {
+    renderCanvas({})
+    await screen.findByRole('button', { name: /Rank & Select/i })
+    fireEvent.doubleClick(screen.getByTestId('pane'))
+    expect(screen.getByLabelText('quick add search')).toBeInTheDocument()
   })
 
   // 8
@@ -335,5 +362,43 @@ describe('Canvas component-view mode', () => {
     // The StageStrip (not the Breadcrumb) is present in the strip slot.
     expect(await screen.findByRole('button', { name: /Rank & Select/i })).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'component breadcrumb' })).not.toBeInTheDocument()
+  })
+
+  // C1 regression: the interactivity flags are EXPLICIT booleans that toggle across a view transition.
+  // If they were merely omitted in the strategy view (the original bug), RF v12's store — which skips
+  // `undefined` updates — would latch the component view's `false` and never restore draggability on
+  // exit. The per-view `key` remount makes the explicit value take effect; here we assert the value.
+  it('passes explicit interactivity booleans that toggle when entering and leaving a component view', async () => {
+    seedDefs(makeDef(CID, 'Momentum', 'rk'))
+    const doc = newStrategyDocument('My Strategy')
+    const actions = stubActions()
+    const props = { doc, actions }
+    const { rerender } = render(
+      <CatalogProvider>
+        <Canvas {...props} />
+      </CatalogProvider>,
+    )
+    // Strategy editor: draggable/connectable/selectable.
+    await waitFor(() => expect(box.props?.nodesDraggable).toBe(true))
+    expect(box.props?.nodesConnectable).toBe(true)
+    expect(box.props?.elementsSelectable).toBe(true)
+
+    // Enter a component view: explicitly non-interactive.
+    rerender(
+      <CatalogProvider>
+        <Canvas {...props} componentTrail={trailOf(CID)} />
+      </CatalogProvider>,
+    )
+    await waitFor(() => expect(box.props?.nodesDraggable).toBe(false))
+    expect(box.props?.nodesConnectable).toBe(false)
+    expect(box.props?.elementsSelectable).toBe(false)
+
+    // Exit back to the editor: interactivity restored (would stay false if the prop were omitted/latched).
+    rerender(
+      <CatalogProvider>
+        <Canvas {...props} componentTrail={[]} />
+      </CatalogProvider>,
+    )
+    await waitFor(() => expect(box.props?.nodesDraggable).toBe(true))
   })
 })

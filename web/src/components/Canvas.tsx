@@ -5,6 +5,12 @@
 // compatibility decision (may this edge be created?) is a DATA LOOKUP against the catalog's allow-set
 // via `isAllowed` (D5) — there is NO hand-written type rule here. Rejections surface as a composed
 // message built from the two port-type LABELS, never from a bespoke conditional.
+//
+// It has a SECOND mode (M13.8): a non-empty `componentTrail` puts it in a structurally read-only
+// component view that projects the trail tip's `ComponentDefinition.implementation.graph` through the
+// SAME `toFlow`, mutating nothing (this replaced the modal drawer). The two modes render one ReactFlow
+// under a per-view `key` so React remounts on every transition and RF's store never latches a mode's
+// props (draggable/handlers/deleteKeyCode) into the other mode.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { DragEvent, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import {
@@ -408,6 +414,9 @@ export function Canvas({
   const tip = readOnly ? trail[trail.length - 1] : undefined
   const tipDef =
     tip === undefined ? undefined : componentDefs.get(componentCacheKey(tip.componentId, tip.version))
+  // Whether the ReactFlow surface renders at all: the strategy editor always, a component view only
+  // once its tip definition has loaded as a viewable `graph` (otherwise the body shows loading/notice).
+  const showFlow = !readOnly || (tipDef !== undefined && tipDef.implementation.kind === 'graph')
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance<StrategyFlowNode, FlowEdge> | null>(
     null,
   )
@@ -523,8 +532,21 @@ export function Canvas({
   // single node id pans/zooms it into view; selection is already handled via `selectedNodeId`.
   useEffect(() => {
     if (focusRequest == null || rfInstance === null) return
+    // Guard against a node id not in the CURRENT projection: RF's `fitView` with a zero-match node set
+    // computes a zero-rect and pans to the origin. A focus request that references a node absent from
+    // this view (a stale request across a mode switch) must be a no-op, not a jump to (0,0).
+    if (!rfNodes.some((n) => n.id === focusRequest.nodeId)) return
     void rfInstance.fitView({ nodes: [{ id: focusRequest.nodeId }], duration: 300, maxZoom: 1.2 })
-  }, [focusRequest, rfInstance])
+  }, [focusRequest, rfInstance, rfNodes])
+
+  // Drop the RF instance when the surface unmounts (a component view's loading/notice body renders no
+  // ReactFlow): a stale instance would otherwise let a drop/focus reach a disposed view. The per-view
+  // `key` remounts a fresh instance (re-firing `onInit`) whenever the surface returns.
+  useEffect(() => {
+    if (!showFlow) {
+      setRfInstance(null)
+    }
+  }, [showFlow])
 
   // Escape pops one component-navigation level (M13.8). A window listener — active ONLY while a trail
   // is open — so a keypress anywhere in the workspace returns, mirroring the drawer's Escape-to-close.
@@ -532,9 +554,20 @@ export function Canvas({
   useEffect(() => {
     if (!readOnly) return
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        onNavigateToDepth?.(trail.length - 1)
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      // Don't hijack Escape from an editable control (e.g. an Inspector param field cancelling an edit):
+      // only a "bare" Escape in the workspace pops the component-navigation level.
+      const target = event.target as HTMLElement | null
+      if (
+        target !== null &&
+        (target.isContentEditable ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT')
+      ) {
+        return
       }
+      onNavigateToDepth?.(trail.length - 1)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -802,6 +835,11 @@ export function Canvas({
           </div>
         ) : (
           <ReactFlow<StrategyFlowNode, FlowEdge>
+            // A per-view key so React REMOUNTS the surface on every strategy↔component (and crumb-jump)
+            // transition. RF v12's store skips `undefined` prop updates and never resets prior values, so
+            // without a remount the read-only view's latched flags/handlers would bleed into the editor
+            // (and vice versa). The remount also re-fires `onInit` (fresh instance) and re-runs `fitView`.
+            key={readOnly ? `component:${tip?.componentId}@${tip?.version}` : 'strategy'}
             nodes={rfNodes}
             edges={rfEdges}
             nodeTypes={nodeTypes}
@@ -811,20 +849,14 @@ export function Canvas({
             // could hit the wrong set. Disable both by nulling their key codes.
             selectionKeyCode={null}
             multiSelectionKeyCode={null}
-            // A read-only component view is STRUCTURALLY non-interactive: nodes are neither draggable,
-            // connectable, nor selectable, and Delete is nulled — and the mutation dispatchers are
-            // OMITTED entirely below. Otherwise, extraction mode alone nulls Delete; the plain editor
-            // leaves RF's defaults in place.
-            {...(readOnly
-              ? {
-                  nodesDraggable: false,
-                  nodesConnectable: false,
-                  elementsSelectable: false,
-                  deleteKeyCode: null,
-                }
-              : extractionMode
-                ? { deleteKeyCode: null }
-                : {})}
+            // A read-only component view is STRUCTURALLY non-interactive: the interactivity flags are
+            // EXPLICIT booleans (not omitted) so RF's store applies them on every remount — a component
+            // view never drags/connects/selects, the editor always can. The mutation dispatchers are
+            // additionally OMITTED below. Delete is nulled in the component view AND in extraction mode.
+            nodesDraggable={!readOnly}
+            nodesConnectable={!readOnly}
+            elementsSelectable={!readOnly}
+            {...(readOnly || extractionMode ? { deleteKeyCode: null } : {})}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onInit={setRfInstance}
@@ -846,7 +878,10 @@ export function Canvas({
             fitView
           >
             <Background />
-            <Controls />
+            {/* The interactivity (lock) button flips nodesDraggable/Connectable/Selectable directly in
+                RF's store — hide it in the read-only component view (the drawer's `showInteractive={false}`
+                guard, ported) so a click can't re-enable drag/connect over an immutable definition. */}
+            <Controls showInteractive={!readOnly} />
             <MiniMap />
             {/* The on-canvas port-type legend — data-driven from the catalog's lattice. A RF Panel
                 places it top-right so it never collides with Controls (bottom-left) / MiniMap. */}
