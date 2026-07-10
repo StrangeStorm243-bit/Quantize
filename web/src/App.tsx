@@ -488,9 +488,10 @@ function AppShell(): ReactElement {
       setComponentSelectedNodeId(nodeId)
       setFocusRequest((prev) => ({ nodeId, nonce: (prev?.nonce ?? 0) + 1 }))
     } else {
-      // Partial: the leaf's level isn't cached yet, so there is nothing to emphasize here — the tip
-      // view's `ensure` loads the rest. Clear any stale emphasis carried over from a prior navigation.
-      setComponentSelectedNodeId(null)
+      // Partial: the leaf's level isn't cached yet, so there is nothing to emphasize OR center here —
+      // the tip view's `ensure` loads the rest. Clear both the in-component emphasis and any pending
+      // focus request from a prior navigation, so a stale focus does not re-center the switched view.
+      clearInComponentFocus()
     }
   }
 

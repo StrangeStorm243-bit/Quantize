@@ -112,6 +112,9 @@ vi.mock('./components/TraceView', () => ({
       <button type="button" onClick={() => props.onNodeClick?.('leaf', ['plain'])}>
         trace-click-plain
       </button>
+      <button type="button" onClick={() => props.onNodeClick?.('leaf2', ['mom', 'inner'])}>
+        trace-click-partial
+      </button>
     </div>
   ),
 }))
@@ -226,6 +229,22 @@ describe('App trace→breadcrumb navigation (M13.8)', () => {
     fireEvent.click(screen.getByText('trace-click-component')) // sets a focus request → 'sel'
     expect(screen.getByTestId('focus')).toHaveTextContent('sel')
     fireEvent.click(screen.getByText('canvas-enter')) // descend one level (no focus intent)
+    expect(screen.getByTestId('focus')).toHaveTextContent('none')
+    await flush()
+  })
+
+  it('clears the pending focus request on a partially-resolved breadcrumb', async () => {
+    renderEditor()
+    fireEvent.click(screen.getByText('seed-doc'))
+    fireEvent.click(screen.getByText('trace-click-component')) // fully resolves → focus 'sel', trail-len 1
+    expect(screen.getByTestId('focus')).toHaveTextContent('sel')
+    // ['mom','inner']: 'mom' resolves off its ref, but its definition is uncached (empty cache in this
+    // test) so the walk stops after the ref-proven entry → a PARTIAL trail (length 1 < path length 2).
+    fireEvent.click(screen.getByText('trace-click-partial'))
+    expect(screen.getByTestId('trail-len')).toHaveTextContent('1')
+    expect(screen.getByTestId('comp-sel')).toHaveTextContent('null')
+    // The prior trace focus ('sel') must not survive the view switch — the tip view's `ensure` loads the
+    // unresolved level; there is nothing to center here, and a colliding graph-local id would re-center.
     expect(screen.getByTestId('focus')).toHaveTextContent('none')
     await flush()
   })
