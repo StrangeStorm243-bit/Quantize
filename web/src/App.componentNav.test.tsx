@@ -109,7 +109,7 @@ async function flush(): Promise<void> {
 }
 
 describe('App component-navigation trail (M13.8)', () => {
-  it('appends the Inspector "Enter component" payload as a 1-entry trail', async () => {
+  it('the Inspector "Enter component" payload starts a 1-entry trail from the strategy view', async () => {
     renderEditor()
     expect(screen.getByTestId('trail-len')).toHaveTextContent('0')
     fireEvent.click(screen.getByText('inspector-enter'))
@@ -118,11 +118,37 @@ describe('App component-navigation trail (M13.8)', () => {
     await flush()
   })
 
-  it('appends via the canvas double-click path (same handler)', async () => {
+  it('the Inspector entry REPLACES the trail (a strategy-level entry, never a duplicate crumb)', async () => {
     renderEditor()
-    fireEvent.click(screen.getByText('canvas-enter'))
+    // A 1-deep trail already open via the Inspector (its selected node is the same top-level ComponentRef).
+    fireEvent.click(screen.getByText('inspector-enter'))
     expect(screen.getByTestId('trail-len')).toHaveTextContent('1')
+    // Re-firing the SAME entry replaces rather than appends → length stays 1 (no Strategy ▸ X ▸ X).
+    fireEvent.click(screen.getByText('inspector-enter'))
+    expect(screen.getByTestId('trail-len')).toHaveTextContent('1')
+    await flush()
+  })
+
+  it('the Inspector entry collapses a deeper trail to just the new entry', async () => {
+    renderEditor()
+    // Open a 1-deep trail with a DIFFERENT entry (the canvas double-click path, cid-canvas).
+    fireEvent.click(screen.getByText('canvas-enter'))
     expect(screen.getByTestId('trail-ids')).toHaveTextContent('cid-canvas')
+    // A strategy-level Inspector entry (cid-inspector) replaces it: length 1, new identity, old gone.
+    fireEvent.click(screen.getByText('inspector-enter'))
+    expect(screen.getByTestId('trail-len')).toHaveTextContent('1')
+    expect(screen.getByTestId('trail-ids')).toHaveTextContent('cid-inspector')
+    expect(screen.getByTestId('trail-ids')).not.toHaveTextContent('cid-canvas')
+    await flush()
+  })
+
+  it('the canvas double-click path APPENDS onto the current trail', async () => {
+    renderEditor()
+    // Two canvas double-clicks descend two levels — append, not replace.
+    fireEvent.click(screen.getByText('canvas-enter'))
+    fireEvent.click(screen.getByText('canvas-enter'))
+    expect(screen.getByTestId('trail-len')).toHaveTextContent('2')
+    expect(screen.getByTestId('trail-ids')).toHaveTextContent('cid-canvas,cid-canvas')
     await flush()
   })
 

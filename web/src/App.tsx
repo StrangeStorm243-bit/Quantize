@@ -358,11 +358,19 @@ function AppShell(): ReactElement {
   }
 
   // --- Component navigation (M13.8) ------------------------------------------------------------
+  // Two entry paths, one shared clear of the in-component emphasis (it belonged to the level we leave).
 
-  // Descend one level: append the entry (the Inspector's "Enter component" button AND a canvas
-  // double-click both route here). Clear any in-component node emphasis — it belonged to the level we
-  // are leaving.
-  const onEnterComponent = (entry: ComponentTrailEntry): void => {
+  // From the INSPECTOR: its selected node is always a STRATEGY-DOC node (a top-level ComponentRef), so
+  // entering from it starts fresh at the strategy → this component. REPLACE the trail with `[entry]`
+  // rather than append — otherwise re-clicking the same instance (the Inspector still shows it while a
+  // trail is open) would push a duplicate crumb (Strategy ▸ X ▸ X).
+  const enterComponentFromStrategy = (entry: ComponentTrailEntry): void => {
+    setComponentTrail([entry])
+    setComponentSelectedNodeId(null)
+  }
+  // From a CANVAS double-click: APPEND. In the strategy view the trail is empty (append ≡ replace); in a
+  // component view a nested-ref double-click descends one more level, so append is the correct semantics.
+  const enterComponentNested = (entry: ComponentTrailEntry): void => {
     setComponentTrail((prev) => [...prev, entry])
     setComponentSelectedNodeId(null)
   }
@@ -598,7 +606,7 @@ function AppShell(): ReactElement {
                 focusRequest={focusRequest}
                 componentTrail={componentTrail}
                 componentSelectedNodeId={componentSelectedNodeId}
-                onEnterComponent={onEnterComponent}
+                onEnterComponent={enterComponentNested}
                 onNavigateToDepth={onNavigateToDepth}
               />
               {extractDialogOpen ? (
@@ -634,7 +642,7 @@ function AppShell(): ReactElement {
                 selectedNodeId={selectedNodeId}
                 actions={actions}
                 atSession={atSession}
-                onEnterComponent={onEnterComponent}
+                onEnterComponent={enterComponentFromStrategy}
               />
             </aside>
           </main>
