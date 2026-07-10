@@ -1340,3 +1340,97 @@ re-run the demo backtest before walking the loop.
 **Status:** M13.7.5 remediation + the Fable review fix pass implemented on `feat/m13.7-debug-loop`,
 TDD throughout (the pass opened on an inherited RED from stale cursor-test assertions, fixed first).
 Gate green. Next M13 slices unchanged: M13.8 (component breadcrumb navigation) → M13.9 (closeout).
+
+---
+
+## M13.8 — Component navigation: one projection, many views (2026-07-10)
+
+A frontend-only slice that replaces the modal `ComponentDrawer` with **in-canvas, read-only breadcrumb
+navigation** into component internals (arbitrary depth), re-enables marquee selection feeding the
+existing extraction flow, and closes the M13.7 hook so an in-component trace row navigates the
+breadcrumb to the emitting node's nesting level. No backend, DTO, codegen, or IR change — every change
+is a *projection* change over the same served facts.
+
+**Concepts introduced:**
+
+- **One projection function, many views (why the drawer's second ReactFlow died).** M12 rendered a
+  component's internals in a *modal* — a second `<ReactFlow>` living in `ComponentDrawer.tsx`, a whole
+  parallel widget. M13.8 deletes it. The key realization: the component view is not a different
+  *component*, it is the *same canvas in a different mode*. The main `Canvas` already turns an IR graph
+  into React Flow nodes/edges via `toFlow`; a component's `implementation.graph` is just another IR
+  graph. So the mode became a **branch inside `Canvas`**, not a new component: when the App-owned
+  `componentTrail` is non-empty, `Canvas` feeds the trail tip's definition graph through the *same*
+  `toFlow` and renders it. One projection function now backs both the editor and the read-only viewer.
+  Fewer moving parts, guaranteed-consistent rendering (a node looks identical in both), and the drawer's
+  ~300 lines evaporate. *Where:* `web/src/components/Canvas.tsx` (the `componentTrail` branch),
+  `web/src/document/flow.ts` (`toFlow`).
+- **Structural read-only, not disabled-flag read-only.** "Read-only" is enforced by *not passing the
+  edit handlers at all* — `onConnect`/`onNodesDelete`/`onEdgesDelete`/`onNodeDragStop` are `undefined`
+  in component view (handlers passed conditionally, absent rather than no-op), alongside
+  `nodesDraggable/nodesConnectable/elementsSelectable = false` and `deleteKeyCode = null`. The reason to
+  assert *absence* (the Canvas navigation tests read the captured ReactFlow props) rather than trust a
+  boolean flag: a disabled flag is one prop-wiring bug away from an editable "read-only" view, whereas an
+  absent handler *cannot* mutate — there is nothing to call. Structure over configuration. *Where:*
+  `web/src/components/Canvas.tsx`, `web/src/components/Canvas.navigation.test.tsx`.
+- **A pure trace-path → breadcrumb resolver that returns the LONGEST provable prefix.** The served trace
+  carries a `component_path` (ComponentRef *instance* node ids, outermost first). `resolveTrailFromPath`
+  walks doc → definition → definition, swapping ref scope per level, and returns the longest prefix it
+  can *prove* from what's in hand: an unknown node/ref stops the walk; a definition cache-miss (or a
+  non-`graph` kind) stops it *after* the entry the ref alone proves — because the ref pins a
+  `(componentId, version)` even when the body isn't loaded, and the tip view's `ensure` fetches the rest.
+  This is why the resolver is a *pure lookup that fetches nothing*: navigation degrades gracefully to
+  "as deep as currently provable," and loading is the view's job, not the resolver's. *Where:*
+  `web/src/document/flow.ts` (`resolveTrailFromPath`), `web/src/App.tsx` (`onTraceNodeClick`).
+- **The App owns the trail; the Canvas only projects it.** Trail state (`componentTrail`,
+  `componentSelectedNodeId`) lives in `App.tsx` because three sources push onto it — the Inspector's
+  "Enter component", a canvas double-click on a ComponentRef, and a trace row — and one place must
+  arbitrate. Inspector entry *replaces* the trail (`[entry]`) because its selection is always a
+  strategy-level node; a canvas double-click *appends* (descend one level). A trace row keeps the
+  top-level ComponentRef instance selected (`selectedNodeId`, which only ever references strategy-doc
+  nodes) for Inspector continuity, and — when the path fully resolves — emphasizes the leaf via the
+  separate `componentSelectedNodeId`. Two selection concepts, deliberately distinct: one indexes the
+  strategy document, one indexes whatever component view is open. *Where:* `web/src/App.tsx` (the
+  component-navigation handlers + `onTraceNodeClick`).
+- **`onSelectionEnd` + instance read, not `onSelectionChange` (avoiding the selection-echo loop).**
+  Marquee selection mirrors React Flow's transient box into the App-owned extraction set (which survives
+  every doc re-seed by construction — the M12.5 lesson). The subtlety: the App programmatically sets
+  `selected: true` on nodes to reflect that set back into the canvas. If the marquee were read from
+  `onSelectionChange`, that programmatic re-seed would *echo* back as a phantom marquee, unioning the
+  set into itself. Reading the finished selection off the instance in `onSelectionEnd` (a user gesture
+  boundary) breaks the loop. *Where:* `web/src/components/Canvas.tsx` (`onSelectionEnd` →
+  `onMarqueeSelection`), `web/src/App.tsx` (`onMarqueeSelection`).
+
+**Reading path (one navigation, end to end):** start at `web/src/document/flow.ts` — read `toFlow`,
+then `resolveTrailFromPath` directly below it (a pure function, unit-tested in `flow.test.ts`). Next
+`web/src/components/Canvas.tsx`: find the `componentTrail` branch and see how a non-empty trail swaps
+the projected graph and drops the edit handlers. Then `web/src/App.tsx`: the trail state, the three
+entry handlers (`enterComponentFromStrategy` replace vs `enterComponentNested` append vs
+`onNavigateToDepth` slice), and `onTraceNodeClick` (the four cases: empty path, unresolvable, partial,
+fully-resolved). Finally `web/src/components/Breadcrumb.tsx` for the trail's rendering (`aria-current`
+on the tip crumb).
+
+**Exercise (implement by hand, scratch branch):** `resolveTrailFromPath` returns the *longest provable
+prefix*. In `web/src/document/flow.test.ts`, add a THREE-level path `['mom', 'inner', 'leaf']` where the
+cache holds definition A (containing `inner`) and definition B (the tip of `inner`) but B's body does
+NOT contain a `leaf` ref — assert the resolver returns the two-entry prefix `[A, B]`, not three.
+*Prediction to make first:* if instead the cache is MISSING definition A entirely, how many entries come
+back for the same three-level path, and why? (answer: exactly ONE — the `mom` ref proves level 1, but
+with A's body unknown the walk cannot descend into `inner` at all; check yourself against the
+cache-miss test already in the suite.)
+
+**Verification status (honest, per CLAUDE.md).** The full canonical gate is green: **985 Python tests
++ 553 web (vitest) tests across 55 files**, plus ruff check, ruff format (186 files), mypy (185
+source files), Node-24 activation, codegen check (artifacts up to date), and both the root `tsc` and
+web typecheck stages. The web suite rose 518 → 553 across M13.8's TDD tasks (`Breadcrumb`,
+`Canvas.navigation`, `App.componentNav`, marquee `Canvas.selection`/`App.extraction`, and the
+rewritten `App.traceNav`). Because M13.8 changed **only `web/` and `docs/`** (zero Python, schema,
+codegen, or `ts/` diffs vs the M13.7.5 baseline `c741c48`), the Python-side stages ran the identical
+bytes already gated at M13.7.5 and produced the identical 985/mypy-185/codegen-clean results. The
+live GUI click-through remains a founder step, still blocked on data (`quantize-demo.db` has no
+seeded run; `*.db` is gitignored).
+
+**Status:** M13.8 implemented on `feat/m13.8-component-nav` (stacked on `feat/m13.7-debug-loop`), TDD
+per task. Remaining M13 slice: M13.9 (arrival/journey checklist, README §4, the scripted legibility
+walkthrough, and the consolidated M13 closeout). The live GUI click-through remains a founder step and
+is still blocked on data — `quantize-demo.db` has no seeded run (`*.db` is gitignored), so re-run the
+demo backtest before walking the component-navigation path.

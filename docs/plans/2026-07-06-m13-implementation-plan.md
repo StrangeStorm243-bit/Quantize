@@ -91,12 +91,13 @@ the product thesis instead of a utilitarian dashboard.
       `external`) plus the neutral unknown-category fallback.
 - [ ] Inspector shows an Explanation section (summary/formula/semantics/warm-up/ports) for the
       selected node; param controls use doc-block labels/help.
-- [ ] Trace rows are clickable → select/center the node on canvas (into components via
+- [x] Trace rows are clickable → select/center the node on canvas (into components via
       breadcrumb); equity chart is interactive (hover crosshair, click session → trace);
       evaluation/fill rows link to their session trace; engine output is grouped under an
-      explicit "Engine" heading. *(M13.7 done except in-component breadcrumb drill-down, which
-      awaits M13.8 — an in-component trace row currently selects the ComponentRef instance node.)*
-- [ ] Component drill-down is in-canvas breadcrumb navigation (read-only); the modal
+      explicit "Engine" heading. *(M13.7 + M13.8: the in-component breadcrumb drill-down hook
+      is closed — an in-component trace row now navigates the breadcrumb to the emitting node's
+      nesting level.)*
+- [x] Component drill-down is in-canvas breadcrumb navigation (read-only); the modal
       `ComponentDrawer` is removed; marquee multi-select feeds extraction.
 - [ ] Dark theme (default) + light theme via design tokens; all styles consume tokens.
 - [ ] Empty states + a dismissible journey checklist cover the README §4 path end-to-end.

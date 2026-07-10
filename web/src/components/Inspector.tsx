@@ -194,7 +194,7 @@ function AtSessionSection({
     } else {
       const found = findRoot(trees, nodeId)
       const hasOwnEvents = found !== undefined && found.events.length > 0
-      // KNOWN LIMITATION (deferred to M13.8+): this flattens exactly ONE level, so a nested-component
+      // KNOWN LIMITATION (deferred to post-M13.8): this flattens exactly ONE level, so a nested-component
       // child that emits nothing itself but whose OWN children (grandchildren) did is dropped here.
       const childrenWithEvents = (found?.children ?? []).filter((c) => c.events.length > 0)
       nodePart =
