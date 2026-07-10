@@ -61,8 +61,9 @@ function initialDatasetId(): string | undefined {
 
 // The exported App is a thin wrapper that mounts the app-wide providers around the real shell. The split
 // exists so `AppShell` sits INSIDE its own providers and can therefore call `useCatalog`/`useComponentDefs`
-// (M13.8: the shell resolves component-trace paths against the definition cache) — a hook can only read a
-// provider mounted ABOVE its component, and the shell used to be the provider host itself.
+// (M13.8: so it can resolve component-trace paths against the definition cache — wired in the
+// trace→breadcrumb step) — a hook can only read a provider mounted ABOVE its component, and the shell
+// used to be the provider host itself.
 export function App(): ReactElement {
   return (
     <CatalogProvider>
