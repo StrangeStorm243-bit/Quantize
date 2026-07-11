@@ -425,9 +425,24 @@ export function Canvas({
   // Whether the ReactFlow surface renders at all: the strategy editor always, a component view only
   // once its tip definition has loaded as a viewable `graph` (otherwise the body shows loading/notice).
   const showFlow = !readOnly || (tipDef !== undefined && tipDef.implementation.kind === 'graph')
+  // The per-view `<ReactFlow>` key (below): a strategy↔component (or crumb-jump) transition changes it and
+  // REMOUNTS the surface, yielding a fresh instance via `onInit`.
+  const viewKey = readOnly ? `component:${tip?.componentId}@${tip?.version}` : 'strategy'
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance<StrategyFlowNode, FlowEdge> | null>(
     null,
   )
+  // Drop the captured instance the INSTANT the view key changes — during render, before the focus effect
+  // runs in the transition commit — so a pending focus request can never apply (and consume its nonce)
+  // against the OUTGOING instance/projection. Without this, a view-changing trace-row click whose target
+  // id collides with a node in the old view would fire the wrong pan there and then be skipped on the
+  // incoming instance (the one-shot nonce already consumed). Setting state during render makes React
+  // re-run this component with the null instance before committing — the canonical "reset state on a
+  // changed input" path (React docs) — and the incoming `onInit` re-registers the fresh instance.
+  const prevViewKeyRef = useRef(viewKey)
+  if (prevViewKeyRef.current !== viewKey) {
+    prevViewKeyRef.current = viewKey
+    if (rfInstance !== null) setRfInstance(null)
+  }
   const [rejection, setRejection] = useState<string | undefined>(undefined)
   // A stage-strip segment click highlights that segment's nodes on canvas (purely visual RF selection,
   // cleared by any node click). Kept local — it selects among existing nodes, never mutates the doc.
@@ -879,7 +894,7 @@ export function Canvas({
             // transition. RF v12's store skips `undefined` prop updates and never resets prior values, so
             // without a remount the read-only view's latched flags/handlers would bleed into the editor
             // (and vice versa). The remount also re-fires `onInit` (fresh instance) and re-runs `fitView`.
-            key={readOnly ? `component:${tip?.componentId}@${tip?.version}` : 'strategy'}
+            key={viewKey}
             nodes={rfNodes}
             edges={rfEdges}
             nodeTypes={nodeTypes}

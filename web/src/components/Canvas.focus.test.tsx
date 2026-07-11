@@ -11,11 +11,14 @@
 // nodes flow into rfNodes (and the focus guard can match the target). NO network.
 import { act, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { StrategyDocument } from '@quantize/quantize-ir'
+import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
 import { newStrategyDocument } from '../document/store'
 import type { StrategyDocumentActions } from '../document/store'
+import { componentCacheKey } from '../document/flow'
 import { CatalogProvider } from '../catalog'
 import { Canvas } from './Canvas'
+
+const CID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 
 // The CatalogProvider's fetch resolves to the committed golden (transform.rank is a real descriptor).
 vi.mock('../api/client', async () => {
@@ -71,8 +74,40 @@ vi.mock('@xyflow/react', async () => {
 
 afterEach(() => {
   box.props = undefined
+  cache.defs = new Map()
   vi.clearAllMocks()
 })
+
+// A graph-kind component definition whose internal node id COLLIDES with a strategy node ('sel').
+function collidingDef(): ComponentDefinition {
+  return {
+    schema_version: '0.1.0',
+    component_id: CID,
+    version: '1.0.0',
+    name: 'Colliding',
+    description: null,
+    component_refs: [],
+    implementation: {
+      kind: 'graph',
+      graph: {
+        nodes: [{ id: 'sel', type_id: 'transform.rank', type_version: '1.0.0', params: {} }],
+        edges: [],
+      },
+    },
+    exposed_inputs: [],
+    exposed_outputs: [],
+    exposed_params: [],
+    provenance: {
+      owner: '22222222-2222-2222-2222-222222222222',
+      creator: '22222222-2222-2222-2222-222222222222',
+      contributors: [],
+      visibility: 'private',
+      duplicable: false,
+      created_at: '2026-07-06T00:00:00Z',
+      forked_from: null,
+    },
+  }
+}
 
 function stubActions(): StrategyDocumentActions {
   return {
@@ -153,5 +188,48 @@ describe('Canvas focus request (one-shot)', () => {
       </CatalogProvider>,
     )
     expect(fitView).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not center against the outgoing instance on a view-changing focus', async () => {
+    // The component's internal graph has a node id 'sel', colliding with the strategy's 'sel'.
+    cache.defs.set(componentCacheKey(CID, '1.0.0'), collidingDef())
+    const fitOld = vi.fn()
+    const fitNew = vi.fn()
+    const doc = twoNodeDoc() // strategy has 'n1' + 'sel'
+    const actions = stubActions()
+    const { rerender } = render(
+      <CatalogProvider>
+        <Canvas doc={doc} actions={actions} selectedNodeId={null} focusRequest={null} />
+      </CatalogProvider>,
+    )
+    await nodesSeeded() // strategy view; 'sel' present
+    act(() => {
+      ;(box.props?.onInit as (i: unknown) => void)({ fitView: fitOld, getNodes: () => [] })
+    })
+
+    // A trace click that ENTERS the component AND focuses its internal 'sel' — the view key changes and
+    // <ReactFlow> remounts, but the focus request and the outgoing instance briefly coexist.
+    rerender(
+      <CatalogProvider>
+        <Canvas
+          doc={doc}
+          actions={actions}
+          selectedNodeId={'sel'}
+          componentTrail={[{ componentId: CID, version: '1.0.0' }]}
+          componentSelectedNodeId={'sel'}
+          focusRequest={{ nodeId: 'sel', nonce: 1 }}
+        />
+      </CatalogProvider>,
+    )
+    await nodesSeeded() // component projection settled; its 'sel' present
+    // The outgoing (strategy) instance must NOT have centered — else it consumes the nonce and the
+    // incoming instance skips the intended focus.
+    expect(fitOld).not.toHaveBeenCalled()
+    // The incoming component instance centers the intended 'sel' exactly once.
+    act(() => {
+      ;(box.props?.onInit as (i: unknown) => void)({ fitView: fitNew, getNodes: () => [] })
+    })
+    expect(fitNew).toHaveBeenCalledTimes(1)
+    expect(fitNew).toHaveBeenCalledWith(expect.objectContaining({ nodes: [{ id: 'sel' }] }))
   })
 })
