@@ -838,6 +838,45 @@ button.crumbs__item:hover {
   line-height: 1.5;
 }
 
+/* --- Inspector read-only component internals (M13.9 O3) -------------------------------------- */
+
+/* A subtle affordance that the internals below are immutable (a component definition is read-only). */
+.inspector__ro-note {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+/* Configured parameter values as a read-only label→value list (no editable controls). */
+.inspector__ro-params {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.inspector__ro-param {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.inspector__ro-param-label {
+  color: var(--text-secondary);
+}
+
+.inspector__ro-param-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text);
+}
+
 /* --- Inspector "At session" live section (M13.7) --------------------------------------------- */
 
 /* The cursor date, sitting under the "At session" heading so live values read as "this node, at this

@@ -29,6 +29,7 @@ import type { DockPanel } from './components/Dock'
 import { ExtractDialog } from './components/ExtractDialog'
 import { Home, DEMO_NAME } from './components/Home'
 import { Inspector } from './components/Inspector'
+import type { ComponentNodeSelection } from './components/Inspector'
 import { JourneyChecklist } from './components/JourneyChecklist'
 import { Palette } from './components/Palette'
 import { ResultsView } from './components/ResultsView'
@@ -38,7 +39,7 @@ import { TraceView } from './components/TraceView'
 import { ValidatePanel } from './components/ValidatePanel'
 import type { HighlightTarget } from './validation/targets'
 import type { ComponentTrailEntry } from './document/flow'
-import { resolveTrailFromPath } from './document/flow'
+import { componentCacheKey, resolveTrailFromPath } from './document/flow'
 import { useDebugLoopState } from './run/useDebugLoopState'
 import { bumpStrategyVersion, newStrategyDocument, semanticKey, useStrategyDocument } from './document/store'
 import { computeNodeValidity } from './validity'
@@ -461,6 +462,19 @@ function AppShell(): ReactElement {
     clearInComponentFocus()
   }
 
+  // M13.9 O3: resolve the node selected INSIDE the read-only component view (if any) from the trail tip's
+  // definition graph, so the Inspector renders its internals read-only. Undefined in the strategy view,
+  // with no in-component selection, while the tip definition is still loading, or for a non-graph impl.
+  // Pure lookup over App-owned trail state + the immutable cache (presentation only, invariant 5).
+  const componentInspect: ComponentNodeSelection | undefined = ((): ComponentNodeSelection | undefined => {
+    if (componentTrail.length === 0 || componentSelectedNodeId === null) return undefined
+    const tip = componentTrail[componentTrail.length - 1]
+    const tipDef = componentDefs.get(componentCacheKey(tip.componentId, tip.version))
+    if (tipDef === undefined || tipDef.implementation.kind !== 'graph') return undefined
+    const node = tipDef.implementation.graph.nodes.find((n) => n.id === componentSelectedNodeId)
+    return node === undefined ? undefined : { node, componentRefs: tipDef.component_refs }
+  })()
+
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
   useEffect(() => {
     if (datasetId === undefined) {
@@ -741,6 +755,7 @@ function AppShell(): ReactElement {
                 componentSelectedNodeId={componentSelectedNodeId}
                 onEnterComponent={enterComponentNested}
                 onNavigateToDepth={onNavigateToDepth}
+                onComponentNodeClick={(id) => setComponentSelectedNodeId(id)}
               />
               {extractDialogOpen ? (
                 <ExtractDialog
@@ -784,6 +799,7 @@ function AppShell(): ReactElement {
                 actions={actions}
                 atSession={atSession}
                 onEnterComponent={enterComponentFromStrategy}
+                componentNode={componentInspect}
               />
             </aside>
           </main>

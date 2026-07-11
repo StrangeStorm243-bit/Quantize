@@ -389,6 +389,13 @@ export interface CanvasProps {
    * projected node RF-`selected`. Distinct from `selectedNodeId`, which references strategy-doc nodes.
    */
   componentSelectedNodeId?: string | null
+  /**
+   * A single click on a node INSIDE a read-only component view (M13.9 O3): reports the clicked node id
+   * so the App can select it for the read-only Inspector. Wired ONLY in the component view — the
+   * strategy view uses {@link onNodeClick}. Selecting changes nothing (the definition is immutable);
+   * double-click still enters a nested ComponentRef ({@link onEnterComponent}).
+   */
+  onComponentNodeClick?: (nodeId: string) => void
 }
 
 export function Canvas({
@@ -410,6 +417,7 @@ export function Canvas({
   onEnterComponent,
   onNavigateToDepth,
   componentSelectedNodeId,
+  onComponentNodeClick,
 }: CanvasProps): ReactElement {
   const { catalog, loading, error } = useCatalog()
   const { defs: componentDefs, ensure: ensureComponent } = useComponentDefs()
@@ -692,6 +700,16 @@ export function Canvas({
     [extractionMode, onToggleExtractionNode, onNodeClick],
   )
 
+  // A single click in the READ-ONLY component view (M13.9 O3): report the node id so the App can select
+  // it for the read-only Inspector. It mutates nothing — a component definition is immutable — so this is
+  // the only node handler the component view wires (double-click still enters a nested ref, below).
+  const onComponentNodeClickHandler = useCallback(
+    (_event: unknown, node: StrategyFlowNode) => {
+      onComponentNodeClick?.(node.id)
+    },
+    [onComponentNodeClick],
+  )
+
   // A completed marquee (Shift+drag box) in the strategy view (M13.8): read the CURRENT RF selection off
   // the instance and report the enclosed node ids so the App can mirror them into its extraction set. We
   // use RF's `onSelectionEnd` and read `getNodes()` — NOT `onSelectionChange`, which would ALSO fire for
@@ -923,10 +941,12 @@ export function Canvas({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onInit={setRfInstance}
-            // The mutation dispatchers + single-select handler are ABSENT in a read-only component view
-            // (absent, not no-ops — so the view can change nothing), present in the strategy editor.
+            // The mutation dispatchers + strategy single-select handler are ABSENT in a read-only
+            // component view (absent, not no-ops — so the view can change nothing), present in the
+            // strategy editor. The component view instead wires a SELECT-ONLY node click (M13.9 O3):
+            // it reports the clicked inner node so the App can inspect it read-only, mutating nothing.
             {...(readOnly
-              ? {}
+              ? { onNodeClick: onComponentNodeClickHandler }
               : {
                   onConnect,
                   onNodesDelete,
