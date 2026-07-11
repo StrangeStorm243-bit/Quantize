@@ -131,9 +131,9 @@ end to end on two reference strategies. **Milestones M1–M12 and the M13 IDE re
 (M13.1–M13.9) are complete** (M12 delivered the component authoring/extraction UI; M13 reoriented
 the app into a document-centric visual IDE — Home + strategy bar + dock, category-colored node
 cards, a pipeline stage strip, the debug loop, in-canvas component breadcrumb navigation, and a
-first-run journey checklist). At the time of writing the full gate is green with **985 Python tests**
-(`pytest`) and **591 web tests** (`vitest`), green on Python 3.13/3.14 and Windows/Linux, with
-byte-stable golden and backtest↔forward consistency coverage.
+first-run journey checklist). The latest M13.9 closeout gate is green with **985 Python tests**
+(`pytest`) and **598 web tests across 62 files** (`vitest`), on Python 3.13/3.14 and Windows/Linux,
+with byte-stable golden and backtest↔forward consistency coverage.
 
 For the full milestone breakdown (M1 IR + structural validation through the M13 IDE reorientation),
 see [`docs/MVP_PLAN.md`](docs/MVP_PLAN.md).

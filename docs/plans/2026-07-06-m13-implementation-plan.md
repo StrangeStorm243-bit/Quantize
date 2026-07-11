@@ -47,12 +47,15 @@ the product thesis instead of a utilitarian dashboard.
 
 **Done means (headline criterion first — the 30-second legibility test):**
 
-- [ ] **A first-time quant-literate user opening the ETF Momentum Rotation demo can explain,
+- [x] **A first-time quant-literate user opening the ETF Momentum Rotation demo can explain,
       within ~30 seconds and without documentation: (1) where data enters the machine, (2) what
       each major stage does, (3) how portfolio targets are produced, (4) how the engine turns
       targets into orders and fills, (5) where to inspect math, parameters, validation, and
       trace.** Operationalized as the scripted M13.9 closeout checklist; every box below serves
-      it.
+      it. *(M13.9 — the scripted 30-second legibility test passes on the demo default view: all
+      five answers discoverable within one click, sources recorded in
+      `docs/reviews/2026-07-11-m13.9-journey-walkthrough.md` Instrument #2. This is the instrument
+      for §13 real-user validation, which itself remains future — not run here.)*
 - [x] Every registered node type (12 core + `output.target_portfolio`) carries `category` and a
       populated `doc` block (**role-first summary** — opens with the node's plain-English role
       in the machine — plus formula where mathematical, semantics incl. missing-data rule and
@@ -105,10 +108,46 @@ the product thesis instead of a utilitarian dashboard.
       nesting level.)*
 - [x] Component drill-down is in-canvas breadcrumb navigation (read-only); the modal
       `ComponentDrawer` is removed; marquee multi-select feeds extraction.
-- [ ] Dark theme (default) + light theme via design tokens; all styles consume tokens.
-- [ ] Empty states + a dismissible journey checklist cover the README §4 path end-to-end.
-- [ ] Full gate green (`./scripts/gate.ps1`); codegen artifacts regenerated and committed;
+- [x] Dark theme (default) + light theme via design tokens; all styles consume tokens.
+      *(M13.4 tokens (`tokens.test.ts` forbids raw hex) + M13.9 light-theme sweep — Home, canvas
+      cards/edges/legend, Inspector Explanation formula box, Trace, Results chart, and the journey
+      checklist: no illegible surface. `2026-07-11-m13.9-journey-walkthrough.md` Phase 5.)*
+- [x] Empty states + a dismissible journey checklist cover the README §4 path end-to-end.
+      *(M13.9 — `web/src/journey/progress.ts` + `JourneyChecklist.tsx` + the Task 4 empty states;
+      live fresh-profile walkthrough latched 0/5 → 5/5 and empty states confirmed,
+      `2026-07-11-m13.9-journey-walkthrough.md` Phases 1–2.)*
+- [x] Full gate green (`./scripts/gate.ps1`); codegen artifacts regenerated and committed;
       README/LEARNING_LOG updated where the UI moved.
+      *(M13.9 closeout gate — 985 Python + 598 web tests / 62 files; ruff check/format, mypy (185
+      files), codegen artifacts up to date; README §4/Status + LEARNING_LOG updated.)*
+
+### Closeout (2026-07-11)
+
+**M13 — the IDE reorientation sprint — is complete.** Every definition-of-done box above is checked
+with dated evidence. The product now reads as the visual IDE the architecture already was: Home →
+strategy bar → dock, category-colored node cards, the pipeline stage strip, typed ports/edges, the
+Data Source card, role-first Explanations, the interactive results chart + session cursor, served
+trace tree with trace↔canvas linking, in-canvas component breadcrumb navigation (now with read-only
+inspection of internal nodes, M13.9 O3), a state-inferred journey checklist, and complete empty
+states. The evidence chain is the M13.9 slices (M13.1–M13.9), the fresh-profile journey walkthrough +
+scripted 30-second legibility test (`docs/reviews/2026-07-11-m13.9-journey-walkthrough.md`), the M13
+GUI smoke findings (`docs/reviews/2026-07-11-m13-gui-smoke-findings.md`, F1/F2/F3 closed), and
+`docs/LEARNING_LOG.md` (M13.1–M13.9 entries).
+
+**Explicitly NOT done here (future work — no claim of completion):**
+
+- **§13 founder-led validation with 3–5 real quant-literate testers has not been run.** M13.9
+  produced the *instrument* (the verbatim 30-second script) and verified it is answerable on the
+  demo; running it with real users is the next step.
+- **Node Value Tap is not implemented** — the "At session" section is the designed slot only, and
+  per-node dataflow value inspection (addressed by `(node_id, component_path)`) remains future.
+- **No live/broker execution** — runs are backtest/paper-replay simulations over local data; Live is
+  explicitly labeled deferred.
+- **No component editing / forking / version-upgrade** — component definitions stay immutable
+  (invariant 8); M13.9 O3 added read-only inspection only.
+
+M13's bar was the *legibility of the machine's structure*, and that is met. Deeper per-node dataflow
+inspection (the Node Value Tap) and any remaining bot work are M14+.
 
 ## Authoritative inputs
 
