@@ -53,20 +53,22 @@ the product thesis instead of a utilitarian dashboard.
       targets into orders and fills, (5) where to inspect math, parameters, validation, and
       trace.** Operationalized as the scripted M13.9 closeout checklist; every box below serves
       it.
-- [ ] Every registered node type (12 core + `output.target_portfolio`) carries `category` and a
+- [x] Every registered node type (12 core + `output.target_portfolio`) carries `category` and a
       populated `doc` block (**role-first summary** — opens with the node's plain-English role
       in the machine — plus formula where mathematical, semantics incl. missing-data rule and
       warm-up, per-parameter label/help), served by `/v1/node-types`, covered by tests.
-- [ ] `data`-category nodes render as a first-class **Data Source card**: source name + kind
+      *(M13.5 — served by `/v1/node-types`; rendered in the Inspector Explanation.)*
+- [x] `data`-category nodes render as a first-class **Data Source card**: source name + kind
       ("Uploaded dataset", with *Data API · Broker feed — future* connector labels), universe
       (from the connected `universe.*` node's params), calendar + date range (from dataset
       metadata), mode binding, and provenance (fingerprint) — with explicit unbound states.
-- [ ] A **pipeline stage strip** above the canvas renders Data → Transforms → Signals →
+      *(M13.1 — `DataSourceCard.tsx`; smoke-confirmed universe / calendar / fingerprint.)*
+- [x] A **pipeline stage strip** above the canvas renders Data → Transforms → Signals →
       Rank & Select → Weighting & Risk → Targets → ⟨Engine⟩ via the fixed category→segment
       rollup (design W2/strip spec), with per-segment node counts and click-to-highlight;
       unknown/reserved categories roll into an "Advanced" bucket (never silently dropped),
       component instances appear as their own chip, and the Engine segment is visually outside
-      the graph.
+      the graph. *(M13.1 — `StageStrip.tsx`; smoke-confirmed the full segment rollup + counts.)*
 - [x] A **global session cursor** (strategy-bar readout + prev/next stepping over the run's
       sessions) is set by chart hover/click and evaluation/fill rows, opens the trace at its
       session, and drives the inspector's "At session" section — client state over
@@ -74,23 +76,27 @@ the product thesis instead of a utilitarian dashboard.
 - [x] The inspector has an **"At session" section** rendering the selected node's served trace
       events (and reconciliation rows at the engine boundary) at the cursor — the designed slot
       for the future Node Value Tap (contract in this plan; **not implemented**). *(M13.7)*
-- [ ] Run controls carry the **execution-mode frame**: Backtest / Paper replay available,
+- [x] Run controls carry the **execution-mode frame**: Backtest / Paper replay available,
       Live/broker explicitly labeled deferred, plus a persistent "all runs are simulations over
       local data" notice — no real-money implication anywhere.
-- [ ] `GET /v1/runs/{run_id}/trace-tree` serves the hierarchical trace tree; the client-side
+      *(M13 — `RunPanel.tsx`: Backtest/Paper replay + disabled Live option + `rpanel__sim-notice`.)*
+- [x] `GET /v1/runs/{run_id}/trace-tree` serves the hierarchical trace tree; the client-side
       grouper `web/src/trace/group.ts` is deleted; TraceView consumes the served tree.
-- [ ] App opens to a Home screen (recent strategies, new strategy, "Walk the journey" demo
+      *(M13.6 — `quantize/api/dto/trace_tree.py`; `web/src/trace/group.ts` removed.)*
+- [x] App opens to a Home screen (recent strategies, new strategy, "Walk the journey" demo
       entry); an open document shows a strategy bar (name · version · dirty · Validate/Run/Save
       · dataset chip) and a bottom dock (Problems / Runs / Results / Trace). Datasets are no
-      longer a co-equal bottom tab.
-- [ ] Nodes render as category-colored, icon-bearing cards with a parameter summary line and a
+      longer a co-equal bottom tab. *(M13.3 — `Home.tsx` / `StrategyBar.tsx` / `Dock.tsx`.)*
+- [x] Nodes render as category-colored, icon-bearing cards with a parameter summary line and a
       validity badge; handles/edges are colored by port type from catalog `port_types[]` with an
       on-canvas legend; ComponentRef instances are visually distinct with a version chip; the
       category color map ships tested token assignments for the eight live categories and the
       five reserved future categories (`optimization`, `stochastic`, `statistics`, `ml`,
       `external`) plus the neutral unknown-category fallback.
-- [ ] Inspector shows an Explanation section (summary/formula/semantics/warm-up/ports) for the
+      *(M13.4 — `styles/tokens.css` + `tokens.test.ts` + `Legend.tsx`; smoke-confirmed.)*
+- [x] Inspector shows an Explanation section (summary/formula/semantics/warm-up/ports) for the
       selected node; param controls use doc-block labels/help.
+      *(M13.5 — `Inspector.explanation.test.tsx`; smoke-confirmed role-first sentence + formula.)*
 - [x] Trace rows are clickable → select/center the node on canvas (into components via
       breadcrumb); equity chart is interactive (hover crosshair, click session → trace);
       evaluation/fill rows link to their session trace; engine output is grouped under an
