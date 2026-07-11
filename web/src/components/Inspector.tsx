@@ -14,7 +14,8 @@
 // A ComponentRefNode (`'ref' in node`, M12.4/E10) resolves its pinned definition from the immutable
 // component cache and edits its EXPOSED params — keyed by exposed name, layered server-side as
 // overrides — through the SAME `ParamForm`, over a SYNTHESIZED object schema built from each exposed
-// param's verbatim `schema` fragment. "Inspect internals" opens a read-only detail drawer (E11).
+// param's verbatim `schema` fragment. "Enter component" navigates the MAIN canvas into the definition's
+// read-only internal view (M13.8 in-canvas breadcrumb, superseding the E11 modal drawer).
 import type { ReactElement } from 'react'
 import type {
   NodeCatalogResponse,
@@ -193,7 +194,7 @@ function AtSessionSection({
     } else {
       const found = findRoot(trees, nodeId)
       const hasOwnEvents = found !== undefined && found.events.length > 0
-      // KNOWN LIMITATION (deferred to M13.8+): this flattens exactly ONE level, so a nested-component
+      // KNOWN LIMITATION (deferred to post-M13.8): this flattens exactly ONE level, so a nested-component
       // child that emits nothing itself but whose OWN children (grandchildren) did is dropped here.
       const childrenWithEvents = (found?.children ?? []).filter((c) => c.events.length > 0)
       nodePart =
@@ -250,8 +251,8 @@ export interface InspectorProps {
   doc: StrategyDocument
   selectedNodeId: string | null
   actions: StrategyDocumentActions
-  /** Open the read-only internal-graph drawer for a component instance (App owns the drawer state). */
-  onInspectComponent?: (target: { componentId: string; version: string }) => void
+  /** Navigate the main canvas into a component instance's read-only internals (App owns the trail, M13.8). */
+  onEnterComponent?: (target: { componentId: string; version: string }) => void
   /** Live "At session" data (M13.7); undefined until a run + cursor exist — the slot stays inert then. */
   atSession?: AtSessionProps | undefined
 }
@@ -260,7 +261,7 @@ export function Inspector({
   doc,
   selectedNodeId,
   actions,
-  onInspectComponent,
+  onEnterComponent,
   atSession,
 }: InspectorProps): ReactElement {
   const { catalog } = useCatalog()
@@ -282,14 +283,17 @@ export function Inspector({
     // under the hood — the SAME second step the shared `resolveComponentDef` performs.
     const ref = findComponentRef(doc.component_refs, node.ref)
     const def = ref === undefined ? undefined : get(ref.component_id, ref.version)
-    const inspectButton =
-      ref !== undefined && onInspectComponent !== undefined ? (
+    // "Enter component" navigates the main canvas into the definition's read-only internals (M13.8). It
+    // renders in BOTH branches (cached def AND cache-miss/unknown-ref) whenever the ref itself resolves —
+    // the ref alone pins the `(componentId, version)` the trail needs; the tip view loads the definition.
+    const enterButton =
+      ref !== undefined && onEnterComponent !== undefined ? (
         <button
           type="button"
           className="pform__btn inspector__inspect"
-          onClick={() => onInspectComponent({ componentId: ref.component_id, version: ref.version })}
+          onClick={() => onEnterComponent({ componentId: ref.component_id, version: ref.version })}
         >
-          Inspect internals
+          Enter component
         </button>
       ) : null
 
@@ -304,7 +308,7 @@ export function Inspector({
           <p className="inspector__unknown">
             Component definition is not loaded (or the ref is unknown) — parameters cannot be shown yet.
           </p>
-          {inspectButton}
+          {enterButton}
           <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={undefined} />
         </div>
       )
@@ -338,7 +342,7 @@ export function Inspector({
             onParamsChange={(next) => actions.setParams(node.id, next)}
           />
         )}
-        {inspectButton}
+        {enterButton}
         <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={undefined} />
       </div>
     )

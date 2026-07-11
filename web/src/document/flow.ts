@@ -142,7 +142,7 @@ export function componentCacheKey(componentId: string, version: string): string 
 /**
  * Find a pinned `ComponentRef` by its node-local `ref` id — the FIRST step of resolving a
  * `ComponentRefNode`. Kept separate from {@link resolveComponentDef} because a consumer (the
- * Inspector) needs the ref ITSELF — to show `component_id@version` and offer "Inspect internals" —
+ * Inspector) needs the ref ITSELF — to show `component_id@version` and offer "Enter component" —
  * even when the definition has not been fetched yet (a cache miss). Returns `undefined` when no ref
  * carries that id.
  */
@@ -188,6 +188,45 @@ export function componentPorts(def: ComponentDefinition): {
     inputs: def.exposed_inputs.map((p) => ({ name: p.name, port_type: p.type, required: true })),
     outputs: def.exposed_outputs.map((p) => ({ name: p.name, port_type: p.type })),
   }
+}
+
+/** One breadcrumb level: the pinned identity of an entered component (labels resolve from the cache). */
+export interface ComponentTrailEntry {
+  componentId: string
+  version: string
+}
+
+/**
+ * Resolve a served trace `component_path` (ComponentRef INSTANCE node ids, outermost first) into
+ * breadcrumb trail entries by walking doc → definition → definition. Returns the LONGEST resolvable
+ * prefix — an unknown node/ref stops the walk, and a definition cache miss stops it AFTER the entry
+ * the ref alone proves (the view ensures + loads that tip). Pure lookup; nothing is fetched here.
+ */
+export function resolveTrailFromPath(
+  doc: Pick<StrategyDocument, 'nodes' | 'component_refs'>,
+  componentPath: readonly string[],
+  components: ReadonlyMap<string, ComponentDefinition> | undefined,
+): ComponentTrailEntry[] {
+  const trail: ComponentTrailEntry[] = []
+  let nodes: StrategyDocument['nodes'] = doc.nodes
+  let refs: StrategyDocument['component_refs'] | undefined = doc.component_refs
+  for (const instanceId of componentPath) {
+    const node = nodes.find((n) => n.id === instanceId)
+    if (node === undefined || !('ref' in node)) break
+    const ref = findComponentRef(refs, node.ref)
+    if (ref === undefined) break
+    trail.push({ componentId: ref.component_id, version: ref.version })
+    // The ref proves this level; the walk can only descend into a cached, navigable-graph body. It
+    // stops here (tip = this entry) on either a cache miss — body unknown until the view loads it —
+    // or a non-`graph` implementation kind: a body exists but isn't a graph to walk (the component
+    // view shows the kind notice instead). Both leave the ref-proven entry as the trail's tip.
+    const def = components?.get(componentCacheKey(ref.component_id, ref.version))
+    if (def === undefined || def.implementation.kind !== 'graph') break
+    // A nested ref resolves against the DEFINITION's own scope, so swap both per level.
+    nodes = def.implementation.graph.nodes
+    refs = def.component_refs
+  }
+  return trail
 }
 
 /** A React Flow node whose `data` carries the mapped IR fields. */

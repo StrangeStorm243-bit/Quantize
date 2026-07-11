@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { NodeCatalogResponse } from '@quantize/quantize-api'
-import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
+import type { ComponentDefinition, Graph, StrategyDocument } from '@quantize/quantize-ir'
 import catalogJson from '../../../tests/goldens/node_catalog.json'
 import {
   componentCacheKey,
   findComponentRef,
   resolveComponentDef,
+  resolveTrailFromPath,
   resolveUniverseTickers,
   toFlow,
 } from './flow'
@@ -412,5 +413,107 @@ describe('resolveUniverseTickers (PX-5: category-gated source)', () => {
       edges: [{ from: ['c', 'assets'], to: ['px', 'assets'] }],
     } as unknown as Pick<StrategyDocument, 'nodes' | 'edges'>
     expect(resolveUniverseTickers(doc, 'px', isUniverse)).toBeNull()
+  })
+})
+
+// M13.8 breadcrumb resolution: a served trace `component_path` (ComponentRef INSTANCE node ids,
+// outermost first) → the pinned identity of each entered component, walking doc → definition →
+// definition and swapping the ref scope per level. A pure lookup — nothing is fetched here.
+describe('resolveTrailFromPath', () => {
+  const CID_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  const CID_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+
+  // A graph-kind definition with the given nodes + def-level component_refs (nested refs resolve here).
+  function makeGraphDef(
+    componentId: string,
+    version: string,
+    nodes: Graph['nodes'],
+    componentRefs: ComponentDefinition['component_refs'],
+  ): ComponentDefinition {
+    return {
+      ...DEF,
+      component_id: componentId,
+      version,
+      component_refs: componentRefs,
+      implementation: { kind: 'graph', graph: { nodes, edges: [] } },
+    }
+  }
+
+  // Definition A embeds a nested ComponentRefNode `inner` pointing at definition B via def-level r2.
+  const DEF_A = makeGraphDef(
+    CID_A,
+    '1.0.0',
+    [{ id: 'inner', type_id: 'component', ref: 'r2', params: {} }],
+    [{ id: 'r2', component_id: CID_B, version: '2.0.0' }],
+  )
+  const DEF_B = makeGraphDef(CID_B, '2.0.0', [], [])
+
+  // The top-level doc: `mom` is a ComponentRefNode instancing definition A via doc-level r1.
+  const doc: Pick<StrategyDocument, 'nodes' | 'component_refs'> = {
+    nodes: [
+      { id: 'ret', type_id: 'transform.trailing_return', type_version: '1.0.0', params: {} },
+      { id: 'mom', type_id: 'component', ref: 'r1', params: {} },
+    ],
+    component_refs: [{ id: 'r1', component_id: CID_A, version: '1.0.0' }],
+  }
+
+  const fullMap = new Map([
+    [componentCacheKey(CID_A, '1.0.0'), DEF_A],
+    [componentCacheKey(CID_B, '2.0.0'), DEF_B],
+  ])
+
+  it('resolves a single-level path to the entered component identity', () => {
+    expect(resolveTrailFromPath(doc, ['mom'], fullMap)).toEqual([
+      { componentId: CID_A, version: '1.0.0' },
+    ])
+  })
+
+  it('resolves a nested path, swapping ref scope per level', () => {
+    expect(resolveTrailFromPath(doc, ['mom', 'inner'], fullMap)).toEqual([
+      { componentId: CID_A, version: '1.0.0' },
+      { componentId: CID_B, version: '2.0.0' },
+    ])
+  })
+
+  it('returns the ref-proven prefix when the tip definition is a cache miss', () => {
+    // Definition A absent: the ref alone proves level 1, but its body is unknown so the walk cannot
+    // continue into `inner`. The tip is what the view ensures + loads next.
+    const onlyB = new Map([[componentCacheKey(CID_B, '2.0.0'), DEF_B]])
+    expect(resolveTrailFromPath(doc, ['mom', 'inner'], onlyB)).toEqual([
+      { componentId: CID_A, version: '1.0.0' },
+    ])
+  })
+
+  it('stops at a non-graph implementation kind (body exists but is not a navigable graph)', () => {
+    // Definition A cached but with a non-`graph` implementation: the ref proves level 1, yet its body
+    // is not a graph to descend into, so the walk stops exactly like the cache-miss sibling. The cast
+    // synthesizes a kind the generated GraphImplementation type does not (yet) admit.
+    const nonGraphA: ComponentDefinition = {
+      ...DEF_A,
+      implementation: { kind: 'sandboxed' } as unknown as ComponentDefinition['implementation'],
+    }
+    const map = new Map([
+      [componentCacheKey(CID_A, '1.0.0'), nonGraphA],
+      [componentCacheKey(CID_B, '2.0.0'), DEF_B],
+    ])
+    expect(resolveTrailFromPath(doc, ['mom', 'inner'], map)).toEqual([
+      { componentId: CID_A, version: '1.0.0' },
+    ])
+  })
+
+  it('stops at a plain registered node (not a component)', () => {
+    expect(resolveTrailFromPath(doc, ['ret'], fullMap)).toEqual([])
+  })
+
+  it('stops at a component node whose ref id is unknown', () => {
+    const orphan: Pick<StrategyDocument, 'nodes' | 'component_refs'> = {
+      nodes: [{ id: 'mom', type_id: 'component', ref: 'nope', params: {} }],
+      component_refs: [],
+    }
+    expect(resolveTrailFromPath(orphan, ['mom'], fullMap)).toEqual([])
+  })
+
+  it('returns [] for an empty path', () => {
+    expect(resolveTrailFromPath(doc, [], fullMap)).toEqual([])
   })
 })
