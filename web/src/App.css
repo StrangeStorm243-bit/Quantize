@@ -1775,7 +1775,11 @@ button.crumbs__item:hover {
 .chart__axis--y {
   position: absolute;
   top: 0;
-  bottom: 20px;
+  /* Span exactly the plot (svg) height, NOT the container: anything rendered below the svg (the x-axis
+     row, and the M13.7.5 `.chart__hint` on interactive charts) grows `.chart`, so a container-anchored
+     `bottom` would drop the min-value label down into the x-axis row and collide with the first-date
+     label. Anchoring to the plot height keeps the min label at the plot's baseline regardless. */
+  height: 120px;
   left: -0.2rem;
   flex-direction: column;
 }
