@@ -38,6 +38,14 @@ beforeEach(() => {
 })
 
 describe('RunPanel', () => {
+  it('shows an actionable empty state when the strategy has no runs yet', async () => {
+    render(
+      <RunPanel doc={makeDoc()} datasetId={DATASET} selectedRunId={undefined} onSelectRun={vi.fn()} />,
+    )
+    // The list fetch resolves to an empty list → an honest "no runs yet" line pointing at the form.
+    expect(await screen.findByText(/no runs yet/i)).toBeInTheDocument()
+  })
+
   it('builds a backtest request from the doc + defaults, omitting blank sessions', async () => {
     const doc = makeDoc()
     render(
