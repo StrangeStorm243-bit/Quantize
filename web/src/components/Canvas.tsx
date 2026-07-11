@@ -438,10 +438,15 @@ export function Canvas({
   // incoming instance (the one-shot nonce already consumed). Setting state during render makes React
   // re-run this component with the null instance before committing — the canonical "reset state on a
   // changed input" path (React docs) — and the incoming `onInit` re-registers the fresh instance.
-  const prevViewKeyRef = useRef(viewKey)
-  if (prevViewKeyRef.current !== viewKey) {
-    prevViewKeyRef.current = viewKey
-    if (rfInstance !== null) setRfInstance(null)
+  //
+  // The previous view key is STATE, not a ref: under StrictMode an update render is replayed, and a ref
+  // mutation would PERSIST across the replay (marking the change "handled") while the paired render-phase
+  // `setRfInstance(null)` is discarded — committing the stale instance. State is discarded/replayed
+  // together with the instance reset, so the two stay consistent.
+  const [prevViewKey, setPrevViewKey] = useState(viewKey)
+  if (prevViewKey !== viewKey) {
+    setPrevViewKey(viewKey)
+    setRfInstance(null)
   }
   const [rejection, setRejection] = useState<string | undefined>(undefined)
   // A stage-strip segment click highlights that segment's nodes on canvas (purely visual RF selection,

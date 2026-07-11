@@ -9,6 +9,7 @@
 // We mock @xyflow/react to capture the props handed <ReactFlow> and to hand the Canvas a fake instance
 // whose `fitView` we spy; node/edge state is real useState so the Canvas re-seed effect's projected
 // nodes flow into rfNodes (and the focus guard can match the target). NO network.
+import { StrictMode } from 'react'
 import { act, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
@@ -230,6 +231,53 @@ describe('Canvas focus request (one-shot)', () => {
       ;(box.props?.onInit as (i: unknown) => void)({ fitView: fitNew, getNodes: () => [] })
     })
     expect(fitNew).toHaveBeenCalledTimes(1)
+    expect(fitNew).toHaveBeenCalledWith(expect.objectContaining({ nodes: [{ id: 'sel' }] }))
+  })
+
+  it('does not center against the outgoing instance under StrictMode (replayed update render)', async () => {
+    // The app runs under <StrictMode> (main.tsx), which REPLAYS an update render. The previous-view guard
+    // must be STATE, not a render-mutated ref: a ref write persists across the replay (marking the change
+    // handled) while the paired instance reset is discarded, committing the stale instance. This test
+    // wraps the same view-changing focus in StrictMode to cover that path.
+    cache.defs.set(componentCacheKey(CID, '1.0.0'), collidingDef())
+    const fitOld = vi.fn()
+    const fitNew = vi.fn()
+    const doc = twoNodeDoc()
+    const actions = stubActions()
+    const { rerender } = render(
+      <StrictMode>
+        <CatalogProvider>
+          <Canvas doc={doc} actions={actions} selectedNodeId={null} focusRequest={null} />
+        </CatalogProvider>
+      </StrictMode>,
+    )
+    await nodesSeeded()
+    act(() => {
+      ;(box.props?.onInit as (i: unknown) => void)({ fitView: fitOld, getNodes: () => [] })
+    })
+    rerender(
+      <StrictMode>
+        <CatalogProvider>
+          <Canvas
+            doc={doc}
+            actions={actions}
+            selectedNodeId={'sel'}
+            componentTrail={[{ componentId: CID, version: '1.0.0' }]}
+            componentSelectedNodeId={'sel'}
+            focusRequest={{ nodeId: 'sel', nonce: 1 }}
+          />
+        </CatalogProvider>
+      </StrictMode>,
+    )
+    await nodesSeeded()
+    // The outgoing instance must never center, even under the StrictMode replay.
+    expect(fitOld).not.toHaveBeenCalled()
+    act(() => {
+      ;(box.props?.onInit as (i: unknown) => void)({ fitView: fitNew, getNodes: () => [] })
+    })
+    // The incoming instance centers the intended node (StrictMode may double-invoke effects, so assert
+    // presence, not an exact count).
+    expect(fitNew).toHaveBeenCalled()
     expect(fitNew).toHaveBeenCalledWith(expect.objectContaining({ nodes: [{ id: 'sel' }] }))
   })
 })
