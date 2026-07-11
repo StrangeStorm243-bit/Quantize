@@ -85,7 +85,7 @@ export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): Reac
   return (
     <div className="chart">
       <svg
-        className="chart__svg"
+        className={`chart__svg${interactive ? ' chart__svg--interactive' : ''}`}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         preserveAspectRatio="none"
         role="img"
@@ -124,6 +124,11 @@ export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): Reac
         <span className="chart__label">{firstDate}</span>
         <span className="chart__label">{lastDate}</span>
       </div>
+      {/* A static idle affordance (M13.7.5): tell the user the chart is clickable BEFORE they discover
+          it by hovering. Shown only when the chart is actually interactive. */}
+      {interactive ? (
+        <p className="chart__hint">Click a point to inspect that session.</p>
+      ) : null}
     </div>
   )
 }

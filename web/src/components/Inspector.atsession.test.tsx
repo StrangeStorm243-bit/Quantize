@@ -273,6 +273,7 @@ function atSession(overrides: Partial<AtSessionProps> = {}): AtSessionProps {
     error: undefined,
     evaluated: true,
     note: undefined,
+    scheduleKind: undefined,
     ...overrides,
   }
 }
@@ -347,6 +348,36 @@ describe('Inspector — "At session" live section (M13.7)', () => {
     expect(within(shell).getByText(/No evaluation this session/i)).toBeInTheDocument()
     expect(within(shell).getByText('warmup_not_satisfied')).toBeInTheDocument()
     expect(within(shell).getByText(/only 42 visible/)).toBeInTheDocument()
+  })
+
+  it('names the RUN cadence in the no-evaluation line when scheduleKind is recognised', () => {
+    // The Inspector's no-eval state got the same cadence-aware phrasing TraceView has (M13.7 fix pass),
+    // sourced from atSession.scheduleKind (the RUN's cadence, run-sourced). A recognised kind names it.
+    render(
+      <Inspector
+        doc={docWith('x', 'transform.trailing_return')}
+        selectedNodeId="x"
+        actions={stubActions()}
+        atSession={atSession({ cursor: '2026-05-14', trees: [], evaluated: false, scheduleKind: 'monthly' })}
+      />,
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(
+      within(shell).getByText('No evaluation this session — this strategy evaluates monthly.'),
+    ).toBeInTheDocument()
+  })
+
+  it('drops the cadence clause for an unknown/undefined scheduleKind (bare no-eval line)', () => {
+    render(
+      <Inspector
+        doc={docWith('x', 'transform.trailing_return')}
+        selectedNodeId="x"
+        actions={stubActions()}
+        atSession={atSession({ cursor: '2026-05-14', trees: [], evaluated: false, scheduleKind: 'quarterly' })}
+      />,
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(within(shell).getByText('No evaluation this session.')).toBeInTheDocument()
   })
 
   it('shows the no-evaluation line without a note (no crash) when none matches', () => {

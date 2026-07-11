@@ -1,27 +1,41 @@
 // The trace explorer (M11.7, D10; M13.6; M13.7). The per-instant trace tree (grouped SERVER-SIDE by
 // build_trace_trees, served by `GET /v1/runs/{id}/trace-tree`) is FETCHED BY THE APP, not here: the
-// App owns one fetch keyed on the run + the shared session cursor so the Trace panel and the (later)
+// App owns one fetch keyed on the run + the shared session cursor so the Trace panel and the
 // always-mounted Inspector consume a single result (the Dock mounts only one panel at a time, so a
 // panel-local fetch could not be shared). This view is therefore CURSOR-CONTROLLED — it takes the
-// cursor + served trees as props and reports picker changes via `onCursorChange`. It renders each
-// event with a TAILORED renderer keyed on `event_type` / machine tokens, falling back to a generic
-// structured renderer for any unknown type; nothing here parses prose or recomputes a decision, every
-// field is read structurally from the payload (D10, invariant 5). The picker lists ALL of the run's
-// sessions (from the record's valuations), flagging sessions the engine did not evaluate; the served
-// engine-origin root is grouped under a distinct "engine stage" section (display grouping only).
-import { useMemo } from 'react'
+// cursor + served trees as props and reports picker changes via `onCursorChange`. The session axis,
+// the evaluated subset, and the cursor session's note are ALSO props (M13.7.5): the App computes them
+// once through `run/projections` (the single run_id-gated source), so this view no longer duplicates
+// those derivations. It renders each event with a TAILORED renderer keyed on `event_type` / machine
+// tokens, falling back to a generic structured renderer for any unknown type; nothing here parses
+// prose or recomputes a decision, every field is read structurally from the payload (D10, invariant
+// 5). The picker lists ALL of the run's sessions, flagging sessions the engine did not evaluate; the
+// served engine-origin root is grouped under a distinct "engine stage" section (display grouping only).
 import type { ReactElement } from 'react'
-import type { JsonValue, RunRecordResponse, TraceEvent, TraceTreeDto, TraceTreeNodeDto } from '@quantize/quantize-api'
+import type { JsonValue, PersistedNote, TraceEvent, TraceTreeDto, TraceTreeNodeDto } from '@quantize/quantize-api'
+import { noEvaluationLine } from '../document/schedule'
+import { NoteLine } from './NoteLine'
 
 export interface TraceViewProps {
   /** The selected run id, or `undefined` when nothing is selected. */
   runId: string | undefined
-  /** The fetched run record (owned by the App); the session picker options come from its valuations. */
-  record: RunRecordResponse | undefined
   /** True while the App is fetching the run record (the picker options depend on it). */
   recordLoading?: boolean
   /** A record-fetch error message, or undefined. Surfaced here so a failed `getRun` is not silent. */
   recordError?: string | undefined
+  /** The cursor axis: ALL of the run's server session dates (App-owned via `sessionAxis`). */
+  sessions: string[]
+  /** The evaluated subset (App-owned via `evaluatedSet`) — marks non-evaluated picker options and
+   *  picks the honest empty state. */
+  evaluatedSessions: ReadonlySet<string>
+  /** The served note for the cursor session (App-owned via `noteFor`), or undefined — the verbatim
+   *  no-eval reason shown for a non-evaluated cursor. */
+  note: PersistedNote | undefined
+  /** The RUN's schedule kind (App threads `runScheduleKind` — the producing strategy version's cadence,
+   *  NOT the live editor doc's), or undefined. Names the cadence in the no-evaluation state ("this
+   *  strategy evaluates monthly") so a skipped session is not mysterious. An unrecognised/absent kind
+   *  simply drops the cadence clause — a pure phrasing (invariant 5). */
+  scheduleKind?: string | undefined
   /** The shared session cursor (App-owned), or `null` when there is no run/axis. */
   sessionCursor: string | null
   /** Report a picker change up to the App (it re-keys the shared fetch). */
@@ -262,7 +276,7 @@ function TraceNodeView({
       ) : (
         <button
           type="button"
-          className="trace-node__head"
+          className="trace-node__head trace-node__head--clickable"
           style={headStyle}
           aria-label={`Show ${node.node_id} on canvas`}
           onClick={() => onNodeClick?.(node.node_id, node.component_path)}
@@ -294,9 +308,12 @@ function TraceNodeView({
 
 export function TraceView({
   runId,
-  record,
   recordLoading,
   recordError,
+  sessions,
+  evaluatedSessions,
+  note,
+  scheduleKind,
   sessionCursor,
   onCursorChange,
   trees,
@@ -304,39 +321,19 @@ export function TraceView({
   treesError,
   onNodeClick,
 }: TraceViewProps): ReactElement {
-  // The picker offers ALL of the run's sessions (from the record's valuations), so the cursor can rest
-  // on a session the engine did not evaluate (warm-up / skipped). They come from the App-owned record
-  // — the persisted run is the single source of truth for which sessions exist. Gate on the record's
-  // own `run_id` matching `runId`: during a run switch the App briefly still holds the previous run's
-  // record, so an unguarded derivation would offer the stale run's dates.
-  const sessions = useMemo(() => {
-    if (record === undefined || runId === undefined || record.record.run_id !== runId) {
-      return []
-    }
-    return record.record.valuations.map(([date]) => date)
-  }, [record, runId])
-
-  // The subset the engine actually evaluated — used only to MARK non-evaluated options and to decide
-  // which empty state to show. A pure projection of the record, gated on the same run_id identity.
-  const evaluated = useMemo(() => {
-    if (record === undefined || runId === undefined || record.record.run_id !== runId) {
-      return new Set<string>()
-    }
-    return new Set(record.record.evaluations.map((e) => e.session_date))
-  }, [record, runId])
-
   if (runId === undefined) {
     return <div className="trace trace--empty">Select a run to view its trace.</div>
   }
 
+  // The no-evaluation line names the RUN's cadence when the schedule kind is recognised — a monthly
+  // strategy only decides on rebalance days, so a skipped session is expected, not an error. An
+  // unrecognised/absent kind drops the clause. The SAME shared phrasing the Inspector uses (invariant 5).
+  const noEvalLine = noEvaluationLine(scheduleKind)
+
   // For an empty served result, distinguish an evaluated-but-traceless session from a session the
-  // engine never evaluated; for the latter, surface the run's note for that session verbatim (never
-  // blank). The note is a structural read — no prose parsing (invariant 5).
-  const cursorEvaluated = sessionCursor !== null && evaluated.has(sessionCursor)
-  const note =
-    record !== undefined && record.record.run_id === runId && sessionCursor !== null
-      ? record.record.notes.find((n) => n.session_date === sessionCursor)
-      : undefined
+  // engine never evaluated; for the latter, the App-supplied `note` (the run's note for the cursor
+  // session) is surfaced verbatim (never blank). A structural read — no prose parsing (invariant 5).
+  const cursorEvaluated = sessionCursor !== null && evaluatedSessions.has(sessionCursor)
 
   // A record-fetch failure (getRun, App-owned) surfaces here too — otherwise a failed record silently
   // leaves the picker empty ("No sessions") with no explanation. The record error takes precedence
@@ -360,7 +357,7 @@ export function TraceView({
           {sessions.length === 0 ? <option value="">No sessions</option> : null}
           {sessions.map((date) => (
             <option key={date} value={date}>
-              {`${date}${evaluated.has(date) ? '' : ' — no evaluation'}`}
+              {`${date}${evaluatedSessions.has(date) ? '' : ' — no evaluation'}`}
             </option>
           ))}
         </select>
@@ -377,12 +374,8 @@ export function TraceView({
           <div className="trace trace--empty">No trace for this session.</div>
         ) : (
           <div className="trace trace--empty">
-            <p>No evaluation this session.</p>
-            {note !== undefined ? (
-              <p>
-                <code className="trace-event__token">{note.code}</code> {note.message}
-              </p>
-            ) : null}
+            <p>{noEvalLine}</p>
+            {note !== undefined ? <NoteLine note={note} /> : null}
           </div>
         )
       ) : (

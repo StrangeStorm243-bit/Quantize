@@ -131,6 +131,20 @@ describe('SvgLineChart interactivity (M13.7)', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
+  it('shows an idle click affordance (a static hint + an interactive-marked svg) when interactive', () => {
+    // The clickability must be visible BEFORE hover-discovery (M13.7.5): a static hint, plus a class so
+    // CSS can give the svg a pointer cursor / hover tint.
+    const { container } = render(<SvgLineChart points={twoPoints} onSelectPoint={() => {}} />)
+    expect(screen.getByText(/click a point/i)).toBeInTheDocument()
+    expect(container.querySelector('.chart__svg--interactive')).not.toBeNull()
+  })
+
+  it('shows NO click affordance when not interactive', () => {
+    const { container } = render(<SvgLineChart points={twoPoints} />)
+    expect(screen.queryByText(/click a point/i)).toBeNull()
+    expect(container.querySelector('.chart__svg--interactive')).toBeNull()
+  })
+
   it('is inert without onSelectPoint: no readout, no crosshair, and mousemove does not throw', () => {
     const { container } = render(<SvgLineChart points={twoPoints} />)
     const svg = container.querySelector('svg')!

@@ -36,10 +36,11 @@ export function ResultsView({
   if (runId === undefined) {
     return <div className="results results--empty">Select a run to view its results.</div>
   }
-  // During a run switch the App briefly still holds the PREVIOUS run's record (its reset effect
-  // runs only after paint), so also gate on the record's own run_id — never paint another run's
-  // numbers under this runId. Mirrors TraceView's sessions guard.
-  if (loading || (data !== undefined && data.record.run_id !== runId)) {
+  // The run-identity gate lives UPSTREAM now (run/useDebugLoopState): the App hands ResultsView either
+  // the SELECTED run's record or `loading` — the post-switch stale window (the record effect resets
+  // only after paint) is folded into `loading` there. So this view no longer re-gates on run_id; it
+  // trusts a matching-or-loading record and simply shows the loading state when told to.
+  if (loading) {
     return <div className="results results--empty">Loading run…</div>
   }
   if (error !== undefined) {
@@ -100,8 +101,11 @@ export function ResultsView({
         </div>
       </dl>
 
-      {/* Evaluations are the GRAPH's per-session decisions (targets + order counts) — distinct from the
-          engine's reconciliation below, so they get their own section ABOVE the Engine stage. */}
+      {/* Evaluations are the GRAPH's per-session decisions — the Target Portfolio (target_weights) the
+          strategy asked for, and the orders the engine reconciled from it — distinct from the engine's
+          fills below, so they get their own section ABOVE the Engine stage. Every weight/order value is
+          a served record field formatted for display (fmt), never a client-side computation
+          (invariant 5): the story is Target Portfolio → Orders → Fills → Portfolio Evolution. */}
       <section className="results__section">
         <h4 className="results__section-title">Evaluations ({record.evaluations.length})</h4>
         {record.evaluations.length > 0 ? (
@@ -109,8 +113,8 @@ export function ResultsView({
             <thead>
               <tr>
                 <th>Session</th>
-                <th>Portfolio value</th>
-                <th>#Orders</th>
+                <th>Target weights</th>
+                <th>Orders</th>
                 <th>Fill session</th>
               </tr>
             </thead>
@@ -118,8 +122,28 @@ export function ResultsView({
               {record.evaluations.map((evaluation, i) => (
                 <tr key={`${evaluation.session_date}:${i}`}>
                   <td>{sessionCell(evaluation.session_date)}</td>
-                  <td>{evaluation.portfolio_value ?? '—'}</td>
-                  <td>{evaluation.orders.length}</td>
+                  <td>
+                    {evaluation.target_weights.length > 0 ? (
+                      <ul className="results__cells">
+                        {evaluation.target_weights.map(([asset, weight], j) => (
+                          <li key={`${asset}:${j}`}>{`${asset} ${fmt(weight)}`}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="results__muted">no targets</span>
+                    )}
+                  </td>
+                  <td>
+                    {evaluation.orders.length > 0 ? (
+                      <ul className="results__cells">
+                        {evaluation.orders.map((order, j) => (
+                          <li key={`${order.asset}:${j}`}>{`${order.side} ${order.asset} ${order.quantity}`}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="results__muted">no orders</span>
+                    )}
+                  </td>
                   <td>{evaluation.fill_session ?? '—'}</td>
                 </tr>
               ))}

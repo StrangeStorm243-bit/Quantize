@@ -105,14 +105,15 @@ describe('ResultsView', () => {
     expect(screen.getByText(/loading run/i)).toBeInTheDocument()
   })
 
-  it("never paints another run's record: a run_id mismatch renders as loading", () => {
-    // During a run switch the App briefly still holds the previous run's record (its reset effect
-    // runs after paint). The view must not show run A's numbers under run B's selection.
+  it('is presentational: renders the record it is given (the run-identity gate moved upstream)', () => {
+    // The run-switch stale-window guard now lives in useDebugLoopState (run/projections gatedRecord):
+    // the App hands ResultsView the SELECTED run's record or `loading`, never a mismatch. ResultsView no
+    // longer re-gates on run_id — it renders the record it is passed, trusting that upstream contract.
     render(
-      <ResultsView runId="run-B" record={response(record())} loading={false} error={undefined} />,
+      <ResultsView runId="run-1" record={response(record())} loading={false} error={undefined} />,
     )
-    expect(screen.getByText(/loading run/i)).toBeInTheDocument()
-    expect(screen.queryByText('backtest')).not.toBeInTheDocument()
+    expect(screen.getByText('backtest')).toBeInTheDocument()
+    expect(screen.queryByText(/loading run/i)).not.toBeInTheDocument()
   })
 
   it('surfaces a record-fetch error passed from the App', () => {
@@ -173,6 +174,43 @@ describe('ResultsView interactivity (M13.7)', () => {
     // The engine framing copy and the Fills table both live inside the Engine section.
     expect(within(engine).getByText(/targets → orders → fills/i)).toBeInTheDocument()
     expect(within(engine).getByText(/^Fills/)).toBeInTheDocument()
+  })
+
+  it("renders each evaluation's served target weights (the Target Portfolio)", () => {
+    render(<ResultsView runId="run-1" record={response(record())} loading={false} error={undefined} />)
+    // target_weights [['SPY', 1.0]] → the served asset + its weight formatted for display (no derivation).
+    expect(screen.getByText('SPY 1.0000')).toBeInTheDocument()
+  })
+
+  it("renders each evaluation's served orders (side / asset / quantity)", () => {
+    render(<ResultsView runId="run-1" record={response(record())} loading={false} error={undefined} />)
+    // orders [{ side:'buy', asset:'SPY', quantity:100 }] → the served order verbatim.
+    expect(screen.getByText('buy SPY 100')).toBeInTheDocument()
+  })
+
+  it('takes the displayed weight and order values from the server record fields (not derived)', () => {
+    // Change ONLY the served fields; the display must follow them exactly (formatting, never computing).
+    const rec = record()
+    rec.evaluations = [
+      {
+        ...rec.evaluations[0],
+        target_weights: [['QQQ', 0.25]],
+        orders: [{ side: 'sell', asset: 'QQQ', quantity: 7 }],
+      },
+    ]
+    render(<ResultsView runId="run-1" record={response(rec)} loading={false} error={undefined} />)
+    expect(screen.getByText('QQQ 0.2500')).toBeInTheDocument()
+    expect(screen.getByText('sell QQQ 7')).toBeInTheDocument()
+  })
+
+  it('handles an evaluation with no targets and no orders gracefully (placeholders, no crash)', () => {
+    const rec = record()
+    rec.evaluations = [{ ...rec.evaluations[0], target_weights: [], orders: [] }]
+    render(<ResultsView runId="run-1" record={response(rec)} loading={false} error={undefined} />)
+    // The row still renders its session; empty targets/orders read as explicit placeholders.
+    expect(screen.getAllByText('2025-07-31').length).toBeGreaterThan(0)
+    expect(screen.getByText('no targets')).toBeInTheDocument()
+    expect(screen.getByText('no orders')).toBeInTheDocument()
   })
 
   it('passes chart clicks through: clicking the chart selects the server date at that index', () => {

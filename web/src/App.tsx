@@ -10,14 +10,12 @@
 // second source of truth.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { DatasetStored, RunRecordResponse, ValidateResponse } from '@quantize/quantize-api'
+import type { DatasetStored, ValidateResponse } from '@quantize/quantize-api'
 import type { StrategyDocument } from '@quantize/quantize-ir'
 import {
   ApiClientError,
   errorMessage,
   getDataset,
-  getRun,
-  getTraceTree,
   listStrategyVersions,
   loadStrategyVersion,
   saveStrategy,
@@ -39,8 +37,7 @@ import { StrategyBar } from './components/StrategyBar'
 import { TraceView } from './components/TraceView'
 import { ValidatePanel } from './components/ValidatePanel'
 import type { HighlightTarget } from './validation/targets'
-import { isCursorOnAxis, selectTrace } from './trace/selectTrace'
-import type { TaggedTrace } from './trace/selectTrace'
+import { useDebugLoopState } from './run/useDebugLoopState'
 import { bumpStrategyVersion, newStrategyDocument, semanticKey, useStrategyDocument } from './document/store'
 import { computeNodeValidity } from './validity'
 import type { StampedVerdict } from './validity'
@@ -87,11 +84,25 @@ export function App(): ReactElement {
   const [datasetMeta, setDatasetMeta] = useState<DatasetStored | undefined>(undefined)
   const [datasetPickerOpen, setDatasetPickerOpen] = useState(false)
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
-  // The session cursor is client state over the SELECTED RUN's server session dates (M13.7). It is
-  // valid only while a run is selected, drawn exclusively from that run's own valuations, defaulted to
-  // the run's LAST session on select (D-12), cleared on run switch, and absent (null) without a run.
-  // It NEVER enters the document and NEVER computes anything — it only indexes served dates.
-  const [sessionCursor, setSessionCursor] = useState<string | null>(null)
+  // The debug-loop cluster (M13.7; extracted to a hook in M13.7.5, ahead of M13.8): the selected run's
+  // record, the session cursor over its server dates, the axis/evaluated projections, the single
+  // tagged trace fetch, and the Inspector's "At session" payload. The scheduling-coupled effects live
+  // together in `useDebugLoopState`; the App only threads the values to the bar/panels below.
+  const {
+    runRecord,
+    runRecordLoading,
+    runRecordError,
+    note,
+    sessionCursor,
+    setSessionCursor,
+    sessionDates,
+    evaluatedSessions,
+    traceTrees,
+    traceLoading,
+    traceError,
+    atSession,
+    runScheduleKind,
+  } = useDebugLoopState(selectedRunId)
   // The strategy bar's Validate verb bumps this to trigger a validation in the Problems panel.
   const [validateNonce, setValidateNonce] = useState(0)
   // The document's semantic identity (ui.* excluded) — badges key on THIS, not the whole doc object,
@@ -325,150 +336,6 @@ export function App(): ReactElement {
     return true
   }
 
-  // --- The lifted run record (fetched once per selected run) ------------------------------------
-
-  const [runRecord, setRunRecord] = useState<RunRecordResponse | undefined>(undefined)
-  const [runRecordLoading, setRunRecordLoading] = useState(false)
-  const [runRecordError, setRunRecordError] = useState<string | undefined>(undefined)
-  useEffect(() => {
-    if (selectedRunId === undefined) {
-      setRunRecord(undefined)
-      setRunRecordError(undefined)
-      setRunRecordLoading(false)
-      setSessionCursor(null) // no run → no cursor axis
-      return
-    }
-    let cancelled = false
-    setRunRecord(undefined)
-    setRunRecordError(undefined)
-    setRunRecordLoading(true)
-    // Clear on run switch — the new run's axis is not known until it loads. NOTE (M13.7 Task 2): the
-    // trace-tree effect below now DOES depend on `sessionCursor`. Because this `setSessionCursor(null)`
-    // is a SCHEDULED update (not a same-pass mutation), the trace effect can still observe the previous
-    // run's cursor for one pass after `selectedRunId` changes. Two guards make that harmless: (1) the
-    // trace effect fetches only when the cursor belongs to the CURRENT run's axis (`sessionDates`, a
-    // run_id-gated memo) — during the stale window that axis is the new run's/empty, so no wasted
-    // `getTraceTree(newRunId, oldCursor)` is ever sent; (2) its `cancelled` cleanup guard prevents any
-    // late-resolving stale tree from rendering. StrategyBar's readout is likewise masked by `hasRun`.
-    setSessionCursor(null)
-    getRun(selectedRunId)
-      .then((res) => {
-        if (!cancelled) {
-          setRunRecord(res)
-          // D-12: default the cursor to the run's LAST session (drawn from its own server dates).
-          const dates = res.record.valuations
-          setSessionCursor(dates.length > 0 ? dates[dates.length - 1][0] : null)
-        }
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setRunRecord(undefined)
-          setRunRecordError(errorMessage(e))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setRunRecordLoading(false)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [selectedRunId])
-
-  // The cursor axis (M13.7): the selected run's server session dates, in order. Gated on the record's
-  // OWN run_id matching the selection (mirrors TraceView) — during a run switch the App briefly still
-  // holds the previous run's record, and an unguarded derivation would offer the stale run's dates.
-  const sessionDates = useMemo(() => {
-    if (runRecord === undefined || selectedRunId === undefined || runRecord.record.run_id !== selectedRunId)
-      return []
-    return runRecord.record.valuations.map(([date]) => date)
-  }, [runRecord, selectedRunId])
-  // The evaluated subset — sessions the engine actually evaluated (vs. warm-up / skipped sessions),
-  // used only to MARK the cursor readout. A pure projection of the record; it computes nothing. Gated
-  // on the SAME run_id check as `sessionDates` so both projections of one record are defended alike —
-  // a future consumer reading this outside the bar's `hasRun` mask never sees the stale run's set.
-  const evaluatedSessions = useMemo(() => {
-    if (runRecord === undefined || selectedRunId === undefined || runRecord.record.run_id !== selectedRunId)
-      return new Set<string>()
-    return new Set(runRecord.record.evaluations.map((e) => e.session_date))
-  }, [runRecord, selectedRunId])
-
-  // --- The lifted trace tree (M13.7): ONE fetch keyed on the run + the shared session cursor ------
-  // Lifting the trace-tree fetch out of TraceView lets a single result feed both the Trace panel and
-  // (a later task) the always-mounted Inspector — the Dock mounts only one panel at a time, so a
-  // panel-local fetch could not be shared. Mirrors the runRecord effect's shape (cancelled flag,
-  // reset-then-load, then/catch/finally); re-keys whenever the run OR the cursor changes.
-  // The fetched trace is TAGGED with the (run, session) it was fetched for; the effect only writes,
-  // never clears. What the panels see is derived by `selectTrace` (below), gated to the current
-  // selection — so the one-render window between a cursor/run change and this effect re-running never
-  // surfaces the previous session's trees under the new cursor (P2).
-  const [traceFetch, setTraceFetch] = useState<TaggedTrace | undefined>(undefined)
-  useEffect(() => {
-    // Gate on the cursor actually belonging to the CURRENT run's axis. On a run switch `setSessionCursor(null)`
-    // is scheduled, not immediate, so this effect can run once with the previous run's cursor against the new
-    // `selectedRunId`; `sessionDates` is the run_id-gated memo, so during that stale window it is the new
-    // run's dates (or empty) and this guard is false — the wasted `getTraceTree(newRunId, oldCursor)` is never
-    // SENT. The `cancelled` cleanup drops a superseded in-flight fetch (a late resolve would also be gated out
-    // by its tag, but cancelling avoids the wasted state write).
-    if (selectedRunId === undefined || sessionCursor === null || !sessionDates.includes(sessionCursor)) {
-      return
-    }
-    let cancelled = false
-    // Capture the key this fetch is FOR, so the result is tagged with it (not with whatever the cursor
-    // happens to be when the promise resolves).
-    const runId = selectedRunId
-    const sessionDate = sessionCursor
-    getTraceTree(runId, sessionDate)
-      .then((res) => {
-        if (!cancelled) setTraceFetch({ runId, sessionDate, trees: res.trees })
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setTraceFetch({ runId, sessionDate, error: errorMessage(e) })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [selectedRunId, sessionCursor, sessionDates])
-
-  // Gate the tagged fetch to the CURRENT selection. A mismatch (no run, an off-axis cursor, or the
-  // stale render before the effect re-fetches) never exposes the wrong session's trees: an on-axis
-  // selection whose fetch has not landed reads as loading, everything else as empty. Both the Trace
-  // panel and the Inspector "At session" section consume these gated values.
-  const { trees: traceTrees, loading: traceLoading, error: traceError } = selectTrace(
-    traceFetch,
-    selectedRunId,
-    sessionCursor,
-    sessionDates,
-  )
-
-  // The live "At session" payload for the Inspector (M13.7): the App-owned trace tree at the shared
-  // cursor, plus whether that session was evaluated and its no-eval note. Undefined until a run + cursor
-  // exist, which keeps the Inspector's value-tap slot in its inert empty state. It shares the SAME lifted
-  // trace fetch the Trace panel uses (keyed on run + cursor) — no second request. All fields are served
-  // reads / filters (invariant 5); addressing stays (node_id, component_path) — the section resolves the
-  // node, the cursor supplies session_date.
-  const atSession = useMemo(() => {
-    // Gate on the cursor being on the CURRENT run's axis — the SAME shared predicate `selectTrace`
-    // uses for the trace panel. Without this, the one-render run-switch window (cursor still the
-    // previous run's date, `sessionDates` already the new run's axis or empty) would build an
-    // atSession with an off-axis cursor and `evaluated: false`, flashing "No evaluation this session"
-    // in the Inspector instead of the inert empty slot. Off-axis → undefined keeps the slot inert.
-    if (!isCursorOnAxis(selectedRunId, sessionCursor, sessionDates)) return undefined
-    // Gate the note lookup on the record's OWN run_id matching the selection (as sessionDates /
-    // evaluatedSessions / TraceView already do): during a run switch the App briefly still holds the
-    // previous run's record, and an ungated lookup would surface the stale run's note for this session.
-    const recordMatches = runRecord !== undefined && runRecord.record.run_id === selectedRunId
-    return {
-      cursor: sessionCursor,
-      trees: traceTrees,
-      loading: traceLoading,
-      error: traceError,
-      evaluated: evaluatedSessions.has(sessionCursor),
-      note: recordMatches ? runRecord.record.notes.find((n) => n.session_date === sessionCursor) : undefined,
-    }
-  }, [selectedRunId, sessionCursor, sessionDates, traceTrees, traceLoading, traceError, evaluatedSessions, runRecord])
-
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.
   useEffect(() => {
     if (datasetId === undefined) {
@@ -577,9 +444,12 @@ export function App(): ReactElement {
       node: (
         <TraceView
           runId={selectedRunId}
-          record={runRecord}
           recordLoading={runRecordLoading}
           recordError={runRecordError}
+          sessions={sessionDates}
+          evaluatedSessions={evaluatedSessions}
+          note={note}
+          scheduleKind={runScheduleKind}
           sessionCursor={sessionCursor}
           onCursorChange={setSessionCursor}
           trees={traceTrees}
