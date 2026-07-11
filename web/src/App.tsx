@@ -27,8 +27,9 @@ import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
 import { Dock } from './components/Dock'
 import type { DockPanel } from './components/Dock'
 import { ExtractDialog } from './components/ExtractDialog'
-import { Home } from './components/Home'
+import { Home, DEMO_NAME } from './components/Home'
 import { Inspector } from './components/Inspector'
+import { JourneyChecklist } from './components/JourneyChecklist'
 import { Palette } from './components/Palette'
 import { ResultsView } from './components/ResultsView'
 import { RunPanel } from './components/RunPanel'
@@ -43,6 +44,13 @@ import { bumpStrategyVersion, newStrategyDocument, semanticKey, useStrategyDocum
 import { computeNodeValidity } from './validity'
 import type { StampedVerdict } from './validity'
 import { useSchemaVersionCheck } from './meta'
+import {
+  latchSteps,
+  loadJourney,
+  saveJourney,
+  type JourneyState,
+  type JourneyStepId,
+} from './journey/progress'
 import { useTheme } from './theme'
 import './styles/tokens.css'
 import './App.css'
@@ -83,6 +91,29 @@ function AppShell(): ReactElement {
 
   // Home vs. editor is plain app state (no router, D-10). Start on Home: no document is open.
   const [view, setView] = useState<'home' | 'editor'>('home')
+
+  // First-run journey checklist (M13.9). A monotonic latch of the five arrival steps, persisted in
+  // localStorage. Steps are INFERRED from state the App already owns (invariant 5: presentation only,
+  // nothing enters the document) — see the inference effect below and `commitExtraction`.
+  const [journey, setJourney] = useState<JourneyState>(loadJourney)
+  // Latch newly-observed steps; persist ONLY on an actual change (no write churn under StrictMode's
+  // double-invoke, since `latchSteps` is idempotent — the length guard turns a repeat into a no-op).
+  const latchJourney = useCallback((observed: JourneyStepId[]): void => {
+    setJourney((prev) => {
+      const next = latchSteps(prev, observed)
+      if (next.done.length === prev.done.length) return prev
+      saveJourney(next)
+      return next
+    })
+  }, [])
+  const dismissJourney = useCallback((): void => {
+    setJourney((prev) => {
+      if (prev.dismissed) return prev
+      const next: JourneyState = { ...prev, dismissed: true }
+      saveJourney(next)
+      return next
+    })
+  }, [])
 
   const [doc, actions] = useStrategyDocument(newStrategyDocument('Untitled'))
   // The last saved/loaded document OBJECT: `dirty` is `doc !== savedDoc` (every reducer returns a new
@@ -370,6 +401,9 @@ function AppShell(): ReactElement {
     if (!actions.replaceIf(capturedDoc, strategy)) {
       return false
     }
+    // The one place the App KNOWS an extraction landed — latch the journey's final step here (M13.9),
+    // not from a view signal (a new ComponentRef in the doc is not, by itself, proof the user did it).
+    latchJourney(['extract-component'])
     onExtracted(newNodeId)
     return true
   }
@@ -462,6 +496,19 @@ function AppShell(): ReactElement {
   useEffect(() => {
     setHighlightedEdgeIndex(null)
   }, [doc])
+
+  // Journey inference (M13.9): map the App's own view state onto the checklist's steps. Every read is
+  // presentation-level (no numeric/portfolio logic); the two tab steps GATE on a selected run so
+  // opening Results/Trace without a run can never tick them. `extract-component` is not here — it is
+  // latched imperatively where the App KNOWS an extraction landed (`commitExtraction`).
+  useEffect(() => {
+    const observed: JourneyStepId[] = []
+    if (view === 'editor' && DEMO_NAME.test(doc.strategy.name)) observed.push('open-demo')
+    if (selectedRunId !== undefined) observed.push('run-backtest')
+    if (selectedRunId !== undefined && dockTab === 'results') observed.push('open-results')
+    if (selectedRunId !== undefined && dockTab === 'trace') observed.push('open-trace')
+    if (observed.length > 0) latchJourney(observed)
+  }, [view, doc.strategy.name, selectedRunId, dockTab, latchJourney])
 
   // Trace→canvas/breadcrumb click-through (M13.7 hook, closed in M13.8): a node-origin trace row
   // navigates to its emitting node, wherever it lives in the component hierarchy.
@@ -609,6 +656,11 @@ function AppShell(): ReactElement {
           {shellError}
         </div>
       ) : null}
+
+      {/* Arrival aid (M13.9): rendered in BOTH views so step 1 is visible on Home where it is
+          performed and the later steps stay visible in the editor. Dismisses permanently (returns
+          null when dismissed, so it leaves no gap). */}
+      <JourneyChecklist state={journey} onDismiss={dismissJourney} />
 
       {view === 'home' ? (
         <Home

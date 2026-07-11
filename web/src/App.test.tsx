@@ -107,6 +107,7 @@ vi.mock('./components/RunPanel', () => ({
 // Mock Home (M13.3): the app now opens on Home. A stub exposes a button that enters the editor via
 // onNew, so these editor-focused tests reach the editor without the real Home's dataset network.
 vi.mock('./components/Home', () => ({
+  DEMO_NAME: /momentum/i,
   Home: (props: { onNew: (name: string) => void }) => (
     <button type="button" onClick={() => props.onNew('Test')}>
       home-new

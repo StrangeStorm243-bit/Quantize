@@ -18,7 +18,8 @@ export interface HomeProps {
 
 // The seeded ETF Momentum Rotation demo, matched by name so the journey card lights up when it is
 // present (seeding is out of scope here) and falls back to an honest empty state when it is not.
-const DEMO_NAME = /momentum/i
+// Exported so the App's journey checklist infers the `open-demo` step from the same single rule (DRY).
+export const DEMO_NAME = /momentum/i
 
 export function Home({ onNew, onOpen, datasetId, onSelectDataset }: HomeProps): ReactElement {
   const [name, setName] = useState('Untitled')

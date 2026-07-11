@@ -65,6 +65,7 @@ vi.mock('./components/Canvas', () => ({
 vi.mock('./components/RunPanel', () => ({ RunPanel: () => <div>runs-panel</div> }))
 vi.mock('./components/Palette', () => ({ Palette: () => <div>palette</div> }))
 vi.mock('./components/Home', () => ({
+  DEMO_NAME: /momentum/i,
   Home: (props: { onNew: (name: string) => void }) => (
     <button type="button" onClick={() => props.onNew('Test')}>
       home-new

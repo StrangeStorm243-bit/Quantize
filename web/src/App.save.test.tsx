@@ -32,6 +32,7 @@ vi.mock('./api/client', async (importOriginal) => {
 // Home stub: enter the editor. Canvas stub: a button that mutates the doc (making it dirty). The
 // other heavy children are stubbed so this stays focused on the save flow.
 vi.mock('./components/Home', () => ({
+  DEMO_NAME: /momentum/i,
   Home: (props: { onNew: (name: string) => void }) => (
     <button type="button" onClick={() => props.onNew('Test')}>
       home-new
