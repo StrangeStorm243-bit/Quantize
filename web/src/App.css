@@ -1272,6 +1272,12 @@ button.crumbs__item:hover {
   color: var(--success);
 }
 
+.vpanel__hint {
+  margin: 0.3rem 0;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
 .vpanel__layer {
   margin-top: 0.5rem;
 }
@@ -2350,6 +2356,7 @@ button.trace-node__head--clickable:hover .trace-node__id {
   border-radius: var(--radius-lg);
   background: var(--surface-elevated);
   padding: var(--space-3) var(--space-4);
+  margin: var(--space-3);
   box-shadow: var(--shadow-sm);
 }
 
