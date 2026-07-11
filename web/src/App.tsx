@@ -764,7 +764,15 @@ function AppShell(): ReactElement {
                         ×
                       </button>
                     </div>
-                    <DatasetPanel activeDatasetId={datasetId} onSelectDataset={setDatasetId} />
+                    {/* Close the modal on select (M13.9 O4) — a chosen dataset dismisses the picker.
+                        The Home screen's inline DatasetPanel has no modal, so this wrapper is App-local. */}
+                    <DatasetPanel
+                      activeDatasetId={datasetId}
+                      onSelectDataset={(id) => {
+                        setDatasetId(id)
+                        setDatasetPickerOpen(false)
+                      }}
+                    />
                   </div>
                 </div>
               ) : null}
