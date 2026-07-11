@@ -60,10 +60,11 @@ instead of the container bottom, so it is robust to anything rendered below the 
 
 **Verification:** CSS-only layout fix — NOT unit-testable (jsdom has no layout engine, so overlap is
 unobservable in vitest). Verified by (a) no regression — `SvgLineChart.test.tsx` (12) + `tokens.test.ts`
-(40) green; (b) **visual re-check in the running dev server still owed** (founder eyeball of the
-Results chart corner, light + dark).
+(40) green; (b) **visual re-check DONE 2026-07-11** (live Playwright-MCP): Results chart bottom-left
+corner shows `1000000` on its own line above `2025-07-31` — no smear — in **both** dark (`m139-03`) and
+light (`m139-12`). See `2026-07-11-m13.9-journey-walkthrough.md` Phase 6.
 
-### F2 — Coverage gap: M13.8 breadcrumb component navigation NOT exercised live · severity: med
+### F2 — Coverage gap: M13.8 breadcrumb component navigation NOT exercised live · severity: med · **CLOSED 2026-07-11**
 The newest merge (PR #21, component breadcrumb navigation) was **not** touched — the Components rail
 read *"No saved components,"* so no extraction / Enter-component / breadcrumb / trace-into-component
 path was walked in a real browser. Its headless coverage is green (563 web tests), but the live
@@ -71,10 +72,23 @@ click-through is still owed. **M13.9 must include Phase 4** (extract a 2–3 nod
 appears in Components + results stay identical → Enter component → breadcrumb walk in/out →
 trace-into-component navigation) before M13 closeout.
 
-### F3 — Coverage gap: light-theme smoke NOT done · severity: low
+**Closure (live Playwright-MCP session, 2026-07-11):** all sub-checks pass — extracted `Trailing
+Return + Rank` as component "Momentum Rank" (rail shows it), re-ran the rewritten strategy → identical
+**Total return 0.0250** (semantics-preserving), Enter component → read-only breadcrumb view, crumb-click
++ Esc exit, canvas double-click re-enter, and a nested trace row navigated the breadcrumb to the
+emitting node. Evidence + screenshots: `docs/reviews/2026-07-11-m13.9-journey-walkthrough.md` (Phase 4;
+`m139-07..09`, `m139-12`).
+
+### F3 — Coverage gap: light-theme smoke NOT done · severity: low · **CLOSED 2026-07-11**
 Only dark theme was walked. M13 shipped design tokens + light/dark theming; the M13.9 legibility
 script should include a light-theme pass (formula box wrapping, inline port colors, `.pform__help`
 legibility, and the F1 chart corner in light).
+
+**Closure (live Playwright-MCP session, 2026-07-11):** light-theme sweep of Home, canvas
+cards/edges/legend, Inspector Explanation formula box (`MA(D) = mean(…)` wraps cleanly onto two lines),
+`.pform` help, Trace, Results chart, and the journey checklist — all legible; no illegible surface
+found. F1 chart corner also confirmed clean in light. Evidence: `2026-07-11-m13.9-journey-walkthrough.md`
+(Phase 5; `m139-10..15`).
 
 ## Environment note
 
