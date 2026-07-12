@@ -20,7 +20,9 @@ export type JsonValue =
  */
 export interface QuantizeApi {
   ApiError?: ApiError;
+  AssetSetSummaryDto?: AssetSetSummaryDto;
   AssetSetType?: AssetSetType;
+  AssetValueDto?: AssetValueDto;
   BacktestRunRequest?: BacktestRunRequest;
   CalendarDto?: CalendarDto;
   CatalogInputPortDto?: CatalogInputPortDto;
@@ -29,6 +31,7 @@ export interface QuantizeApi {
   ComponentList?: ComponentList;
   ComponentListRow?: ComponentListRow;
   ComponentSaved?: ComponentSaved;
+  CrossSectionSummaryDto?: CrossSectionSummaryDto;
   CrossSectionType?: CrossSectionType;
   DatasetList?: DatasetList;
   DatasetListRow?: DatasetListRow;
@@ -40,6 +43,7 @@ export interface QuantizeApi {
   NodeCatalogResponse?: NodeCatalogResponse;
   NodeDocDto?: NodeDocDto;
   NodeTypeDto?: NodeTypeDto;
+  NodeValueResponse?: NodeValueResponse;
   ObservationDto?: ObservationDto;
   ParamDocDto?: ParamDocDto;
   PersistedDiagnostic?: PersistedDiagnostic;
@@ -51,20 +55,25 @@ export interface QuantizeApi {
   PersistedRunRecord?: PersistedRunRecord;
   PersistedStaleMark?: PersistedStaleMark;
   PortTypeEntryDto?: PortTypeEntryDto;
+  PortfolioTargetsSummaryDto?: PortfolioTargetsSummaryDto;
   PortfolioTargetsType?: PortfolioTargetsType;
+  ProvenanceDto?: ProvenanceDto;
   RunCreated?: RunCreated;
   RunInputProvenance?: RunInputProvenance;
   RunList?: RunList;
   RunListRow?: RunListRow;
   RunRecordResponse?: RunRecordResponse;
   RuntimeDiagnosticDto?: RuntimeDiagnosticDto;
+  ScalarSummaryDto?: ScalarSummaryDto;
   ScalarType?: ScalarType;
   SemanticDiagnosticDto?: SemanticDiagnosticDto;
+  SeriesPreviewDto?: SeriesPreviewDto;
   SessionDto?: SessionDto;
   StrategyList?: StrategyList;
   StrategyListRow?: StrategyListRow;
   StrategySaved?: StrategySaved;
   StructuralDiagnosticDto?: StructuralDiagnosticDto;
+  TimeSeriesSummaryDto?: TimeSeriesSummaryDto;
   TimeSeriesType?: TimeSeriesType;
   TraceEvent?: TraceEvent;
   TraceResponse?: TraceResponse;
@@ -73,6 +82,7 @@ export interface QuantizeApi {
   TraceTreeResponse?: TraceTreeResponse;
   ValidateResponse?: ValidateResponse;
   VersionList?: VersionList;
+  WindowDto?: WindowDto;
 }
 /**
  * The uniform error envelope. ``code`` is a stable machine identifier; ``message`` is human
@@ -82,8 +92,17 @@ export interface ApiError {
   code: string;
   message: string;
 }
+export interface AssetSetSummaryDto {
+  count: number;
+  kind: "asset_set";
+  members: string[];
+}
 export interface AssetSetType {
   kind: "AssetSet";
+}
+export interface AssetValueDto {
+  asset: string;
+  value: number | boolean;
 }
 /**
  * A backtest submission. ``last_session`` is optional (defaults to the dataset's last).
@@ -168,6 +187,17 @@ export interface ComponentListRow {
 export interface ComponentSaved {
   component_id: string;
   version: string;
+}
+export interface CrossSectionSummaryDto {
+  domain_count: number;
+  dtype: "Number" | "Boolean";
+  false_count?: number | null;
+  kind: "cross_section";
+  max?: number | null;
+  min?: number | null;
+  missing: string[];
+  present_count: number;
+  true_count?: number | null;
 }
 export interface DatasetList {
   datasets: DatasetListRow[];
@@ -299,6 +329,50 @@ export interface ParamDocDto {
 export interface PortTypeEntryDto {
   label: string;
   port_type: ScalarType | AssetSetType | CrossSectionType | TimeSeriesType | PortfolioTargetsType;
+}
+/**
+ * The value a node's output port produced at a session (``GET /v1/runs/{id}/values``).
+ */
+export interface NodeValueResponse {
+  asset_values?: AssetValueDto[] | null;
+  component_path: string[];
+  node_id: string;
+  output_port: string;
+  provenance: ProvenanceDto;
+  series_preview?: SeriesPreviewDto[] | null;
+  session_date: string;
+  value_summary:
+    ScalarSummaryDto | AssetSetSummaryDto | CrossSectionSummaryDto | TimeSeriesSummaryDto | PortfolioTargetsSummaryDto;
+}
+export interface ProvenanceDto {
+  captured: boolean;
+  dataset_fingerprint: string;
+  run_id: string;
+}
+export interface SeriesPreviewDto {
+  asset: string;
+  points: [string, number][];
+}
+export interface ScalarSummaryDto {
+  dtype: "Number" | "Integer" | "Boolean";
+  kind: "scalar";
+  value: number | boolean;
+}
+export interface TimeSeriesSummaryDto {
+  asset_count: number;
+  kind: "time_series";
+  total_points: number;
+  window?: WindowDto | null;
+}
+export interface WindowDto {
+  first_date: string;
+  last_date: string;
+}
+export interface PortfolioTargetsSummaryDto {
+  cash: number;
+  count: number;
+  kind: "portfolio_targets";
+  weight_sum: number;
 }
 export interface PersistedDiagnostic {
   code: string;

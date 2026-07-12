@@ -18,6 +18,31 @@
       "title": "ApiError",
       "type": "object"
     },
+    "AssetSetSummaryDto": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer"
+        },
+        "kind": {
+          "const": "asset_set",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "count",
+        "members"
+      ],
+      "title": "AssetSetSummaryDto",
+      "type": "object"
+    },
     "AssetSetType": {
       "additionalProperties": false,
       "properties": {
@@ -30,6 +55,30 @@
         "kind"
       ],
       "title": "AssetSetType",
+      "type": "object"
+    },
+    "AssetValueDto": {
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "required": [
+        "asset",
+        "value"
+      ],
+      "title": "AssetValueDto",
       "type": "object"
     },
     "BacktestRunRequest": {
@@ -336,6 +385,87 @@
         "version"
       ],
       "title": "ComponentSaved",
+      "type": "object"
+    },
+    "CrossSectionSummaryDto": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_count": {
+          "type": "integer"
+        },
+        "dtype": {
+          "enum": [
+            "Number",
+            "Boolean"
+          ],
+          "type": "string"
+        },
+        "false_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "kind": {
+          "const": "cross_section",
+          "type": "string"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "missing": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "present_count": {
+          "type": "integer"
+        },
+        "true_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "kind",
+        "dtype",
+        "domain_count",
+        "present_count",
+        "missing"
+      ],
+      "title": "CrossSectionSummaryDto",
       "type": "object"
     },
     "CrossSectionType": {
@@ -744,6 +874,98 @@
         "parameter_schema"
       ],
       "title": "NodeTypeDto",
+      "type": "object"
+    },
+    "NodeValueResponse": {
+      "additionalProperties": false,
+      "description": "The value a node's output port produced at a session (``GET /v1/runs/{id}/values``).",
+      "properties": {
+        "asset_values": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/AssetValueDto"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "component_path": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "output_port": {
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/ProvenanceDto"
+        },
+        "series_preview": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SeriesPreviewDto"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "session_date": {
+          "format": "date",
+          "type": "string"
+        },
+        "value_summary": {
+          "discriminator": {
+            "mapping": {
+              "asset_set": "#/$defs/AssetSetSummaryDto",
+              "cross_section": "#/$defs/CrossSectionSummaryDto",
+              "portfolio_targets": "#/$defs/PortfolioTargetsSummaryDto",
+              "scalar": "#/$defs/ScalarSummaryDto",
+              "time_series": "#/$defs/TimeSeriesSummaryDto"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScalarSummaryDto"
+            },
+            {
+              "$ref": "#/$defs/AssetSetSummaryDto"
+            },
+            {
+              "$ref": "#/$defs/CrossSectionSummaryDto"
+            },
+            {
+              "$ref": "#/$defs/TimeSeriesSummaryDto"
+            },
+            {
+              "$ref": "#/$defs/PortfolioTargetsSummaryDto"
+            }
+          ]
+        }
+      },
+      "required": [
+        "node_id",
+        "component_path",
+        "session_date",
+        "output_port",
+        "value_summary",
+        "provenance"
+      ],
+      "title": "NodeValueResponse",
       "type": "object"
     },
     "ObservationDto": {
@@ -1309,6 +1531,32 @@
       "title": "PortTypeEntryDto",
       "type": "object"
     },
+    "PortfolioTargetsSummaryDto": {
+      "additionalProperties": false,
+      "properties": {
+        "cash": {
+          "type": "number"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "kind": {
+          "const": "portfolio_targets",
+          "type": "string"
+        },
+        "weight_sum": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "count",
+        "weight_sum",
+        "cash"
+      ],
+      "title": "PortfolioTargetsSummaryDto",
+      "type": "object"
+    },
     "PortfolioTargetsType": {
       "additionalProperties": false,
       "properties": {
@@ -1321,6 +1569,27 @@
         "kind"
       ],
       "title": "PortfolioTargetsType",
+      "type": "object"
+    },
+    "ProvenanceDto": {
+      "additionalProperties": false,
+      "properties": {
+        "captured": {
+          "type": "boolean"
+        },
+        "dataset_fingerprint": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset_fingerprint",
+        "captured"
+      ],
+      "title": "ProvenanceDto",
       "type": "object"
     },
     "RunCreated": {
@@ -1507,6 +1776,43 @@
       "title": "RuntimeDiagnosticDto",
       "type": "object"
     },
+    "ScalarSummaryDto": {
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "enum": [
+            "Number",
+            "Integer",
+            "Boolean"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "scalar",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "dtype",
+        "value"
+      ],
+      "title": "ScalarSummaryDto",
+      "type": "object"
+    },
     "ScalarType": {
       "additionalProperties": false,
       "properties": {
@@ -1571,6 +1877,37 @@
         "loc"
       ],
       "title": "SemanticDiagnosticDto",
+      "type": "object"
+    },
+    "SeriesPreviewDto": {
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "asset",
+        "points"
+      ],
+      "title": "SeriesPreviewDto",
       "type": "object"
     },
     "SessionDto": {
@@ -1703,6 +2040,39 @@
         "loc"
       ],
       "title": "StructuralDiagnosticDto",
+      "type": "object"
+    },
+    "TimeSeriesSummaryDto": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_count": {
+          "type": "integer"
+        },
+        "kind": {
+          "const": "time_series",
+          "type": "string"
+        },
+        "total_points": {
+          "type": "integer"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WindowDto"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "kind",
+        "asset_count",
+        "total_points"
+      ],
+      "title": "TimeSeriesSummaryDto",
       "type": "object"
     },
     "TimeSeriesType": {
@@ -1941,6 +2311,25 @@
       ],
       "title": "VersionList",
       "type": "object"
+    },
+    "WindowDto": {
+      "additionalProperties": false,
+      "properties": {
+        "first_date": {
+          "format": "date",
+          "type": "string"
+        },
+        "last_date": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "first_date",
+        "last_date"
+      ],
+      "title": "WindowDto",
+      "type": "object"
     }
   },
   "$id": "https://quantize.dev/schema/0.1.0/quantize-api.schema.json",
@@ -1951,8 +2340,14 @@
     "ApiError": {
       "$ref": "#/$defs/ApiError"
     },
+    "AssetSetSummaryDto": {
+      "$ref": "#/$defs/AssetSetSummaryDto"
+    },
     "AssetSetType": {
       "$ref": "#/$defs/AssetSetType"
+    },
+    "AssetValueDto": {
+      "$ref": "#/$defs/AssetValueDto"
     },
     "BacktestRunRequest": {
       "$ref": "#/$defs/BacktestRunRequest"
@@ -1977,6 +2372,9 @@
     },
     "ComponentSaved": {
       "$ref": "#/$defs/ComponentSaved"
+    },
+    "CrossSectionSummaryDto": {
+      "$ref": "#/$defs/CrossSectionSummaryDto"
     },
     "CrossSectionType": {
       "$ref": "#/$defs/CrossSectionType"
@@ -2011,6 +2409,9 @@
     "NodeTypeDto": {
       "$ref": "#/$defs/NodeTypeDto"
     },
+    "NodeValueResponse": {
+      "$ref": "#/$defs/NodeValueResponse"
+    },
     "ObservationDto": {
       "$ref": "#/$defs/ObservationDto"
     },
@@ -2044,8 +2445,14 @@
     "PortTypeEntryDto": {
       "$ref": "#/$defs/PortTypeEntryDto"
     },
+    "PortfolioTargetsSummaryDto": {
+      "$ref": "#/$defs/PortfolioTargetsSummaryDto"
+    },
     "PortfolioTargetsType": {
       "$ref": "#/$defs/PortfolioTargetsType"
+    },
+    "ProvenanceDto": {
+      "$ref": "#/$defs/ProvenanceDto"
     },
     "RunCreated": {
       "$ref": "#/$defs/RunCreated"
@@ -2065,11 +2472,17 @@
     "RuntimeDiagnosticDto": {
       "$ref": "#/$defs/RuntimeDiagnosticDto"
     },
+    "ScalarSummaryDto": {
+      "$ref": "#/$defs/ScalarSummaryDto"
+    },
     "ScalarType": {
       "$ref": "#/$defs/ScalarType"
     },
     "SemanticDiagnosticDto": {
       "$ref": "#/$defs/SemanticDiagnosticDto"
+    },
+    "SeriesPreviewDto": {
+      "$ref": "#/$defs/SeriesPreviewDto"
     },
     "SessionDto": {
       "$ref": "#/$defs/SessionDto"
@@ -2085,6 +2498,9 @@
     },
     "StructuralDiagnosticDto": {
       "$ref": "#/$defs/StructuralDiagnosticDto"
+    },
+    "TimeSeriesSummaryDto": {
+      "$ref": "#/$defs/TimeSeriesSummaryDto"
     },
     "TimeSeriesType": {
       "$ref": "#/$defs/TimeSeriesType"
@@ -2109,6 +2525,9 @@
     },
     "VersionList": {
       "$ref": "#/$defs/VersionList"
+    },
+    "WindowDto": {
+      "$ref": "#/$defs/WindowDto"
     }
   },
   "title": "QuantizeApi",

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import json
-from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
 
@@ -51,11 +50,6 @@ INITIAL_CASH = 1_000_000.0
 _PROVENANCE = recorded_input_provenance(build_market_fixture())
 
 
-@pytest.fixture(scope="module")
-def market() -> MarketDataSet:
-    return build_market_fixture()
-
-
 def _document(name: str) -> StrategyDocument:
     return StrategyDocument.model_validate(load_fixture(name))
 
@@ -80,13 +74,6 @@ def strategy_a(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]
 def strategy_b(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]:
     document = _document("strategy_b")
     return document, _run(document, market)
-
-
-@pytest.fixture
-def db(tmp_path: Path) -> Iterator[Database]:
-    database = Database(tmp_path / "q.db")
-    yield database
-    database.close()
 
 
 # --- fact preservation ----------------------------------------------------------------------------

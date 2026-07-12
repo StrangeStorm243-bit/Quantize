@@ -43,6 +43,7 @@ from quantize.api.dto.runs import (
 )
 from quantize.api.dto.trace_tree import TraceTreeResponse
 from quantize.api.dto.validate import ValidateResponse
+from quantize.api.dto.values import NodeValueResponse
 from quantize.schema import ComponentDefinition, StrategyDocument
 from quantize.schema.version import CURRENT_SCHEMA_VERSION
 
@@ -98,6 +99,7 @@ _API_ROOT_MODELS: list[tuple[type[BaseModel], Literal["validation", "serializati
     (TraceResponse, "serialization"),
     (TraceTreeResponse, "serialization"),
     (NodeCatalogResponse, "serialization"),
+    (NodeValueResponse, "serialization"),
 ]
 
 
