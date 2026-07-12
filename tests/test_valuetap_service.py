@@ -10,9 +10,7 @@ early and present late). All fixture data; no network.
 
 from __future__ import annotations
 
-import copy
 from datetime import date, datetime
-from typing import Any
 
 import pytest
 
@@ -37,7 +35,6 @@ from quantize.persistence.records import PersistedRunRecord, record_from_result
 from quantize.persistence.runs import RunRepository
 from quantize.persistence.serialize import artifact_bytes, content_hash
 from quantize.runtime.values import AssetSetValue, CrossSectionValue, PortfolioTargetsValue
-from quantize.schema.components import ComponentDefinition
 from quantize.schema.document import StrategyDocument
 from quantize.valuetap import (
     AMBIGUOUS_OUTPUT_PORT,
@@ -51,12 +48,12 @@ from quantize.valuetap import (
 from quantize.valuetap.service import _select_output_port
 from tests.helpers import load_fixture
 from tests.market_fixture import fixture_close
+from tests.valuetap_helpers import dual_component, dual_strategy
 
 RUN_ID = "99999999-9999-9999-9999-999999999999"
 UNKNOWN_RUN_ID = "88888888-8888-8888-8888-888888888888"
 CASH = 1_000_000.0
 LOOKBACK = 126  # strategy_a's trailing-return window (the fixture-arithmetic anchor)
-DUAL_COMPONENT_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 
 
 def _document(name: str) -> StrategyDocument:
@@ -90,8 +87,8 @@ def strategy_a_result(market: MarketDataSet) -> tuple[StrategyDocument, Backtest
 @pytest.fixture(scope="module")
 def dual_result(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]:
     """The pure backtest for the dual-output component pair — computed ONCE per module."""
-    document = _dual_strategy()
-    return document, _run(document, market, components=ComponentCatalog([_dual_component()]))
+    document = dual_strategy()
+    return document, _run(document, market, components=ComponentCatalog([dual_component()]))
 
 
 def _persist(
@@ -279,6 +276,8 @@ def test_missing_component_definition_yields_recompute_failed(
         resolve_node_value(db, run_id=RUN_ID, node_id="cap", session_date=when)
     assert excinfo.value.code == RECOMPUTE_FAILED
     assert excinfo.value.diagnostics  # carries the runtime diagnostics
+    # Design §6: the diagnostics are SURFACED — the first one is folded into the wire message.
+    assert "component_definition_unavailable" in excinfo.value.message
 
 
 # --- 6. output_port defaulting and ambiguity ------------------------------------------------------
@@ -464,34 +463,13 @@ def test_two_identical_taps_are_equal(db: Database, strategy_a_run: PersistedRun
     assert first == second
 
 
-# --- dual-output component helpers (built from the known-good momentum fixtures) ------------
-
-
-def _dual_component() -> ComponentDefinition:
-    """component_momentum plus a SECOND exposed output (so an instance exposes two ports)."""
-    data: dict[str, Any] = copy.deepcopy(load_fixture("component_momentum"))
-    data["component_id"] = DUAL_COMPONENT_ID
-    data["exposed_outputs"].append(
-        {
-            "name": "returns",
-            "type": {"kind": "CrossSection", "dtype": "Number"},
-            "maps_to": ["ret", "values"],
-        }
-    )
-    return ComponentDefinition.model_validate(data)
-
-
-def _dual_strategy() -> StrategyDocument:
-    """strategy_a_component re-pinned to the dual component (same instance id ``mom``)."""
-    data: dict[str, Any] = copy.deepcopy(load_fixture("strategy_a_component"))
-    data["component_refs"][0]["component_id"] = DUAL_COMPONENT_ID
-    return StrategyDocument.model_validate(data)
+# --- dual-output component seeding (builders shared in tests/valuetap_helpers.py) -----------
 
 
 def _persist_dual(
     db: Database, document: StrategyDocument, result: BacktestResult, market: MarketDataSet
 ) -> PersistedRunRecord:
-    ComponentRepository(db).save(_dual_component())
+    ComponentRepository(db).save(dual_component())
     return _persist(db, document, result, market)
 
 

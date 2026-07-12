@@ -16,8 +16,8 @@ Scope (M14.1a/a'): the recompute + address resolution + typed results, plus the 
 fresh-vs-persisted trace cross-check (M14.1a', ``_assert_no_drift``) — an ordered comparison of
 ``(event_type, canonical_json(payload))`` for the tapped node, with NO per-event-type semantics,
 that refuses with ``ENGINE_DRIFT`` when the current node code no longer reproduces the run's
-recorded trace. ``ResolvedNodeValue.fresh_trace`` is now consumed by that check. The API route
-(M14.1c) and the response DTO/codegen (M14.1b) remain separate slices.
+recorded trace. The API route (M14.1c) and the response DTO/codegen (M14.1b) remain separate
+slices.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from quantize.components.resolve import ComponentCatalog, find_ref_key
-from quantize.evaluator.evaluate import evaluate_strategy
+from quantize.evaluator.evaluate import EvaluationOutcome, evaluate_strategy
 from quantize.market.data import MarketDataSet
 from quantize.nodes import build_core_catalog
 from quantize.persistence.closure import load_component_catalog
@@ -99,9 +99,6 @@ class ResolvedNodeValue:
     dataset_fingerprint: str
     calendar_fingerprint: str
     captured: bool
-    # The tapped node's fresh trace events from THIS recompute — compared against the persisted
-    # stream by the M14.1a' cross-check (``_assert_no_drift``), and returned for callers.
-    fresh_trace: tuple[TraceEvent, ...] = ()
 
 
 def resolve_node_value(
@@ -176,10 +173,13 @@ def resolve_node_value(
     produced = frozenset(port for (path, port) in outcome.outputs if path == node_path)
     if not produced:
         if not outcome.ok:
+            # Runtime diagnostics are a safe-to-expose domain contract (the validate endpoint
+            # serves them wholesale), so the design §6 promise — "surfacing the runtime
+            # diagnostics" — is kept by folding the first one into the wire message.
             raise ValueTapError(
                 RECOMPUTE_FAILED,
                 f"recompute did not produce node {_addr(component_path, node_id)}: the strategy "
-                "did not evaluate cleanly at this session",
+                f"did not evaluate cleanly at this session ({_diagnostics_summary(outcome)})",
                 subject=node_id,
                 diagnostics=outcome.diagnostics,
             )
@@ -191,15 +191,11 @@ def resolve_node_value(
     port = _select_output_port(produced, output_port, component_path, node_id)
     value = outcome.outputs[(node_path, port)]
 
-    # The tapped node's fresh trace events from THIS recompute (engine.* events carry engine
-    # identity, not this node's, so this filter excludes them by construction).
-    fresh_trace = tuple(
-        event
-        for event in outcome.trace
-        if event.node_id == node_id and tuple(event.component_path) == component_path
-    )
     # Mitigation-3 tripwire: refuse if the recompute's trace no longer reproduces what the run
     # recorded for this node — a drifted implementation must not silently serve a fresh number.
+    # Both sides of the comparison scope events with the SAME _node_events predicate (engine.*
+    # events carry engine identity, not this node's, so the filter excludes them by construction).
+    fresh_trace = _node_events(outcome.trace, node_id, component_path)
     _assert_no_drift(runs, run_id, session_date, node_id, component_path, fresh_trace)
 
     resolved = ResolvedNodeValue(
@@ -213,7 +209,6 @@ def resolve_node_value(
         dataset_fingerprint=dataset_hash,
         calendar_fingerprint=calendar_hash,
         captured=False,
-        fresh_trace=fresh_trace,
     )
     _LOGGER.info(
         "value tap run=%s addr=%s port=%s session=%s elapsed_ms=%.1f",
@@ -232,6 +227,31 @@ def resolve_node_value(
 def _addr(component_path: tuple[str, ...], node_id: str) -> str:
     """A readable address for messages, e.g. ``mom/ret`` or ``ret`` at top level."""
     return "/".join((*component_path, node_id))
+
+
+def _diagnostics_summary(outcome: EvaluationOutcome) -> str:
+    """The first runtime diagnostic (code + message) for the wire, with a count of the rest."""
+    if not outcome.diagnostics:
+        return "no diagnostics recorded"
+    first = outcome.diagnostics[0]
+    rest = len(outcome.diagnostics) - 1
+    suffix = f"; +{rest} more" if rest else ""
+    return f"{first.code}: {first.message}{suffix}"
+
+
+def _node_events(
+    events: tuple[TraceEvent, ...], node_id: str, component_path: tuple[str, ...]
+) -> tuple[TraceEvent, ...]:
+    """The events emitted BY this node at this path — the drift check's single scoping rule.
+
+    Both the fresh and persisted sides of ``_assert_no_drift`` MUST scope through this one
+    predicate: the tripwire's soundness depends on the two sides staying symmetric.
+    """
+    return tuple(
+        event
+        for event in events
+        if event.node_id == node_id and tuple(event.component_path) == component_path
+    )
 
 
 def _assert_no_drift(
@@ -256,11 +276,7 @@ def _assert_no_drift(
     tappable. A non-empty persisted side that the fresh side does not reproduce (order, event type,
     or payload — including persisted-non-empty vs fresh-empty) is drift.
     """
-    persisted = tuple(
-        event
-        for event in runs.load_trace(run_id, session_date)
-        if event.node_id == node_id and tuple(event.component_path) == component_path
-    )
+    persisted = _node_events(runs.load_trace(run_id, session_date), node_id, component_path)
     if not persisted:
         return  # trace-less run / untraced node: cross-check unavailable, not a failure
     if [(e.event_type, canonical_json_bytes(e.payload)) for e in fresh_trace] != [

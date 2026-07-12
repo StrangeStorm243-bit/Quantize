@@ -15,7 +15,6 @@ network. The shared module result is NEVER mutated: drift cases ``deepcopy`` it 
 from __future__ import annotations
 
 import copy
-from datetime import date
 
 import pytest
 
@@ -29,10 +28,11 @@ from quantize.persistence.datasets import DatasetRepository
 from quantize.persistence.provenance import recorded_input_provenance
 from quantize.persistence.records import PersistedRunRecord
 from quantize.persistence.runs import RunRepository
-from quantize.runtime.values import PortfolioTargetsValue
+from quantize.runtime.values import CrossSectionValue, PortfolioTargetsValue
 from quantize.schema.document import StrategyDocument
 from quantize.valuetap import ENGINE_DRIFT, ValueTapError, resolve_node_value
 from tests.helpers import load_fixture
+from tests.valuetap_helpers import tamper_trace
 
 RUN_ID = "99999999-9999-9999-9999-999999999999"
 CASH = 1_000_000.0
@@ -83,23 +83,8 @@ def strategy_a_run(
     return _persist(db, document, result, market)
 
 
-def _tamper_trace(result: BacktestResult, node_id: str, when: date) -> None:
-    """Corrupt ``node_id``'s recorded trace at session ``when``, in place, to a value no faithful
-    recompute can produce: append a sentinel to the first list-valued field of the node's first
-    event's payload (for ``ret`` this is exactly its ``computed`` asset list). Envelope-level drift
-    is detected regardless of which field or event type carries it. Asserts a target was found."""
-    for event in result.trace:
-        if (
-            event.node_id == node_id
-            and tuple(event.component_path) == ()
-            and event.timestamp.date() == when
-        ):
-            for key, current in event.payload.items():
-                if isinstance(current, list):
-                    event.payload[key] = [*current, "__DRIFTED__"]  # frozen model, mutable dict
-                    return
-            raise AssertionError(f"{node_id}'s event at {when} has no list payload field to tamper")
-    raise AssertionError(f"no trace event for {node_id} at {when} to tamper")
+# The drift tamper lives in tests/valuetap_helpers.py — shared with the endpoint suite so both
+# provably exercise the SAME drift shape.
 
 
 # --- 2. drifted run refuses (written FIRST; RED = serves instead of refusing) ---------------------
@@ -115,7 +100,7 @@ def test_drifted_node_trace_is_refused_with_engine_drift(
     document, pristine = strategy_a_result
     result = copy.deepcopy(pristine)  # never mutate the shared module result
     when = result.evaluations[-1].session_date
-    _tamper_trace(result, "ret", when)
+    tamper_trace(result, "ret", when)
     _persist(db, document, result, market)
 
     with pytest.raises(ValueTapError) as excinfo:
@@ -138,11 +123,14 @@ def test_clean_run_serves_and_value_matches_persisted_weights(
     )
     assert isinstance(resolved.value, PortfolioTargetsValue)
     assert dict(resolved.value.weights) == dict(evaluation.target_weights)
-    # And a traced node passes through the cross-check comparison (not merely the empty-skip path).
+    # And a traced node passes through the cross-check comparison (not merely the empty-skip
+    # path): the persisted stream really carries ret events, so serving proves the comparison ran.
+    stream = RunRepository(db).load_trace(RUN_ID, evaluation.session_date)
+    assert any(e.node_id == "ret" for e in stream)
     served = resolve_node_value(
         db, run_id=RUN_ID, node_id="ret", session_date=evaluation.session_date
     )
-    assert served.fresh_trace  # ret records events, so the ordered comparison actually ran
+    assert isinstance(served.value, CrossSectionValue)
 
 
 # --- 3. trace-less run: cross-check skipped, value still serves ----------------------------------
@@ -177,11 +165,11 @@ def test_drift_is_scoped_to_the_tapped_node(
     document, pristine = strategy_a_result
     result = copy.deepcopy(pristine)
     when = result.evaluations[-1].session_date
-    _tamper_trace(result, "rk", when)
+    tamper_trace(result, "rk", when)
     _persist(db, document, result, market)
 
     served = resolve_node_value(db, run_id=RUN_ID, node_id="ret", session_date=when)
-    assert served.fresh_trace  # ret's faithful trace still serves
+    assert isinstance(served.value, CrossSectionValue)  # ret's faithful trace still serves
     with pytest.raises(ValueTapError) as excinfo:
         resolve_node_value(db, run_id=RUN_ID, node_id="rk", session_date=when)
     assert excinfo.value.code == ENGINE_DRIFT

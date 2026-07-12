@@ -34,14 +34,13 @@ from quantize.persistence.records import (
 )
 from quantize.persistence.runs import RunRepository
 from quantize.persistence.serialize import artifact_bytes, content_hash
-from quantize.schema.components import ComponentDefinition
 from quantize.schema.document import StrategyDocument
 from tests.helpers import load_fixture
+from tests.valuetap_helpers import dual_component, dual_strategy, tamper_trace
 
 RUN_ID = "99999999-9999-9999-9999-999999999999"
 UNKNOWN_RUN_ID = "88888888-8888-8888-8888-888888888888"
 CASH = 1_000_000.0
-DUAL_COMPONENT_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 
 _ERROR_KEYS = {"code", "message"}
 
@@ -64,14 +63,14 @@ def strategy_a_result(market: MarketDataSet) -> tuple[StrategyDocument, Backtest
 
 @pytest.fixture(scope="module")
 def dual_result(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]:
-    document = _dual_strategy()
+    document = dual_strategy()
     result = run_backtest(
         document,
         catalog=build_core_catalog(),
         market_data=market,
         run_id=RUN_ID,
         initial_state=PortfolioState.of(cash=CASH),
-        components=ComponentCatalog([_dual_component()]),
+        components=ComponentCatalog([dual_component()]),
     )
     return document, result
 
@@ -99,7 +98,7 @@ def _seed_dual(
     db_path: str, document: StrategyDocument, result: BacktestResult, market: MarketDataSet
 ) -> PersistedRunRecord:
     with Database(db_path) as db:
-        ComponentRepository(db).save(_dual_component())
+        ComponentRepository(db).save(dual_component())
     return _seed(db_path, document, result, market)
 
 
@@ -289,7 +288,7 @@ def test_drifted_run_is_409_engine_drift(
     document, pristine = strategy_a_result
     result = copy.deepcopy(pristine)  # never mutate the shared module result
     when = result.evaluations[-1].session_date
-    _tamper_trace(result, "ret", when.isoformat())
+    tamper_trace(result, "ret", when)
     _seed(db.db_path, document, result, market)
     response = client.get(
         f"/v1/runs/{RUN_ID}/values", params={"node_id": "ret", "session_date": when.isoformat()}
@@ -298,6 +297,50 @@ def test_drifted_run_is_409_engine_drift(
     body = response.json()
     assert body["code"] == "engine_drift"
     assert set(body) == _ERROR_KEYS  # subject not serialized
+
+
+def test_calendar_only_mismatch_is_409(
+    client: TestClient, strategy_a_run: PersistedRunRecord, db: ApiSettings
+) -> None:
+    """A stored row matching the dataset fingerprint but NOT the calendar fingerprint is not a
+    valid recompute input — a distinct 409 from a wholly-absent dataset."""
+    when = strategy_a_run.evaluations[-1].session_date.isoformat()
+    dataset_hash = strategy_a_run.input_provenance.dataset_hash
+    assert dataset_hash is not None  # recorded provenance
+    with Database(db.db_path) as database, database.transaction() as connection:
+        connection.execute("DELETE FROM datasets")
+        connection.execute(
+            "INSERT INTO datasets (dataset_id, dataset_fingerprint, calendar_fingerprint, "
+            "payload, saved_at) VALUES (?, ?, ?, ?, ?)",
+            ("forged-dataset-id", dataset_hash, "0" * 64, "{}", "2026-07-12T00:00:00Z"),
+        )
+    response = client.get(
+        f"/v1/runs/{RUN_ID}/values", params={"node_id": "cap", "session_date": when}
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == "calendar_mismatch"
+
+
+def test_unrecomputable_run_is_409_recompute_failed_with_diagnostic(
+    client: TestClient,
+    db: ApiSettings,
+    dual_result: tuple[StrategyDocument, BacktestResult],
+    market: MarketDataSet,
+) -> None:
+    """A componentized run whose pinned definition is no longer stored cannot be recomputed: 409
+    recompute_failed, and the message carries the failing diagnostic (design §6: the diagnostics
+    are surfaced, not swallowed into a generic sentence)."""
+    document, result = dual_result
+    _seed(db.db_path, document, result, market)  # deliberately WITHOUT saving the component
+    when = result.evaluations[-1].session_date.isoformat()
+    response = client.get(
+        f"/v1/runs/{RUN_ID}/values", params={"node_id": "cap", "session_date": when}
+    )
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == "recompute_failed"
+    assert "component_definition_unavailable" in body["message"]  # the diagnostic reaches the wire
+    assert set(body) == _ERROR_KEYS
 
 
 # --- 4. param validation --------------------------------------------------------------------------
@@ -310,6 +353,10 @@ def test_drifted_run_is_409_engine_drift(
         {"node_id": "cap", "session_date": "2025-08-29", "component_path": "a,,b"},
         {"node_id": "bad-id!", "session_date": "2025-08-29"},
         {"node_id": "cap", "session_date": "2025-08-29", "output_port": "bad port"},
+        # Trailing newline (%0A on the wire): Python re's $ would accept it via .match — the
+        # validator must use .fullmatch to be as strict as the IR's Rust-regex _IDENT.
+        {"node_id": "cap\n", "session_date": "2025-08-29"},
+        {"node_id": "cap", "session_date": "2025-08-29", "component_path": "a\n,b"},
     ],
 )
 def test_invalid_value_address_is_422(
@@ -355,45 +402,3 @@ def test_identical_gets_are_byte_identical(
         f"/v1/runs/{RUN_ID}/values", params={"node_id": "ret", "session_date": when}
     )
     assert first.content == second.content
-
-
-# --- dual-output component helpers (built from the known-good momentum fixtures) ----------------
-
-
-def _dual_component() -> ComponentDefinition:
-    """component_momentum plus a SECOND exposed output (so an instance exposes two ports)."""
-    data: dict[str, Any] = copy.deepcopy(load_fixture("component_momentum"))
-    data["component_id"] = DUAL_COMPONENT_ID
-    data["exposed_outputs"].append(
-        {
-            "name": "returns",
-            "type": {"kind": "CrossSection", "dtype": "Number"},
-            "maps_to": ["ret", "values"],
-        }
-    )
-    return ComponentDefinition.model_validate(data)
-
-
-def _dual_strategy() -> StrategyDocument:
-    """strategy_a_component re-pinned to the dual component (same instance id ``mom``)."""
-    data: dict[str, Any] = copy.deepcopy(load_fixture("strategy_a_component"))
-    data["component_refs"][0]["component_id"] = DUAL_COMPONENT_ID
-    return StrategyDocument.model_validate(data)
-
-
-def _tamper_trace(result: BacktestResult, node_id: str, when: str) -> None:
-    """Corrupt ``node_id``'s recorded trace at session ``when`` to a value no faithful recompute can
-    produce (append a sentinel to the first list-valued payload field). Asserts a target was
-    found — mirrors tests/test_valuetap_crosscheck.py."""
-    for event in result.trace:
-        if (
-            event.node_id == node_id
-            and tuple(event.component_path) == ()
-            and event.timestamp.date().isoformat() == when
-        ):
-            for key, current in event.payload.items():
-                if isinstance(current, list):
-                    event.payload[key] = [*current, "__DRIFTED__"]  # frozen model, mutable dict
-                    return
-            raise AssertionError(f"{node_id}'s event at {when} has no list payload field to tamper")
-    raise AssertionError(f"no trace event for {node_id} at {when} to tamper")

@@ -1,9 +1,11 @@
-"""Run submission + result/trace/list endpoints.
+"""Run submission + result/trace/trace-tree/values/list endpoints (everything under /v1/runs).
 
 Submissions execute synchronously (v0) and persist honest facts — an ``ok:false`` run still
 persists and returns 201; the client reads ``ok`` from fetch-results. Fetch-results returns the
 stored record VERBATIM: the handler embeds ``to_ir_json(record)`` directly (byte-fidelity), with
 ``replay_verifiable`` beside it — never inside it, never re-encoded through the model encoder.
+The trace/trace-tree/values routes are read-only projections (values = the M14 Node Value Tap,
+recompute-on-demand).
 """
 
 from __future__ import annotations
@@ -72,8 +74,13 @@ _STATUS_FOR_VALUE_TAP_CODE: dict[str, int] = {
 
 
 def _validate_segment(value: str, *, label: str) -> None:
-    """Reject a value-address segment that is not a bare identifier (422, request fault)."""
-    if not _VALUE_ADDRESS_SEGMENT.match(value):
+    """Reject a value-address segment that is not a bare identifier (422, request fault).
+
+    ``fullmatch``, not ``match``: Python's ``$`` matches before a trailing newline, so
+    ``match`` would accept ``"foo\\n"`` (e.g. a ``%0A``-suffixed query param) that pydantic's
+    Rust regex engine — the authority for ``_IDENT`` — rejects.
+    """
+    if not _VALUE_ADDRESS_SEGMENT.fullmatch(value):
         raise ApiRequestError(
             422, INVALID_VALUE_ADDRESS, f"{label} {value!r} is not a valid identifier"
         )
