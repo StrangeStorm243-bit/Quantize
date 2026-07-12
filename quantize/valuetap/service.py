@@ -12,10 +12,12 @@ fingerprints reproduces the run (``quantize/persistence/provenance.py``). This s
 recomputes with a second evaluator, prunes the graph, or writes anything; ``captured`` is always
 False (the value was recomputed now, not read from a run-time artifact).
 
-Scope (M14.1a): the recompute + address resolution + typed results only. The API route (M14.1c),
-the response DTO/codegen (M14.1b), and the fresh-vs-persisted trace cross-check (M14.1a') are
-separate slices; ``ResolvedNodeValue.fresh_trace`` is captured here for that later slice but is
-not compared against anything yet.
+Scope (M14.1a/a'): the recompute + address resolution + typed results, plus the envelope-level
+fresh-vs-persisted trace cross-check (M14.1a', ``_assert_no_drift``) — an ordered comparison of
+``(event_type, canonical_json(payload))`` for the tapped node, with NO per-event-type semantics,
+that refuses with ``ENGINE_DRIFT`` when the current node code no longer reproduces the run's
+recorded trace. ``ResolvedNodeValue.fresh_trace`` is now consumed by that check. The API route
+(M14.1c) and the response DTO/codegen (M14.1b) remain separate slices.
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ from quantize.persistence.provenance import (
 )
 from quantize.persistence.records import PersistedRunRecord
 from quantize.persistence.runs import RunRepository
+from quantize.persistence.serialize import canonical_json_bytes
 from quantize.runtime.diagnostics import RuntimeDiagnostic
 from quantize.runtime.values import RuntimeValue
 from quantize.schema.components import ComponentRef
@@ -56,6 +59,7 @@ NO_EVALUATION_AT_SESSION = "no_evaluation_at_session"
 VALUE_ADDRESS_NOT_FOUND = "value_address_not_found"
 AMBIGUOUS_OUTPUT_PORT = "ambiguous_output_port"
 RECOMPUTE_FAILED = "recompute_failed"
+ENGINE_DRIFT = "engine_drift"
 
 
 class ValueTapError(Exception):
@@ -95,8 +99,8 @@ class ResolvedNodeValue:
     dataset_fingerprint: str
     calendar_fingerprint: str
     captured: bool
-    # The tapped node's fresh trace events from THIS recompute — kept for the M14.1a' cross-check;
-    # deliberately unused (uncompared) in M14.1a.
+    # The tapped node's fresh trace events from THIS recompute — compared against the persisted
+    # stream by the M14.1a' cross-check (``_assert_no_drift``), and returned for callers.
     fresh_trace: tuple[TraceEvent, ...] = ()
 
 
@@ -187,6 +191,17 @@ def resolve_node_value(
     port = _select_output_port(produced, output_port, component_path, node_id)
     value = outcome.outputs[(node_path, port)]
 
+    # The tapped node's fresh trace events from THIS recompute (engine.* events carry engine
+    # identity, not this node's, so this filter excludes them by construction).
+    fresh_trace = tuple(
+        event
+        for event in outcome.trace
+        if event.node_id == node_id and tuple(event.component_path) == component_path
+    )
+    # Mitigation-3 tripwire: refuse if the recompute's trace no longer reproduces what the run
+    # recorded for this node — a drifted implementation must not silently serve a fresh number.
+    _assert_no_drift(runs, run_id, session_date, node_id, component_path, fresh_trace)
+
     resolved = ResolvedNodeValue(
         run_id=run_id,
         node_id=node_id,
@@ -198,11 +213,7 @@ def resolve_node_value(
         dataset_fingerprint=dataset_hash,
         calendar_fingerprint=calendar_hash,
         captured=False,
-        fresh_trace=tuple(
-            event
-            for event in outcome.trace
-            if event.node_id == node_id and tuple(event.component_path) == component_path
-        ),
+        fresh_trace=fresh_trace,
     )
     _LOGGER.info(
         "value tap run=%s addr=%s port=%s session=%s elapsed_ms=%.1f",
@@ -221,6 +232,46 @@ def resolve_node_value(
 def _addr(component_path: tuple[str, ...], node_id: str) -> str:
     """A readable address for messages, e.g. ``mom/ret`` or ``ret`` at top level."""
     return "/".join((*component_path, node_id))
+
+
+def _assert_no_drift(
+    runs: RunRepository,
+    run_id: str,
+    session_date: date,
+    node_id: str,
+    component_path: tuple[str, ...],
+    fresh_trace: tuple[TraceEvent, ...],
+) -> None:
+    """Refuse with ``ENGINE_DRIFT`` if the tapped node's fresh trace diverges from the persisted.
+
+    Envelope-level ONLY: an ordered comparison of ``(event_type, canonical_json(payload))`` — no
+    per-event-type semantic knowledge (that would be a second interpretation layer). ``load_trace``
+    verifies the whole stream's hash/count/contiguity itself, so this reuses it rather than reading
+    ``trace_events`` directly. The persisted side is filtered to this node at ``component_path``
+    (which excludes ``engine.*`` events, carrying engine identity, by construction). Timestamps are
+    equal by construction — both stamped with the evaluation instant — so they are not compared.
+
+    A run that persisted NO events for this node (a trace-less run, or a node the trace never
+    recorded) makes the cross-check unavailable, not failed — skip silently so such a run stays
+    tappable. A non-empty persisted side that the fresh side does not reproduce (order, event type,
+    or payload — including persisted-non-empty vs fresh-empty) is drift.
+    """
+    persisted = tuple(
+        event
+        for event in runs.load_trace(run_id, session_date)
+        if event.node_id == node_id and tuple(event.component_path) == component_path
+    )
+    if not persisted:
+        return  # trace-less run / untraced node: cross-check unavailable, not a failure
+    if [(e.event_type, canonical_json_bytes(e.payload)) for e in fresh_trace] != [
+        (e.event_type, canonical_json_bytes(e.payload)) for e in persisted
+    ]:
+        raise ValueTapError(
+            ENGINE_DRIFT,
+            "engine drift — the current node implementation no longer reproduces this run's "
+            "recorded trace; re-run to refresh",
+            subject=node_id,
+        )
 
 
 def _evaluation_instant(record: PersistedRunRecord, session_date: date) -> datetime:

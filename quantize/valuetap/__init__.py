@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from quantize.valuetap.service import (
     AMBIGUOUS_OUTPUT_PORT,
+    ENGINE_DRIFT,
     NO_EVALUATION_AT_SESSION,
     RECOMPUTE_FAILED,
     VALUE_ADDRESS_NOT_FOUND,
@@ -20,6 +21,7 @@ from quantize.valuetap.service import (
 
 __all__ = [
     "AMBIGUOUS_OUTPUT_PORT",
+    "ENGINE_DRIFT",
     "NO_EVALUATION_AT_SESSION",
     "RECOMPUTE_FAILED",
     "VALUE_ADDRESS_NOT_FOUND",
