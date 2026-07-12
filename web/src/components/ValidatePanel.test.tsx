@@ -27,6 +27,11 @@ beforeEach(() => {
 })
 
 describe('ValidatePanel', () => {
+  it('shows a never-validated hint before any validation has run', () => {
+    render(<ValidatePanel doc={DOC} onHighlight={vi.fn()} />)
+    expect(screen.getByText(/no diagnostics yet/i)).toBeInTheDocument()
+  })
+
   it('renders per-layer diagnostics and highlights via the structured mapping (never the message)', async () => {
     const verdict: ValidateResponse = {
       ok: false,

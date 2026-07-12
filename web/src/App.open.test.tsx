@@ -32,6 +32,7 @@ vi.mock('./api/client', async (importOriginal) => {
 
 // Home stub exposing New + two Open buttons so tests can interleave opens and a mid-flight New.
 vi.mock('./components/Home', () => ({
+  DEMO_NAME: /momentum/i,
   Home: (props: { onNew: (name: string) => void; onOpen: (id: string) => void }) => (
     <div>
       <button type="button" onClick={() => props.onNew('Fresh')}>

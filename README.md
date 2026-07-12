@@ -73,15 +73,25 @@ python scripts/seed_demo.py            # defaults to http://127.0.0.1:8000
 It prints the `dataset_id`, the saved strategy ids, and a **suggested backtest window**
 (`2025-07-31..2025-08-29`). It is idempotent — re-running it is a harmless no-op.
 
-**4. Walk the journey.** In the editor:
+**4. Walk the journey.** The app opens on **Home**. A compact **"Walk the journey"** checklist tracks
+the whole loop and ticks each step as you perform it (dismiss it anytime — it stays dismissed):
 
-1. **Load a strategy** (e.g. *ETF Momentum Rotation*) — the canvas shows its typed node graph.
-2. **Select the seeded dataset** and **run a backtest** over the suggested window.
-3. Open the **results** and the **decision trace** to see why each rebalance traded.
-4. **Extract a component**: select a connected subgraph, turn it into a named, versioned component,
-   and let the strategy be rewritten to use it — with identical run results.
-5. **Reuse it**: drag the component from the palette into another strategy, edit its exposed
-   parameters, and inspect its internals read-only.
+1. On **Home**, click **Open the demo strategy** on the *ETF Momentum Rotation* card. The canvas
+   shows its typed node graph and the **strategy bar** appears across the top with the
+   **Validate · Run · Save** verbs, the **dataset chip**, and the **session-cursor** stepper (◀ ▶).
+2. Check the **dataset chip** shows the seeded dataset — if it reads *"Dataset: none — choose,"*
+   click it and pick one. Then open the **Runs** tab in the bottom **dock** and **Run** a backtest
+   over the suggested window (`2025-07-31..2025-08-29`).
+3. Open the **Results** tab for the equity curve and summary; click a chart point (or an evaluation
+   row) to jump the shared **session cursor** to that session and open the **Trace** beside it.
+4. In the **Trace**, click a decision row to center its emitting node on the **canvas** — the
+   **trace ↔ canvas ↔ results** loop — and read that node's role and formula in the **Inspector**'s
+   **Explanation**. The **Problems** tab's **Validate** button re-checks the document at any time.
+5. **Extract a component**: click **Extract component**, marquee a connected subgraph, name it, and
+   Create — the run results stay identical and the component appears in the **Library** rail's
+   **Components** section. **Enter** it — the Inspector's **Enter component**, or a double-click on
+   the canvas — to read its internals in a read-only in-canvas view with a **breadcrumb**; a crumb
+   (or **Esc**) walks you back out.
 
 ## Scope & caveats
 
@@ -117,13 +127,16 @@ shorting, no options/futures, no intraday/HFT, scheduled daily/weekly/monthly ev
 ## Status
 
 The MVP is built as a spine — **IR + one engine + tracing + persistence + API + editor** — proven
-end to end on two reference strategies. **Milestones M1–M12 are complete** (M12 delivers the
-component authoring/extraction UI and MVP closeout). At the time of writing the suite reports **904
-Python tests** (`pytest`) and **220 web tests** (`vitest`), green on Python 3.13/3.14 and Windows/
-Linux, with byte-stable golden and backtest↔forward consistency coverage.
+end to end on two reference strategies. **Milestones M1–M12 and the M13 IDE reorientation
+(M13.1–M13.9) are complete** (M12 delivered the component authoring/extraction UI; M13 reoriented
+the app into a document-centric visual IDE — Home + strategy bar + dock, category-colored node
+cards, a pipeline stage strip, the debug loop, in-canvas component breadcrumb navigation, and a
+first-run journey checklist). The latest M13.9 closeout gate is green with **985 Python tests**
+(`pytest`) and **598 web tests across 62 files** (`vitest`), on Python 3.13/3.14 and Windows/Linux,
+with byte-stable golden and backtest↔forward consistency coverage.
 
-For the full milestone breakdown (M1 IR + structural validation through M12 component UI), see
-[`docs/MVP_PLAN.md`](docs/MVP_PLAN.md).
+For the full milestone breakdown (M1 IR + structural validation through the M13 IDE reorientation),
+see [`docs/MVP_PLAN.md`](docs/MVP_PLAN.md).
 
 ### Architectural invariants (the ones that shape everything)
 

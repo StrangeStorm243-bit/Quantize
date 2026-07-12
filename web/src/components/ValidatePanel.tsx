@@ -201,6 +201,12 @@ export function ValidatePanel({
         </div>
       ) : null}
 
+      {/* Never-validated resting state: no verdict, no error, not mid-request. Tell the reader what
+          Validate does rather than leaving a bare button (M13.9 empty-state pass). */}
+      {error === undefined && result === undefined && !loading ? (
+        <p className="vpanel__hint">No diagnostics yet — Validate checks the document.</p>
+      ) : null}
+
       {error === undefined && result !== undefined ? (
         result.ok ? (
           <div className="vpanel__ok">

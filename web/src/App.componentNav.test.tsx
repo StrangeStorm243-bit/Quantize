@@ -87,6 +87,7 @@ vi.mock('./components/StrategyBar', () => ({
 
 // The app opens on Home (M13.3); a Home stub enters the editor via onNew.
 vi.mock('./components/Home', () => ({
+  DEMO_NAME: /momentum/i,
   Home: (props: { onNew: (name: string) => void }) => (
     <button type="button" onClick={() => props.onNew('Test')}>
       home-new

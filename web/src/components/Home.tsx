@@ -18,12 +18,27 @@ export interface HomeProps {
 
 // The seeded ETF Momentum Rotation demo, matched by name so the journey card lights up when it is
 // present (seeding is out of scope here) and falls back to an honest empty state when it is not.
-const DEMO_NAME = /momentum/i
+// Exported so the App's journey checklist infers the `open-demo` step from the same single rule (DRY).
+export const DEMO_NAME = /momentum/i
 
 export function Home({ onNew, onOpen, datasetId, onSelectDataset }: HomeProps): ReactElement {
   const [name, setName] = useState('Untitled')
   const strategies = useFetch(() => listStrategies(), [])
-  const rows = strategies.data?.strategies ?? []
+  // The API lists one summary per (strategy_id, version); opening a strategy loads its LATEST version
+  // (see App.handleOpen). Collapse to one row per strategy at its latest version so the displayed
+  // version matches what Open loads — a "v1" row that silently opened v2 was confusing (M13.9 O2).
+  // Presentation-only dedup (invariant 5): keep the first-seen order, keep the highest version.
+  const rows = Array.from(
+    (strategies.data?.strategies ?? [])
+      .reduce((byId, s) => {
+        const prev = byId.get(s.strategy_id)
+        if (prev === undefined || s.version > prev.version) {
+          byId.set(s.strategy_id, s)
+        }
+        return byId
+      }, new Map<string, NonNullable<typeof strategies.data>['strategies'][number]>())
+      .values(),
+  )
   const demo = rows.find((r) => DEMO_NAME.test(r.name))
 
   return (

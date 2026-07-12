@@ -1434,3 +1434,88 @@ per task. Remaining M13 slice: M13.9 (arrival/journey checklist, README §4, the
 walkthrough, and the consolidated M13 closeout). The live GUI click-through remains a founder step and
 is still blocked on data — `quantize-demo.db` has no seeded run (`*.db` is gitignored), so re-run the
 demo backtest before walking the component-navigation path.
+
+---
+
+## M13.9 — Read-only component internals (O3 closeout follow-on) (2026-07-11)
+
+Context: the M13.9 live walkthrough (see `docs/reviews/2026-07-11-m13.9-journey-walkthrough.md`)
+surfaced observation **O3** — inside a component you could *see* the internal nodes but not *read*
+them; the Inspector kept describing the outer component instance. This entry covers the founder-
+authorized follow-on that made the internals inspectable **without** making them editable.
+
+**Concepts introduced:**
+
+- **Read-only *inspection* is separable from read-only *structure*.** M13.8 made the component view
+  "structurally read-only" — no drag/connect/delete, dispatch handlers omitted, `elementsSelectable`
+  off. It's tempting to read that as "the whole view is inert," but *understanding* an immutable thing
+  is not the same as *changing* it. A component definition is versioned and immutable, yet its
+  internals must stay legible — otherwise reuse is a black box. The fix adds **selection + read-only
+  inspection** to a view that still mutates nothing. *Where:* the read-only contract in
+  `web/src/components/Canvas.tsx` (the `readOnly` gate); the new select-only click beside it.
+- **A click handler is not a mutation.** In the component view we now wire `onNodeClick` again — but to
+  a *select-only* callback (`onComponentNodeClick`) that reports the clicked node id and changes no
+  document state. The interactivity flags (`nodesDraggable/Connectable`, `elementsSelectable`,
+  `deleteKeyCode=null`) stay exactly as M13.8 set them. Double-click still *enters* a nested component;
+  single-click now *selects for inspection*. Two gestures, two read-only outcomes. *Where:*
+  `Canvas.tsx` `onComponentNodeClickHandler`, wired only in the `readOnly` branch of the `<ReactFlow>`
+  props.
+- **Resolving a node that isn't in the document.** The Inspector's normal path finds the selected node
+  in `doc.nodes`. An inner component node does **not** live in the strategy document — it lives in the
+  trail tip's `ComponentDefinition.implementation.graph.nodes`. The App resolves it by: take the last
+  breadcrumb entry → look up its definition in the immutable cache
+  (`componentDefs.get(componentCacheKey(id, version))`) → find the node whose id equals the App-owned
+  `componentSelectedNodeId`. That resolved node (plus the tip's `component_refs`, so a *nested* ref
+  resolves to its own definition) is handed to the Inspector as a new `componentNode` prop, which takes
+  precedence over `selectedNodeId`. *Where:* `web/src/App.tsx` (`componentInspect` derivation),
+  `web/src/components/Inspector.tsx` (`ComponentNodeSelection` + the `componentNode` branch).
+- **Two selection states, deliberately distinct.** `selectedNodeId` only ever names a **strategy-doc**
+  node; `componentSelectedNodeId` names a node **inside** a component view. They never alias — that is
+  why the read-only branch can key off one while the top-level instance Inspector keeps using the
+  other, and why exiting a component (`clearInComponentFocus`) reverts to the *editable* instance
+  Inspector by simply clearing the component-scoped selection.
+- **Scope discipline as a design tool — what stayed deferred and why.** The read-only view shows
+  identity + **configured parameter values** (a value list, not a disabled `ParamForm`) + Explanation +
+  Ports. It deliberately renders **no "At session" section**. That section is the **Node Value Tap**
+  slot (design W4), whose contract is to address served trace facts by **`(node_id, component_path)`**
+  — the exact shape a future `/v1/runs/{id}/values` request will use. Wiring it for a nested node means
+  building that `component_path` addressing, which is a *feature*, not a closeout fix. Likewise
+  component **editing / forking / version-upgrade** stayed out: a definition is immutable by invariant
+  8, so "edit here" would need a whole authoring-and-reversioning flow. Keeping O3 to *inspection*
+  leaves both seams clean: the breadcrumb trail already carries the `component_path` a Node Value Tap
+  would need, and nothing here forks or edits a definition, so the immutability invariant is untouched.
+
+**Reading path (one navigation, end to end):** start in `web/src/components/Inspector.tsx` — read the
+new `componentNode` branch at the top of `Inspector`, then `ComponentNodeInspector` and
+`ReadOnlyParamsSection` just above it (note it reuses `ExplanationSection`/`PortsSection` unchanged, and
+renders **no** `AtSessionSection`). Next `web/src/components/Canvas.tsx`: find
+`onComponentNodeClickHandler` and the `readOnly ? { onNodeClick: … }` wiring in the `<ReactFlow>` props.
+Finally `web/src/App.tsx`: the `componentInspect` derivation (tip → cache → find node) and the two
+props it feeds — `onComponentNodeClick` (sets `componentSelectedNodeId`) and `componentNode` (the
+resolved read-only selection). Tests mirror this order: `Inspector.componentNode.test.tsx`,
+`Canvas.navigation.test.tsx` (the single-click routing cases 9b/9c), `App.componentInspect.test.tsx`.
+
+**Exercise (implement by hand, scratch branch):** add a sixth "read-only-ness" assertion. In
+`Inspector.componentNode.test.tsx`, the primitive-node test already asserts no `spinbutton`/`textbox`
+renders. Add a case that selects a node whose params include a **boolean** (e.g. `transform.rank` with
+`{ descending: true }`) and assert the value shows as the text `true` **and** that no `checkbox`
+renders (the editable `ParamForm` would render one). *Prediction to make first:* which single line in
+`ReadOnlyParamsSection` decides that a boolean becomes the string `"true"` rather than an empty render,
+and what would `formatParamValue` return for a param whose value is the array `["EFA","SPY"]`? (Check
+yourself against `formatParamValue` in `Inspector.tsx`.)
+
+**Verification status (honest, per CLAUDE.md).** Full canonical gate green after O3: **pytest 985 ·
+ruff check clean · ruff format (186 files) · mypy clean (185 source files) · Node-24 · codegen check
+(artifacts up to date) · root `tsc` + web typecheck clean · web 598 tests / 62 files** (591 pre-slice
+→ +2 for O2/O4 → +5 for O3). O3 was **also driven live** in the real browser (Playwright MCP): enter
+*Momentum Rank* → single-click *Trailing Return* → the Inspector shows read-only identity,
+`Lookback sessions → 126`, the formula `r_D = close(D)/close(D-L) - 1`, and its ports, with **no**
+At-session section; click *Rank* switches the read-only view; exiting the component reverts to the
+**editable** top-level-instance Inspector (`docs/reviews/2026-07-11-m13.9-screens/m139-o3-inner-node-readonly.png`).
+Because M13.9's O3 slice changed **only `web/` and `docs/`**, the Python-side stages ran identical
+bytes and reproduced the 985/mypy-185/codegen-clean results.
+
+**Status:** O2 (recent-strategies version dedup) and O4 (dataset-picker close-on-select) committed
+earlier on `feat/m13.9-closeout`; O3 (this entry) implemented TDD-first as its own commit. O1
+(save-409 console line) documented as by-design. Node Value Tap and component editing/forking/version-
+upgrade remain future work by design.

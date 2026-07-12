@@ -838,6 +838,45 @@ button.crumbs__item:hover {
   line-height: 1.5;
 }
 
+/* --- Inspector read-only component internals (M13.9 O3) -------------------------------------- */
+
+/* A subtle affordance that the internals below are immutable (a component definition is read-only). */
+.inspector__ro-note {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+/* Configured parameter values as a read-only label→value list (no editable controls). */
+.inspector__ro-params {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.inspector__ro-param {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.inspector__ro-param-label {
+  color: var(--text-secondary);
+}
+
+.inspector__ro-param-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text);
+}
+
 /* --- Inspector "At session" live section (M13.7) --------------------------------------------- */
 
 /* The cursor date, sitting under the "At session" heading so live values read as "this node, at this
@@ -1270,6 +1309,12 @@ button.crumbs__item:hover {
   border-radius: 5px;
   background: var(--success-bg);
   color: var(--success);
+}
+
+.vpanel__hint {
+  margin: 0.3rem 0;
+  font-size: 0.74rem;
+  color: var(--text-muted);
 }
 
 .vpanel__layer {
@@ -1775,7 +1820,11 @@ button.crumbs__item:hover {
 .chart__axis--y {
   position: absolute;
   top: 0;
-  bottom: 20px;
+  /* Span exactly the plot (svg) height, NOT the container: anything rendered below the svg (the x-axis
+     row, and the M13.7.5 `.chart__hint` on interactive charts) grows `.chart`, so a container-anchored
+     `bottom` would drop the min-value label down into the x-axis row and collide with the first-date
+     label. Anchoring to the plot height keeps the min label at the plot's baseline regardless. */
+  height: 120px;
   left: -0.2rem;
   flex-direction: column;
 }
@@ -2337,4 +2386,85 @@ button.trace-node__head--clickable:hover .trace-node__id {
   line-height: 1;
   cursor: pointer;
   color: var(--text-secondary);
+}
+
+/* Journey checklist (M13.9): a compact arrival aid shown on Home + editor. Light chrome, not a modal
+   — token-only styling so it themes with everything else. */
+.journey {
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--surface-elevated);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-3);
+  box-shadow: var(--shadow-sm);
+}
+
+.journey__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.journey__title {
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
+}
+
+.journey__count {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.journey__dismiss {
+  margin-left: auto;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+.journey__dismiss:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.journey__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.journey__step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.journey__step[data-done='true'] {
+  color: var(--text-muted);
+}
+
+.journey__step[data-done='true'] .journey__label {
+  text-decoration: line-through;
+}
+
+.journey__mark {
+  display: inline-flex;
+  width: 1.1rem;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.journey__step[data-done='true'] .journey__mark {
+  color: var(--success);
 }

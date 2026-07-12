@@ -55,13 +55,19 @@ vi.mock('@xyflow/react', async () => {
       const nodes =
         (props.nodes as { id: string; data: { displayName?: string; typeId: string } }[]) ?? []
       const onDbl = props.onNodeDoubleClick as ((e: unknown, n: unknown) => void) | undefined
+      const onClk = props.onNodeClick as ((e: unknown, n: unknown) => void) | undefined
       return (
         <div data-testid="rf">
           {/* A stand-in for RF's own pane element: a pane double-click is what the Canvas quick-add
               affordance keys on (`event.target.classList.contains('react-flow__pane')`). */}
           <div className="react-flow__pane" data-testid="pane" />
           {nodes.map((n) => (
-            <button key={n.id} data-testid={`node-${n.id}`} onDoubleClick={() => onDbl?.({}, n)}>
+            <button
+              key={n.id}
+              data-testid={`node-${n.id}`}
+              onClick={() => onClk?.({}, n)}
+              onDoubleClick={() => onDbl?.({}, n)}
+            >
               {n.data.displayName ?? n.data.typeId}
             </button>
           ))}
@@ -353,6 +359,31 @@ describe('Canvas component-view mode', () => {
       const nodes = (box.props?.nodes as { id: string; selected?: boolean }[] | undefined) ?? []
       expect(nodes.find((n) => n.id === 'rk')?.selected).toBe(true)
     })
+  })
+
+  // 9b (M13.9 O3): a single click on an inner node routes through onComponentNodeClick so the App can
+  // select it for the read-only Inspector — WITHOUT enabling any editing affordance. Double-click still
+  // enters (tested in #8); the two are independent.
+  it('routes a single inner-node click through onComponentNodeClick in the component view', async () => {
+    seedDefs(makeDef(CID, 'Momentum', 'rk'))
+    const onComponentNodeClick = vi.fn()
+    renderCanvas({ componentTrail: trailOf(CID), onComponentNodeClick })
+    fireEvent.click(await screen.findByTestId('node-rk'))
+    expect(onComponentNodeClick).toHaveBeenCalledWith('rk')
+  })
+
+  // 9c: in the STRATEGY view a single click does NOT route to onComponentNodeClick — it is the
+  // strategy-editing single-select (onNodeClick), so the component-inspect hook stays component-only.
+  it('does not call onComponentNodeClick for a single click in the strategy view', async () => {
+    const onComponentNodeClick = vi.fn()
+    const onNodeClick = vi.fn()
+    let doc = newStrategyDocument('My Strategy')
+    doc = addComponentRefNode(doc, { componentId: CID, version: '1.0.0', position: { x: 0, y: 0 } })
+    const compNodeId = doc.nodes[doc.nodes.length - 1].id
+    renderCanvas({ doc, onComponentNodeClick, onNodeClick })
+    fireEvent.click(await screen.findByTestId(`node-${compNodeId}`))
+    expect(onComponentNodeClick).not.toHaveBeenCalled()
+    expect(onNodeClick).toHaveBeenCalledWith(compNodeId)
   })
 
   // 10 (empty trail = normal editing view) is covered by the existing Canvas.*.test suites, which

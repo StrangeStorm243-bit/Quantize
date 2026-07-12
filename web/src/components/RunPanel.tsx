@@ -210,6 +210,12 @@ export function RunPanel({ doc, datasetId, selectedRunId, onSelectRun }: RunPane
         </div>
       ) : null}
 
+      {/* An honest empty state once the list has loaded with no runs (and no error): point the reader
+          back at the form above. Suppressed while loading or when an error banner is showing. */}
+      {!runList.loading && error === undefined && rows.length === 0 ? (
+        <p className="rpanel__hint">No runs yet — configure a backtest above and Run.</p>
+      ) : null}
+
       <ul className="rpanel__list">
         {rows.map((row) => (
           <li

@@ -136,8 +136,10 @@ vi.mock('./components/RunPanel', () => ({
     </div>
   ),
 }))
-// The app opens on Home (M13.3); a Home stub enters the editor via onNew.
+// The app opens on Home (M13.3); a Home stub enters the editor via onNew. The App also imports
+// DEMO_NAME from Home (M13.9 journey inference), so the mock must re-export it.
 vi.mock('./components/Home', () => ({
+  DEMO_NAME: /momentum/i,
   Home: (props: { onNew: (name: string) => void }) => (
     <button type="button" onClick={() => props.onNew('Test')}>
       home-new

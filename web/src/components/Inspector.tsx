@@ -20,10 +20,11 @@ import type { ReactElement } from 'react'
 import type {
   NodeCatalogResponse,
   NodeTypeDto,
+  ParamDocDto,
   TraceTreeDto,
   TraceTreeNodeDto,
 } from '@quantize/quantize-api'
-import type { JsonValue, StrategyDocument } from '@quantize/quantize-ir'
+import type { ComponentDefinition, JsonValue, StrategyDocument } from '@quantize/quantize-ir'
 import { labelOf, nodeTypeById, useCatalog } from '../catalog'
 import { portColor } from '../catalog/colors'
 import { useComponentDefs } from '../components-cache'
@@ -247,6 +248,113 @@ function AtSessionSection({
   )
 }
 
+// --- Read-only internals of a component-view node (M13.9 O3) --------------------------------------
+// A component definition is immutable, but its internals must still be understandable. These render a
+// node from the trail tip's definition graph READ-ONLY: its CONFIGURED parameter values (never an
+// editable ParamForm, no `actions`), plus — for a primitive node — its Explanation and Ports. There is
+// NO "At session" section (that is the Node Value Tap slot, out of scope for inner nodes). Pure
+// projection of served catalog metadata + the definition's own configured params (invariant 5).
+
+/** Present a JSON param value for read-only display: objects/arrays as compact JSON, scalars verbatim. */
+function formatParamValue(value: JsonValue): string {
+  return value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value)
+}
+
+// The configured params as a read-only label→value list (labels from the catalog param docs where
+// present, else the raw key). No inputs — the definition is immutable, so nothing here edits.
+function ReadOnlyParamsSection({
+  params,
+  docs,
+}: {
+  params: { [k: string]: JsonValue }
+  docs?: { [k: string]: ParamDocDto }
+}): ReactElement {
+  const entries = Object.entries(params)
+  return (
+    <section className="inspector__section" aria-label="parameters">
+      <h3 className="inspector__section-title">Parameters</h3>
+      {entries.length === 0 ? (
+        <p className="pform__empty">No parameters.</p>
+      ) : (
+        <ul className="inspector__ro-params">
+          {entries.map(([key, value]) => (
+            <li key={key} className="inspector__ro-param">
+              <span className="inspector__ro-param-label">{docs?.[key]?.label ?? key}</span>
+              <code className="inspector__ro-param-value">{formatParamValue(value)}</code>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+/** A node selected inside a component view — resolved from the trail tip's definition graph. */
+export interface ComponentNodeSelection {
+  node: StrategyDocument['nodes'][number]
+  /** The tip definition's refs, to resolve a nested ComponentRef inner node to its pinned definition. */
+  componentRefs: StrategyDocument['component_refs']
+}
+
+function ComponentNodeInspector({
+  node,
+  componentRefs,
+  catalog,
+  getDef,
+}: {
+  node: StrategyDocument['nodes'][number]
+  componentRefs: StrategyDocument['component_refs']
+  catalog: NodeCatalogResponse | undefined
+  getDef: (componentId: string, version: string) => ComponentDefinition | undefined
+}): ReactElement {
+  const readOnlyNote = <p className="inspector__ro-note">Component internals — read-only.</p>
+
+  // A nested ComponentRef inner node: resolve its pinned definition and show its exposed values read-only.
+  if ('ref' in node) {
+    const ref = findComponentRef(componentRefs, node.ref)
+    const def = ref === undefined ? undefined : getDef(ref.component_id, ref.version)
+    return (
+      <div className="inspector">
+        <header className="inspector__head">
+          <div className="inspector__type">{def?.name ?? 'Component'}</div>
+          <div className="inspector__typeid">
+            {ref !== undefined ? `${ref.component_id}@${ref.version}` : node.ref}
+          </div>
+        </header>
+        {readOnlyNote}
+        <ReadOnlyParamsSection params={node.params} />
+      </div>
+    )
+  }
+
+  // A primitive inner node: identity + read-only params + Explanation + Ports (no At-session slot).
+  const nodeType = catalog === undefined ? undefined : nodeTypeById(catalog, node.type_id)
+  return (
+    <div className="inspector">
+      <header className="inspector__head">
+        <div className="inspector__type">{nodeType?.display_name ?? node.type_id}</div>
+        <div className="inspector__typeid">{node.type_id}</div>
+      </header>
+      {readOnlyNote}
+      {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
+      {nodeType === undefined || catalog === undefined ? (
+        <p className="inspector__unknown">
+          Unknown node type — parameters cannot be rendered without a catalog entry.
+        </p>
+      ) : (
+        <>
+          <ReadOnlyParamsSection
+            params={node.params}
+            {...(nodeType.doc?.parameters !== undefined ? { docs: nodeType.doc.parameters } : {})}
+          />
+          <ExplanationSection nodeType={nodeType} />
+          <PortsSection nodeType={nodeType} catalog={catalog} />
+        </>
+      )}
+    </div>
+  )
+}
+
 export interface InspectorProps {
   doc: StrategyDocument
   selectedNodeId: string | null
@@ -255,6 +363,12 @@ export interface InspectorProps {
   onEnterComponent?: (target: { componentId: string; version: string }) => void
   /** Live "At session" data (M13.7); undefined until a run + cursor exist — the slot stays inert then. */
   atSession?: AtSessionProps | undefined
+  /**
+   * M13.9 O3: a node selected INSIDE a read-only component view. When set, the Inspector renders that
+   * node's identity, CONFIGURED params, meaning, and ports READ-ONLY — a component definition is
+   * immutable — taking precedence over `selectedNodeId`.
+   */
+  componentNode?: ComponentNodeSelection | undefined
 }
 
 export function Inspector({
@@ -263,9 +377,23 @@ export function Inspector({
   actions,
   onEnterComponent,
   atSession,
+  componentNode,
 }: InspectorProps): ReactElement {
   const { catalog } = useCatalog()
   const { get } = useComponentDefs()
+
+  // M13.9 O3: a node selected inside a read-only component view takes precedence — render its internals
+  // read-only (immutable definition). No `actions`, no "At session" (Node Value Tap) for inner nodes.
+  if (componentNode !== undefined) {
+    return (
+      <ComponentNodeInspector
+        node={componentNode.node}
+        componentRefs={componentNode.componentRefs}
+        catalog={catalog}
+        getDef={get}
+      />
+    )
+  }
 
   if (selectedNodeId === null) {
     return <div className="inspector inspector--empty">Select a node to edit its parameters.</div>

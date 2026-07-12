@@ -62,6 +62,28 @@ describe('Home', () => {
     expect(props.onOpen).toHaveBeenCalledWith('s-other')
   })
 
+  it('collapses per-version rows to one row per strategy at its latest version', async () => {
+    // The API lists one row per (strategy_id, version); Open loads the LATEST version, so a "v1" row
+    // that actually opens v2 is confusing. Home must show one row per strategy at its latest version.
+    listStrategies.mockResolvedValue({
+      strategies: [
+        { strategy_id: 's-momentum', version: 1, name: 'ETF Momentum Rotation', schema_version: '0.1.0', saved_at: 't' },
+        { strategy_id: 's-momentum', version: 2, name: 'ETF Momentum Rotation', schema_version: '0.1.0', saved_at: 't' },
+        { strategy_id: 's-other', version: 1, name: 'Trend Filter', schema_version: '0.1.0', saved_at: 't' },
+      ],
+    })
+    const props = renderHome()
+    await screen.findByText('Trend Filter')
+    // One row per strategy: two Open buttons (not three), and the momentum name appears once.
+    expect(screen.getAllByRole('button', { name: 'Open' })).toHaveLength(2)
+    expect(screen.getAllByText('ETF Momentum Rotation')).toHaveLength(1)
+    // The momentum row shows its LATEST version (v2), not the stale v1.
+    expect(screen.getByText('v2')).toBeInTheDocument()
+    // Opening the single momentum row opens by strategy id (App resolves the latest version).
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[0])
+    expect(props.onOpen).toHaveBeenCalledWith('s-momentum')
+  })
+
   it('lights up the journey card and opens the seeded momentum demo', async () => {
     const props = renderHome()
     const journey = await screen.findByRole('button', { name: 'Open the demo strategy' })
