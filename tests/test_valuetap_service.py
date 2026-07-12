@@ -10,6 +10,8 @@ early and present late). All fixture data; no network.
 
 from __future__ import annotations
 
+import dataclasses
+from collections.abc import Mapping
 from datetime import date, datetime
 
 import pytest
@@ -19,7 +21,7 @@ from quantize.engine.backtest import run_backtest
 from quantize.engine.records import BacktestResult
 from quantize.engine.state import PortfolioState
 from quantize.market.data import MarketDataSet
-from quantize.nodes import build_core_catalog
+from quantize.nodes import build_core_catalog, core_node_implementations
 from quantize.persistence.database import Database
 from quantize.persistence.datasets import DatasetRepository
 from quantize.persistence.documents import ComponentRepository
@@ -34,7 +36,13 @@ from quantize.persistence.provenance import (
 from quantize.persistence.records import PersistedRunRecord, record_from_result
 from quantize.persistence.runs import RunRepository
 from quantize.persistence.serialize import artifact_bytes, content_hash
-from quantize.runtime.values import AssetSetValue, CrossSectionValue, PortfolioTargetsValue
+from quantize.runtime.binding import ImplementationCatalog, NodeInvocation
+from quantize.runtime.values import (
+    AssetSetValue,
+    CrossSectionValue,
+    PortfolioTargetsValue,
+    RuntimeValue,
+)
 from quantize.schema.document import StrategyDocument
 from quantize.valuetap import (
     AMBIGUOUS_OUTPUT_PORT,
@@ -278,6 +286,44 @@ def test_missing_component_definition_yields_recompute_failed(
     assert excinfo.value.diagnostics  # carries the runtime diagnostics
     # Design §6: the diagnostics are SURFACED — the first one is folded into the wire message.
     assert "component_definition_unavailable" in excinfo.value.message
+
+
+def test_ok_false_recompute_serves_completed_upstream_nodes(
+    db: Database, strategy_a_run: PersistedRunRecord, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Design §6, the ok:false row's SERVE side: a recompute that fails mid-graph still serves
+    the addresses that COMPLETED before the failure; only unproduced addresses surface the
+    diagnostics. Constructed by breaking ``transform.rank`` at recompute time (the persisted run
+    is healthy — this simulates a broken node implementation DOWNSTREAM of the tapped node; the
+    missing-component construction can't reach this row because a preflight failure returns an
+    EMPTY store, serving nothing)."""
+
+    def _broken_rank(invocation: NodeInvocation) -> Mapping[str, RuntimeValue]:
+        raise RuntimeError("synthetic mid-graph failure")
+
+    def _broken_catalog() -> ImplementationCatalog:
+        catalog = ImplementationCatalog()
+        for implementation in core_node_implementations():
+            if implementation.type_id == "transform.rank":
+                implementation = dataclasses.replace(implementation, evaluate=_broken_rank)
+            catalog.register(implementation)
+        return catalog
+
+    monkeypatch.setattr("quantize.valuetap.service.build_core_catalog", _broken_catalog)
+    when = strategy_a_run.evaluations[-1].session_date
+
+    # Upstream of the failure: ``ret`` completed before ``rk`` raised — it serves normally, and
+    # its unchanged trace still passes the drift cross-check.
+    served = resolve_node_value(db, run_id=RUN_ID, node_id="ret", session_date=when)
+    assert isinstance(served.value, CrossSectionValue)
+
+    # Downstream: ``sel`` never produced — RECOMPUTE_FAILED carrying the diagnostics, never a
+    # bare not-found, and the failing node's fault reaches the message.
+    with pytest.raises(ValueTapError) as excinfo:
+        resolve_node_value(db, run_id=RUN_ID, node_id="sel", session_date=when)
+    assert excinfo.value.code == RECOMPUTE_FAILED
+    assert excinfo.value.diagnostics
+    assert "synthetic mid-graph failure" in excinfo.value.message
 
 
 # --- 6. output_port defaulting and ambiguity ------------------------------------------------------

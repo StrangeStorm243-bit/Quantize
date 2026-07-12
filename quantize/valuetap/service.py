@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -60,6 +60,22 @@ VALUE_ADDRESS_NOT_FOUND = "value_address_not_found"
 AMBIGUOUS_OUTPUT_PORT = "ambiguous_output_port"
 RECOMPUTE_FAILED = "recompute_failed"
 ENGINE_DRIFT = "engine_drift"
+
+# The HTTP disposition of every code a ``ValueTapError`` can carry (the M14 plan's status table),
+# kept BESIDE the codes so adding a refusal reason is ONE edit site — a code defined here but
+# missing from a route-local map would otherwise silently surface as a 500 server fault instead of
+# the intended client refusal. The API route applies this table verbatim; nothing in this module
+# imports or depends on HTTP machinery (the values are plain ints).
+STATUS_FOR_VALUE_TAP_CODE: Mapping[str, int] = {
+    VALUE_ADDRESS_NOT_FOUND: 404,
+    NO_EVALUATION_AT_SESSION: 404,
+    AMBIGUOUS_OUTPUT_PORT: 422,
+    UNKNOWN_PROVENANCE: 409,
+    DATASET_MISMATCH: 409,
+    CALENDAR_MISMATCH: 409,
+    RECOMPUTE_FAILED: 409,
+    ENGINE_DRIFT: 409,
+}
 
 
 class ValueTapError(Exception):

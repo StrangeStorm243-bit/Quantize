@@ -359,18 +359,16 @@ def test_unrecomputable_run_is_409_recompute_failed_with_diagnostic(
         {"node_id": "cap", "session_date": "2025-08-29", "component_path": "a\n,b"},
     ],
 )
-def test_invalid_value_address_is_422(
-    client: TestClient, strategy_a_run: PersistedRunRecord, params: dict[str, str]
-) -> None:
+def test_invalid_value_address_is_422(client: TestClient, params: dict[str, str]) -> None:
+    # No run fixture: segment validation fires at the handler top, before any DB access.
     response = client.get(f"/v1/runs/{RUN_ID}/values", params=params)
     assert response.status_code == 422
     assert response.json()["code"] == "invalid_value_address"
 
 
-def test_malformed_session_date_is_422(
-    client: TestClient, strategy_a_run: PersistedRunRecord
-) -> None:
-    """FastAPI's own query-parameter validation rejects a non-date — assert only the status."""
+def test_malformed_session_date_is_422(client: TestClient) -> None:
+    """FastAPI's own query-parameter validation rejects a non-date — assert only the status.
+    No run fixture: date parsing fires before the handler body, before any DB access."""
     response = client.get(
         f"/v1/runs/{RUN_ID}/values", params={"node_id": "cap", "session_date": "not-a-date"}
     )
