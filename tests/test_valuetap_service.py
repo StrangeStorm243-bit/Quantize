@@ -11,15 +11,14 @@ early and present late). All fixture data; no network.
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterator
-from datetime import date
-from pathlib import Path
+from datetime import date, datetime
 from typing import Any
 
 import pytest
 
 from quantize.components.resolve import ComponentCatalog
 from quantize.engine.backtest import run_backtest
+from quantize.engine.records import BacktestResult
 from quantize.engine.state import PortfolioState
 from quantize.market.data import MarketDataSet
 from quantize.nodes import build_core_catalog
@@ -51,7 +50,7 @@ from quantize.valuetap import (
 )
 from quantize.valuetap.service import _select_output_port
 from tests.helpers import load_fixture
-from tests.market_fixture import build_market_fixture, fixture_close
+from tests.market_fixture import fixture_close
 
 RUN_ID = "99999999-9999-9999-9999-999999999999"
 UNKNOWN_RUN_ID = "88888888-8888-8888-8888-888888888888"
@@ -60,32 +59,17 @@ LOOKBACK = 126  # strategy_a's trailing-return window (the fixture-arithmetic an
 DUAL_COMPONENT_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 
 
-@pytest.fixture(scope="module")
-def market() -> MarketDataSet:
-    return build_market_fixture()
-
-
-@pytest.fixture
-def db(tmp_path: Path) -> Iterator[Database]:
-    database = Database(tmp_path / "q.db")
-    yield database
-    database.close()
-
-
 def _document(name: str) -> StrategyDocument:
     return StrategyDocument.model_validate(load_fixture(name))
 
 
-def _persist(
-    db: Database,
+def _run(
     document: StrategyDocument,
     market: MarketDataSet,
     *,
     components: ComponentCatalog | None = None,
-    save_dataset: bool = True,
-) -> PersistedRunRecord:
-    """Run + persist a backtest (and, by default, its dataset). Returns the loaded record."""
-    result = run_backtest(
+) -> BacktestResult:
+    return run_backtest(
         document,
         catalog=build_core_catalog(),
         market_data=market,
@@ -93,6 +77,33 @@ def _persist(
         initial_state=PortfolioState.of(cash=CASH),
         components=components,
     )
+
+
+@pytest.fixture(scope="module")
+def strategy_a_result(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]:
+    """The pure backtest for strategy_a — computed ONCE per module (depends only on ``market``, not
+    the per-test db), then persisted into each fresh db by ``_persist``."""
+    document = _document("strategy_a")
+    return document, _run(document, market)
+
+
+@pytest.fixture(scope="module")
+def dual_result(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]:
+    """The pure backtest for the dual-output component pair — computed ONCE per module."""
+    document = _dual_strategy()
+    return document, _run(document, market, components=ComponentCatalog([_dual_component()]))
+
+
+def _persist(
+    db: Database,
+    document: StrategyDocument,
+    result: BacktestResult,
+    market: MarketDataSet,
+    *,
+    save_dataset: bool = True,
+) -> PersistedRunRecord:
+    """Persist a PRECOMPUTED backtest (and, by default, its dataset) into a fresh db. Returns the
+    loaded record."""
     if save_dataset:
         DatasetRepository(db).save(market)
     runs = RunRepository(db)
@@ -101,24 +112,29 @@ def _persist(
 
 
 @pytest.fixture
-def strategy_a_run(db: Database, market: MarketDataSet) -> PersistedRunRecord:
-    return _persist(db, _document("strategy_a"), market)
+def strategy_a_run(
+    db: Database,
+    strategy_a_result: tuple[StrategyDocument, BacktestResult],
+    market: MarketDataSet,
+) -> PersistedRunRecord:
+    document, result = strategy_a_result
+    return _persist(db, document, result, market)
 
 
 def _computed_assets(
-    record: PersistedRunRecord, db: Database, node_id: str, when: date
+    db: Database, node_id: str, when: date, component_path: tuple[str, ...] = ()
 ) -> set[str]:
-    """The assets the PERSISTED run recorded as ``transform.computed`` for a top-level node —
-    the run's own fact, used as a non-tautological oracle for a recomputed cross-section."""
-    events = RunRepository(db).load_trace(RUN_ID, when)
-    for event in events:
+    """The assets the PERSISTED run recorded as ``transform.computed`` for a node at
+    ``component_path`` (empty tuple = top level) — the run's own fact, used as a non-tautological
+    oracle for a recompute."""
+    for event in RunRepository(db).load_trace(RUN_ID, when):
         if (
             event.node_id == node_id
-            and not event.component_path
+            and tuple(event.component_path) == component_path
             and event.event_type == "transform.computed"
         ):
             return set(event.payload["computed"])  # type: ignore[arg-type]
-    raise AssertionError(f"no transform.computed for {node_id} at {when}")
+    raise AssertionError(f"no transform.computed for {component_path}/{node_id} at {when}")
 
 
 # --- 1. happy path: non-tautological oracles ------------------------------------------------------
@@ -154,7 +170,7 @@ def test_trailing_return_matches_hand_computed_fixture_value(
     assert isinstance(resolved.value, CrossSectionValue)
     assert resolved.value.as_dict()["QQQ"] == pytest.approx(expected)
     # And the recomputed present set equals the run's own recorded computed set (not a recompute).
-    assert set(resolved.value.present_assets) == _computed_assets(strategy_a_run, db, "ret", when)
+    assert set(resolved.value.present_assets) == _computed_assets(db, "ret", when)
 
 
 # --- 2. session_date -> persisted evaluation instant ----------------------------------------------
@@ -172,6 +188,20 @@ def test_session_without_evaluation_is_refused_with_recorded_note(
     assert excinfo.value.code == NO_EVALUATION_AT_SESSION
     if note is not None:
         assert note.message in excinfo.value.message
+
+
+def test_datetime_session_is_normalized_to_its_date(
+    db: Database, strategy_a_run: PersistedRunRecord
+) -> None:
+    """A ``datetime`` at an evaluated session must RESOLVE: ``datetime`` subclasses ``date`` but
+    ``datetime(...) == date(...)`` is always False, so without normalization the recorded-evaluation
+    scan would spuriously miss and raise ``NO_EVALUATION_AT_SESSION``."""
+    when = strategy_a_run.evaluations[-1].session_date
+    resolved = resolve_node_value(
+        db, run_id=RUN_ID, node_id="cap", session_date=datetime(when.year, when.month, when.day)
+    )
+    assert isinstance(resolved.value, PortfolioTargetsValue)
+    assert resolved.session_date == when
 
 
 # --- 3. unknown run: persistence fault propagates unwrapped ---------------------------------------
@@ -236,15 +266,14 @@ def test_terminal_node_produces_no_output_values(
 
 
 def test_missing_component_definition_yields_recompute_failed(
-    db: Database, market: MarketDataSet
+    db: Database, dual_result: tuple[StrategyDocument, BacktestResult], market: MarketDataSet
 ) -> None:
     """A componentized run whose pinned definition is no longer stored cannot be recomputed: the
     tap fails loud with the recompute's diagnostics, never a bare not-found or a silent serve."""
-    definition = _dual_component()
-    document = _dual_strategy()
-    # Run WITH the catalog (so an ok run persists) but do NOT save the definition to the store,
-    # so the recompute's closure walk cannot resolve it (simulates a deleted component).
-    record = _persist(db, document, market, components=ComponentCatalog([definition]))
+    document, result = dual_result
+    # The run was computed WITH the catalog (so an ok run persists) but the definition is NOT saved
+    # to the store, so the recompute's closure walk cannot resolve it (a deleted component).
+    record = _persist(db, document, result, market)
     when = record.evaluations[-1].session_date
     with pytest.raises(ValueTapError) as excinfo:
         resolve_node_value(db, run_id=RUN_ID, node_id="cap", session_date=when)
@@ -276,11 +305,12 @@ def test_select_output_port_helper() -> None:
 
 
 def test_multi_output_component_instance_is_ambiguous_without_port(
-    db: Database, market: MarketDataSet
+    db: Database, dual_result: tuple[StrategyDocument, BacktestResult], market: MarketDataSet
 ) -> None:
     """A component instance exposing two outputs cannot be tapped with an omitted port — the only
     way a real address reaches >1 produced port (no core node has multiple outputs)."""
-    _persist_dual(db, market)
+    document, result = dual_result
+    _persist_dual(db, document, result, market)
     record = RunRepository(db).load_run(RUN_ID)
     when = record.evaluations[-1].session_date
     with pytest.raises(ValueTapError) as excinfo:
@@ -299,18 +329,24 @@ def test_dataset_resolves_by_fingerprint(db: Database, strategy_a_run: Persisted
     assert resolved.calendar_fingerprint == strategy_a_run.input_provenance.calendar_hash
 
 
-def test_absent_dataset_is_refused(db: Database, market: MarketDataSet) -> None:
-    record = _persist(db, _document("strategy_a"), market, save_dataset=False)
+def test_absent_dataset_is_refused(
+    db: Database, strategy_a_result: tuple[StrategyDocument, BacktestResult], market: MarketDataSet
+) -> None:
+    document, result = strategy_a_result
+    record = _persist(db, document, result, market, save_dataset=False)
     when = record.evaluations[-1].session_date
     with pytest.raises(ValueTapError) as excinfo:
         resolve_node_value(db, run_id=RUN_ID, node_id="cap", session_date=when)
     assert excinfo.value.code == DATASET_MISMATCH
 
 
-def test_calendar_only_mismatch_is_refused(db: Database, market: MarketDataSet) -> None:
+def test_calendar_only_mismatch_is_refused(
+    db: Database, strategy_a_result: tuple[StrategyDocument, BacktestResult], market: MarketDataSet
+) -> None:
     """A stored row matching the dataset fingerprint but NOT the calendar fingerprint is not a
     valid input — a distinct refusal from a wholly-absent dataset."""
-    record = _persist(db, _document("strategy_a"), market, save_dataset=False)
+    document, result = strategy_a_result
+    record = _persist(db, document, result, market, save_dataset=False)
     # Forge a row: right dataset fingerprint, wrong calendar fingerprint (payload never loaded).
     dataset_hash = record.input_provenance.dataset_hash
     assert dataset_hash is not None  # recorded provenance
@@ -341,18 +377,13 @@ def test_duplicate_content_dataset_rows_still_serve(
 # --- 8. unknown provenance (legacy migrated run) --------------------------------------------------
 
 
-def test_unknown_provenance_run_is_refused(db: Database, market: MarketDataSet) -> None:
+def test_unknown_provenance_run_is_refused(
+    db: Database, strategy_a_result: tuple[StrategyDocument, BacktestResult], market: MarketDataSet
+) -> None:
     """A run whose provenance is the migrated ``unknown`` (no recorded fingerprints) cannot be
     verified. ``save_run`` rejects unknown provenance for new saves, so the durable row is written
     directly — reproducing the post-1->2-migration state ``load_run`` would return."""
-    document = _document("strategy_a")
-    result = run_backtest(
-        document,
-        catalog=build_core_catalog(),
-        market_data=market,
-        run_id=RUN_ID,
-        initial_state=PortfolioState.of(cash=CASH),
-    )
+    document, result = strategy_a_result
     DatasetRepository(db).save(market)
     RunRepository(db).save_run(document, result, input_provenance=recorded_input_provenance(market))
     # Swap the stored record for one carrying unknown provenance (+ its matching content hash).
@@ -398,10 +429,13 @@ def test_lookahead_gld_excluded_early_present_late(
 # --- 10. nested component addressing --------------------------------------------------------------
 
 
-def test_nested_inner_node_and_exposed_output(db: Database, market: MarketDataSet) -> None:
+def test_nested_inner_node_and_exposed_output(
+    db: Database, dual_result: tuple[StrategyDocument, BacktestResult], market: MarketDataSet
+) -> None:
     """A node INSIDE a component resolves by component_path, and the component instance's own
     exposed output resolves at top level — both against the run's persisted facts."""
-    _persist_dual(db, market)
+    document, result = dual_result
+    _persist_dual(db, document, result, market)
     record = RunRepository(db).load_run(RUN_ID)
     when = record.evaluations[-1].session_date
 
@@ -409,7 +443,7 @@ def test_nested_inner_node_and_exposed_output(db: Database, market: MarketDataSe
         db, run_id=RUN_ID, node_id="ret", session_date=when, component_path=("mom",)
     )
     assert isinstance(inner.value, CrossSectionValue)
-    assert set(inner.value.present_assets) == _nested_computed(db, "ret", ("mom",), when)
+    assert set(inner.value.present_assets) == _computed_assets(db, "ret", when, ("mom",))
 
     exposed = resolve_node_value(
         db, run_id=RUN_ID, node_id="mom", session_date=when, output_port="assets"
@@ -454,23 +488,11 @@ def _dual_strategy() -> StrategyDocument:
     return StrategyDocument.model_validate(data)
 
 
-def _persist_dual(db: Database, market: MarketDataSet) -> PersistedRunRecord:
-    definition = _dual_component()
-    ComponentRepository(db).save(definition)
-    return _persist(db, _dual_strategy(), market, components=ComponentCatalog([definition]))
-
-
-def _nested_computed(
-    db: Database, node_id: str, component_path: tuple[str, ...], when: date
-) -> set[str]:
-    for event in RunRepository(db).load_trace(RUN_ID, when):
-        if (
-            event.node_id == node_id
-            and tuple(event.component_path) == component_path
-            and event.event_type == "transform.computed"
-        ):
-            return set(event.payload["computed"])  # type: ignore[arg-type]
-    raise AssertionError(f"no transform.computed for {component_path}/{node_id} at {when}")
+def _persist_dual(
+    db: Database, document: StrategyDocument, result: BacktestResult, market: MarketDataSet
+) -> PersistedRunRecord:
+    ComponentRepository(db).save(_dual_component())
+    return _persist(db, document, result, market)
 
 
 def _insert_dataset_row(

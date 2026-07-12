@@ -123,13 +123,24 @@ def _definition_key(definition: ComponentDefinition) -> ComponentKey:
     return ComponentKey(definition.component_id, definition.version)
 
 
-def _ref_key_for(node: ComponentRefNode, owner_refs: Sequence[ComponentRef]) -> ComponentKey:
-    """The pinned identity a component node points at (structural validation guarantees the
-    ref id exists in the owner's ``component_refs``)."""
+def find_ref_key(node: ComponentRefNode, owner_refs: Sequence[ComponentRef]) -> ComponentKey | None:
+    """The pinned identity a component node points at, or ``None`` when the owner declares no
+    matching ref. The single source for the ref-id -> ``ComponentKey`` scan (shared with the value
+    tap); callers that require the ref (structural validation guarantees it exists) use
+    ``_ref_key_for``."""
     for ref in owner_refs:
         if ref.id == node.ref:
             return ComponentKey(ref.component_id, ref.version)
-    raise ValueError(f"component node {node.id!r} has undeclared ref {node.ref!r}")
+    return None
+
+
+def _ref_key_for(node: ComponentRefNode, owner_refs: Sequence[ComponentRef]) -> ComponentKey:
+    """The pinned identity a component node points at (structural validation guarantees the
+    ref id exists in the owner's ``component_refs``)."""
+    key = find_ref_key(node, owner_refs)
+    if key is None:
+        raise ValueError(f"component node {node.id!r} has undeclared ref {node.ref!r}")
+    return key
 
 
 def build_port_tables(

@@ -23,17 +23,17 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 
-from quantize.components.resolve import ComponentCatalog
+from quantize.components.resolve import ComponentCatalog, find_ref_key
 from quantize.evaluator.evaluate import evaluate_strategy
 from quantize.market.data import MarketDataSet
 from quantize.nodes import build_core_catalog
+from quantize.persistence.closure import load_component_catalog
 from quantize.persistence.database import Database
 from quantize.persistence.datasets import DatasetRepository
-from quantize.persistence.documents import ComponentRepository, StrategyRepository
-from quantize.persistence.errors import ARTIFACT_NOT_FOUND, PersistenceError
+from quantize.persistence.documents import StrategyRepository
 from quantize.persistence.provenance import (
     CALENDAR_MISMATCH,
     DATASET_MISMATCH,
@@ -44,11 +44,10 @@ from quantize.persistence.records import PersistedRunRecord
 from quantize.persistence.runs import RunRepository
 from quantize.runtime.diagnostics import RuntimeDiagnostic
 from quantize.runtime.values import RuntimeValue
-from quantize.schema.components import ComponentDefinition, ComponentRef
+from quantize.schema.components import ComponentRef
 from quantize.schema.document import StrategyDocument
 from quantize.schema.nodes import ComponentRefNode, NodeInstance
 from quantize.tracing.events import TraceEvent
-from quantize.validation.errors import ComponentKey
 
 _LOGGER = logging.getLogger("quantize.valuetap")
 
@@ -98,7 +97,7 @@ class ResolvedNodeValue:
     captured: bool
     # The tapped node's fresh trace events from THIS recompute — kept for the M14.1a' cross-check;
     # deliberately unused (uncompared) in M14.1a.
-    fresh_trace: tuple[TraceEvent, ...] = field(default=())
+    fresh_trace: tuple[TraceEvent, ...] = ()
 
 
 def resolve_node_value(
@@ -118,6 +117,10 @@ def resolve_node_value(
     ``ValueStore`` and the trace-envelope convention). ``output_port`` may be omitted only for a
     node with exactly one produced output port.
     """
+    # ``datetime`` subclasses ``date`` but ``datetime(...) == date(...)`` is always False, so a
+    # datetime session would spuriously miss the recorded-evaluation scan — normalize to its date.
+    if isinstance(session_date, datetime):
+        session_date = session_date.date()
     started = time.perf_counter()
     runs = RunRepository(db)
 
@@ -141,7 +144,7 @@ def resolve_node_value(
 
     # 4. The pinned strategy document + its component closure (loaded from the store, API-free).
     document = StrategyRepository(db).load(record.strategy_id, record.strategy_version)
-    components = _load_component_closure(db, document)
+    components = load_component_catalog(db, document)
 
     # 5. Structural address check BEFORE recomputing: a definitively-absent node/path id is a
     #    request fault (a fast, recompute-free refusal). A path through a component whose
@@ -272,37 +275,6 @@ def _resolve_dataset(db: Database, dataset_hash: str, calendar_hash: str) -> Mar
     return repository.load(chosen.dataset_id)
 
 
-def _load_component_closure(db: Database, document: StrategyDocument) -> ComponentCatalog:
-    """Fetch a document's pinned component closure from the store (breadth-first over
-    ``component_refs``, transitively). A ``(component_id, version)`` that is not stored is left
-    ABSENT — never an error here — so the recompute's preflight reports it (fail-loud preserved).
-
-    Mirrors ``quantize.api.service.load_component_catalog`` deliberately: this service must NOT
-    depend on the API layer (importing it pulls fastapi transitively). A future cleanup should
-    hoist the shared closure walk to a neutral persistence/components home and delete both copies.
-    """
-    repository = ComponentRepository(db)
-    definitions: list[ComponentDefinition] = []
-    visited: set[tuple[str, str]] = set()
-    queue: list[tuple[str, str]] = [
-        (ref.component_id, ref.version) for ref in document.component_refs
-    ]
-    while queue:
-        key = queue.pop(0)
-        if key in visited:
-            continue
-        visited.add(key)
-        try:
-            definition = repository.load(key[0], key[1])
-        except PersistenceError as error:
-            if error.code == ARTIFACT_NOT_FOUND:
-                continue  # absent -> recompute preflight reports component_definition_unavailable
-            raise
-        definitions.append(definition)
-        queue.extend((ref.component_id, ref.version) for ref in definition.component_refs)
-    return ComponentCatalog(definitions)
-
-
 def _verify_address(
     document: StrategyDocument,
     components: ComponentCatalog,
@@ -326,7 +298,7 @@ def _verify_address(
                 f"component path segment {segment!r} is not a component instance in this run",
                 subject=segment,
             )
-        key = _ref_key(node, refs)
+        key = find_ref_key(node, refs)
         definition = components.get(key) if key is not None else None
         if definition is None:
             return  # pinned component absent/undeclared -> let the recompute fail loud
@@ -344,13 +316,6 @@ def _find_node(nodes: Iterable[NodeInstance], node_id: str) -> NodeInstance | No
     for node in nodes:
         if node.id == node_id:
             return node
-    return None
-
-
-def _ref_key(node: ComponentRefNode, refs: Iterable[ComponentRef]) -> ComponentKey | None:
-    for ref in refs:
-        if ref.id == node.ref:
-            return ComponentKey(ref.component_id, ref.version)
     return None
 
 
