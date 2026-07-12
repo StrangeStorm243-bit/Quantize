@@ -85,4 +85,5 @@ def test_exposed_endpoints_match_the_contract() -> None:
         "/v1/runs/{run_id}",
         "/v1/runs/{run_id}/trace",
         "/v1/runs/{run_id}/trace-tree",
+        "/v1/runs/{run_id}/values",
     }
