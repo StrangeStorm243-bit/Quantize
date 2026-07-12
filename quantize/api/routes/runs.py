@@ -30,22 +30,13 @@ from quantize.api.errors import ApiRequestError
 from quantize.api.parsing import JsonBody, SettingsDep, load_dto
 from quantize.api.service import execute_backtest_run, execute_forward_run
 from quantize.persistence.database import Database
-from quantize.persistence.provenance import (
-    CALENDAR_MISMATCH,
-    DATASET_MISMATCH,
-    PROVENANCE_RECORDED,
-    UNKNOWN_PROVENANCE,
-)
+from quantize.persistence.provenance import PROVENANCE_RECORDED
 from quantize.persistence.runs import RunRepository
 from quantize.runtime.summarize import summarize
 from quantize.schema.serialization import to_ir_json
 from quantize.tracing.tree import build_trace_trees
 from quantize.valuetap import (
-    AMBIGUOUS_OUTPUT_PORT,
-    ENGINE_DRIFT,
-    NO_EVALUATION_AT_SESSION,
-    RECOMPUTE_FAILED,
-    VALUE_ADDRESS_NOT_FOUND,
+    STATUS_FOR_VALUE_TAP_CODE,
     ValueTapError,
     resolve_node_value,
 )
@@ -58,19 +49,9 @@ router = APIRouter(prefix="/v1/runs", tags=["runs"])
 INVALID_VALUE_ADDRESS = "invalid_value_address"
 _VALUE_ADDRESS_SEGMENT = re.compile(r"^[A-Za-z0-9_]+$")
 
-# ValueTapError code -> HTTP status (the M14 plan's table). Keyed by the imported code constants so
-# a renamed code fails at import, never silently. An unknown code defaults to 500 (defensive,
-# mirroring quantize/api/errors.py's persistence-code map).
-_STATUS_FOR_VALUE_TAP_CODE: dict[str, int] = {
-    VALUE_ADDRESS_NOT_FOUND: 404,
-    NO_EVALUATION_AT_SESSION: 404,
-    AMBIGUOUS_OUTPUT_PORT: 422,
-    UNKNOWN_PROVENANCE: 409,
-    DATASET_MISMATCH: 409,
-    CALENDAR_MISMATCH: 409,
-    RECOMPUTE_FAILED: 409,
-    ENGINE_DRIFT: 409,
-}
+# The ValueTapError code -> HTTP status table lives BESIDE the codes in quantize/valuetap (one
+# edit site per new refusal reason); this route applies it verbatim, defaulting an unknown code
+# to 500 (defensive, mirroring quantize/api/errors.py's persistence-code map).
 
 
 def _validate_segment(value: str, *, label: str) -> None:
@@ -195,7 +176,7 @@ def fetch_node_value(
     except ValueTapError as error:
         # Only code + message cross the wire — subject/diagnostics never leave the boundary.
         raise ApiRequestError(
-            _STATUS_FOR_VALUE_TAP_CODE.get(error.code, 500), error.code, error.message
+            STATUS_FOR_VALUE_TAP_CODE.get(error.code, 500), error.code, error.message
         ) from error
     return node_value_dto(
         summarize(resolved.value),
