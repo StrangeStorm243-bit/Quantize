@@ -267,6 +267,7 @@ function multiInstantOutputTrees(): TraceTreeDto[] {
 
 function atSession(overrides: Partial<AtSessionProps> = {}): AtSessionProps {
   return {
+    runId: 'run-1',
     cursor: '2026-05-15',
     trees: servedTrees(),
     loading: false,

@@ -204,6 +204,8 @@ describe('useDebugLoopState (M13.7.5 fix pass)', () => {
     // …and the atSession payload reuses the SAME object — never a second derivation.
     await waitFor(() => expect(result.current.atSession).toBeDefined())
     expect(result.current.atSession?.note).toBe(result.current.note)
+    // The payload carries the SELECTED run's id — the value-tap request address needs it.
+    expect(result.current.atSession?.runId).toBe('run-1')
   })
 
   it("sources the cadence from the RUN's producing strategy version, not the live doc (finding 1)", async () => {
