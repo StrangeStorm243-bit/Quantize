@@ -17,14 +17,19 @@
 // param's verbatim `schema` fragment. "Enter component" navigates the MAIN canvas into the definition's
 // read-only internal view (M13.8 in-canvas breadcrumb, superseding the E11 modal drawer).
 import type { ReactElement } from 'react'
+import { useState } from 'react'
 import type {
+  AssetValueDto,
   NodeCatalogResponse,
   NodeTypeDto,
+  NodeValueResponse,
   ParamDocDto,
   TraceTreeDto,
   TraceTreeNodeDto,
 } from '@quantize/quantize-api'
 import type { ComponentDefinition, JsonValue, StrategyDocument } from '@quantize/quantize-ir'
+import { getNodeValue } from '../api/client'
+import { useFetch } from '../useFetch'
 import { labelOf, nodeTypeById, useCatalog } from '../catalog'
 import { portColor } from '../catalog/colors'
 import { useComponentDefs } from '../components-cache'
@@ -133,6 +138,203 @@ function EventRow({ event }: { event: TraceTreeNodeDto['events'][number] }): Rea
   )
 }
 
+// --- Node Value Tap: the served value at the session cursor (M14.2a) ------------------------------
+// The value a node's output port PRODUCED at the session, from GET /v1/runs/{id}/values (recompute on
+// demand). EVERY field is rendered verbatim in served order via String(...) — nothing is summed,
+// ranked, sorted, rounded, or highlighted here (invariant 5). One request per (address, selected port);
+// changing the selector fires a new request for that port only — no prefetch, no cache.
+
+// The shared asset→value table (cross_section / portfolio_targets), served order, verbatim. Rendered
+// only when the response carries a non-empty `asset_values`; the caller passes it straight through.
+function AssetValuesTable({ rows }: { rows: readonly AssetValueDto[] }): ReactElement | null {
+  if (rows.length === 0) return null
+  return (
+    <table className="inspector__value-table">
+      <tbody>
+        {rows.map((row, i) => (
+          <tr key={`${row.asset}:${i}`}>
+            <td>{row.asset}</td>
+            <td>{String(row.value)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+// The value_summary → rows projection. TS narrows the discriminated union on `.kind`; each branch reads
+// only served fields (String() for numbers/booleans) and renders stat rows only when the server sent them.
+function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
+  const summary = data.value_summary
+  const assetRows = data.asset_values ?? []
+  switch (summary.kind) {
+    case 'scalar':
+      return <div className="inspector__value-row">{`${summary.dtype}: ${String(summary.value)}`}</div>
+    case 'asset_set':
+      return (
+        <>
+          <div className="inspector__value-row">{summary.count} members</div>
+          <ul className="inspector__value-members">
+            {summary.members.map((m, i) => (
+              <li key={`${m}:${i}`}>{m}</li>
+            ))}
+          </ul>
+        </>
+      )
+    case 'cross_section':
+      return (
+        <>
+          <div className="inspector__value-row">
+            {summary.present_count} of {summary.domain_count} assets
+          </div>
+          {summary.dtype === 'Number' ? (
+            <>
+              {summary.min != null ? (
+                <div className="inspector__value-row">Min: {String(summary.min)}</div>
+              ) : null}
+              {summary.max != null ? (
+                <div className="inspector__value-row">Max: {String(summary.max)}</div>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {summary.true_count != null ? (
+                <div className="inspector__value-row">True: {String(summary.true_count)}</div>
+              ) : null}
+              {summary.false_count != null ? (
+                <div className="inspector__value-row">False: {String(summary.false_count)}</div>
+              ) : null}
+            </>
+          )}
+          {summary.missing.length > 0 ? (
+            <div className="inspector__value-row">Missing: {summary.missing.join(', ')}</div>
+          ) : null}
+          <AssetValuesTable rows={assetRows} />
+        </>
+      )
+    case 'time_series':
+      return (
+        <>
+          <div className="inspector__value-row">
+            {summary.asset_count} assets · {summary.total_points} points
+          </div>
+          {summary.window != null ? (
+            <div className="inspector__value-row">
+              {summary.window.first_date} → {summary.window.last_date}
+            </div>
+          ) : null}
+          {(data.series_preview ?? []).map((series) => (
+            <div key={series.asset} className="inspector__value-series">
+              <span className="inspector__value-label">{series.asset}</span>
+              {series.points.map(([date, val], i) => (
+                <div key={i} className="inspector__value-row">
+                  <span className="inspector__value-label">{date}</span>
+                  <span>{String(val)}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </>
+      )
+    case 'portfolio_targets':
+      return (
+        <>
+          <AssetValuesTable rows={assetRows} />
+          <div className="inspector__value-row">Weight sum: {String(summary.weight_sum)}</div>
+          <div className="inspector__value-row">Cash: {String(summary.cash)}</div>
+        </>
+      )
+  }
+}
+
+// The value block for one node address. `ports` is the node's LISTED output ports (catalog outputs or a
+// component's exposed_outputs); empty = unknown → the request omits the port and the response's own
+// `output_port` labels the value. A selector appears ONLY when there is a genuine choice (>1 ports).
+// Keyed by address at the call site, so `port` resets per node (the ParamForm remount precedent).
+function ValueBlock({
+  runId,
+  sessionDate,
+  nodeId,
+  componentPath,
+  ports,
+}: {
+  runId: string
+  sessionDate: string
+  nodeId: string
+  componentPath: readonly string[]
+  ports: readonly string[]
+}): ReactElement {
+  const [port, setPort] = useState<string | undefined>(ports[0])
+  const { data, loading, error } = useFetch(
+    () =>
+      getNodeValue(runId, {
+        nodeId,
+        sessionDate,
+        componentPath,
+        ...(port !== undefined ? { outputPort: port } : {}),
+      }),
+    // `componentPath.join(',')` — the array identity is not a stable dependency key.
+    [runId, sessionDate, nodeId, componentPath.join(','), port],
+  )
+
+  const selector =
+    ports.length > 1 ? (
+      <select
+        className="inspector__port-select"
+        aria-label="output port"
+        value={port}
+        onChange={(e) => setPort(e.target.value)}
+      >
+        {ports.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
+        ))}
+      </select>
+    ) : null
+
+  if (loading) {
+    return (
+      <>
+        {selector}
+        <p className="inspector__empty-note">Loading value…</p>
+      </>
+    )
+  }
+  if (error !== undefined) {
+    return (
+      <>
+        {selector}
+        {/* The served message verbatim (engine_drift, dataset_mismatch, ambiguous_output_port, …) — the
+            honest-refusal pattern: render what the server said rather than guessing a value. */}
+        <p className="inspector__at-error" role="alert">
+          {error}
+        </p>
+      </>
+    )
+  }
+  if (data === undefined) return <>{selector}</>
+
+  return (
+    <>
+      {selector}
+      {/* The port from the RESPONSE (served, so a defaulted/omitted port labels itself). */}
+      <div className="inspector__value-port">out {data.output_port}</div>
+      <ValueSummary data={data} />
+      <p className="inspector__value-provenance">
+        {data.provenance.captured ? (
+          'Captured at run'
+        ) : (
+          <>
+            Recomputed on demand from the run's pinned inputs{' '}
+            <code>{data.provenance.dataset_fingerprint}</code>
+          </>
+        )}
+      </p>
+    </>
+  )
+}
+
 // The Node Value Tap rendering slot (design W4): the stable "At session" section, now LIVE (M13.7).
 // Without an `atSession` (no run/cursor) it renders the ORIGINAL inert empty state, unchanged, in the
 // SAME container so the slot never relayouts when data arrives (the M13.5 contract). With one, it shows
@@ -143,10 +345,16 @@ function AtSessionSection({
   atSession,
   nodeId,
   componentCategory,
+  componentPath,
+  valuePorts,
 }: {
   atSession: AtSessionProps | undefined
   nodeId: string
   componentCategory: string | undefined
+  /** Enclosing ComponentRef instance ids, outermost first; empty at top level (design W4). */
+  componentPath: readonly string[]
+  /** The node's LISTED output-port names (catalog outputs / exposed_outputs); empty = unknown. */
+  valuePorts: readonly string[]
 }): ReactElement {
   if (atSession === undefined) {
     return (
@@ -221,8 +429,25 @@ function AtSessionSection({
     // suppresses an empty "Engine" heading). ComponentRef instances pass `undefined` → never rendered.
     const engine = componentCategory === 'output' ? engineRoots(trees) : []
 
+    // The Node Value Tap (M14.2a): the served value, ABOVE the trace facts, EVALUATED sessions only —
+    // on a non-evaluated session the server could only 404 (no_evaluation_at_session) and the honest
+    // no-eval line already renders, so we do not fetch. Keyed by address so `port` resets per node.
+    const valueBlock = atSession.evaluated ? (
+      <div className="inspector__at-values">
+        <ValueBlock
+          key={`${componentPath.join(',')}/${nodeId}`}
+          runId={atSession.runId}
+          sessionDate={atSession.cursor}
+          nodeId={nodeId}
+          componentPath={componentPath}
+          ports={valuePorts}
+        />
+      </div>
+    ) : null
+
     body = (
       <>
+        {valueBlock}
         {nodePart}
         {engine.length > 0 ? (
           <div className="inspector__at-engine">
@@ -437,7 +662,13 @@ export function Inspector({
             Component definition is not loaded (or the ref is unknown) — parameters cannot be shown yet.
           </p>
           {enterButton}
-          <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={undefined} />
+          <AtSessionSection
+            atSession={atSession}
+            nodeId={node.id}
+            componentCategory={undefined}
+            componentPath={[]}
+            valuePorts={[]}
+          />
         </div>
       )
     }
@@ -471,7 +702,15 @@ export function Inspector({
           />
         )}
         {enterButton}
-        <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={undefined} />
+        <AtSessionSection
+          atSession={atSession}
+          nodeId={node.id}
+          componentCategory={undefined}
+          componentPath={[]}
+          // A ComponentRef instance taps as (instance id, empty path); its ports are the def's exposed
+          // outputs — the evaluator stores those under the instance path, so no special-casing.
+          valuePorts={def.exposed_outputs.map((o) => o.name)}
+        />
       </div>
     )
   }
@@ -507,7 +746,14 @@ export function Inspector({
           <PortsSection nodeType={nodeType} catalog={catalog} />
         </>
       )}
-      <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={nodeType?.category} />
+      <AtSessionSection
+        atSession={atSession}
+        nodeId={node.id}
+        componentCategory={nodeType?.category}
+        componentPath={[]}
+        // Unknown node type → no listed ports; the response's own output_port still labels the value.
+        valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
+      />
     </div>
   )
 }
