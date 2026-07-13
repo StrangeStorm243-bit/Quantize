@@ -348,6 +348,7 @@ function AtSessionSection({
   componentCategory,
   componentPath,
   valuePorts,
+  valuesOnly = false,
 }: {
   atSession: AtSessionProps | undefined
   nodeId: string
@@ -356,6 +357,11 @@ function AtSessionSection({
   componentPath: readonly string[]
   /** The node's LISTED output-port names (catalog outputs / exposed_outputs); empty = unknown. */
   valuePorts: readonly string[]
+  /** M14.2b, decision D-f: inside a read-only component view the section is VALUES-ONLY — the value
+   * block is the whole story, with NO node-events part and NO engine subsection. The section container,
+   * title, cursor date, empty note, and no-eval phrasing stay SHARED (never duplicated). Defaults false
+   * so every top-level call renders the full section unchanged (byte-identical). */
+  valuesOnly?: boolean
 }): ReactElement {
   if (atSession === undefined) {
     return (
@@ -389,7 +395,7 @@ function AtSessionSection({
     // (a) The NODE-EVENTS part. When evaluated: locate the selected node among the served roots and
     // render its events (a ComponentRef instance carries children — flatten ONE level so the instance
     // shows what its internal nodes did). When NOT evaluated: the honest no-eval line + the served note.
-    let nodePart: ReactElement
+    let nodePart: ReactElement | null
     if (!atSession.evaluated) {
       nodePart = (
         <>
@@ -401,6 +407,10 @@ function AtSessionSection({
           ) : null}
         </>
       )
+    } else if (valuesOnly) {
+      // Values-only variant (D-f): inside a component view we surface the VALUE alone — the trace facts
+      // (node events + engine) are out of scope, so the value block below is the entire body.
+      nodePart = null
     } else {
       const found = findRoot(trees, nodeId)
       const hasOwnEvents = found !== undefined && found.events.length > 0
@@ -427,8 +437,9 @@ function AtSessionSection({
 
     // (b) The ENGINE subsection — only at the output boundary (category 'output'), and INDEPENDENT of
     // evaluation: whenever the served trees carry engine reconciliation rows, show them (the guard also
-    // suppresses an empty "Engine" heading). ComponentRef instances pass `undefined` → never rendered.
-    const engine = componentCategory === 'output' ? engineRoots(trees) : []
+    // suppresses an empty "Engine" heading). ComponentRef instances pass `undefined` → never rendered;
+    // the values-only variant never reaches the output boundary (an inner node), so it never shows engine.
+    const engine = !valuesOnly && componentCategory === 'output' ? engineRoots(trees) : []
 
     // The Node Value Tap (M14.2a): the served value, ABOVE the trace facts, EVALUATED sessions only —
     // on a non-evaluated session the server could only 404 (no_evaluation_at_session) and the honest
@@ -477,9 +488,10 @@ function AtSessionSection({
 // --- Read-only internals of a component-view node (M13.9 O3) --------------------------------------
 // A component definition is immutable, but its internals must still be understandable. These render a
 // node from the trail tip's definition graph READ-ONLY: its CONFIGURED parameter values (never an
-// editable ParamForm, no `actions`), plus — for a primitive node — its Explanation and Ports. There is
-// NO "At session" section (that is the Node Value Tap slot, out of scope for inner nodes). Pure
-// projection of served catalog metadata + the definition's own configured params (invariant 5).
+// editable ParamForm, no `actions`), plus — for a primitive node — its Explanation and Ports, and a
+// VALUES-ONLY "At session" section (M14.2b, D-f): the value the inner node produced at the cursor,
+// tapped by (node id, the enclosing trail) — but no trace facts, staying read-only. Pure projection of
+// served catalog metadata + served value + the definition's own configured params (invariant 5).
 
 /** Present a JSON param value for read-only display: objects/arrays as compact JSON, scalars verbatim. */
 function formatParamValue(value: JsonValue): string {
@@ -520,18 +532,27 @@ export interface ComponentNodeSelection {
   node: StrategyDocument['nodes'][number]
   /** The tip definition's refs, to resolve a nested ComponentRef inner node to its pinned definition. */
   componentRefs: StrategyDocument['component_refs']
+  /** The enclosing ComponentRef INSTANCE ids, outermost first — the trail IS the value-tap
+   * `component_path` for a node at this depth (design W4). Empty is impossible here (a component view). */
+  componentPath: readonly string[]
 }
 
 function ComponentNodeInspector({
   node,
   componentRefs,
+  componentPath,
   catalog,
   getDef,
+  atSession,
 }: {
   node: StrategyDocument['nodes'][number]
   componentRefs: StrategyDocument['component_refs']
+  /** The enclosing ComponentRef instance ids (outermost first) — the value-tap component_path here. */
+  componentPath: readonly string[]
   catalog: NodeCatalogResponse | undefined
   getDef: (componentId: string, version: string) => ComponentDefinition | undefined
+  /** Live "At session" data (M14.2b) — threaded through so an inner node can show its VALUE (values-only). */
+  atSession: AtSessionProps | undefined
 }): ReactElement {
   const readOnlyNote = <p className="inspector__ro-note">Component internals — read-only.</p>
 
@@ -549,11 +570,22 @@ function ComponentNodeInspector({
         </header>
         {readOnlyNote}
         <ReadOnlyParamsSection params={node.params} />
+        <AtSessionSection
+          atSession={atSession}
+          nodeId={node.id}
+          componentCategory={undefined}
+          // A nested ref taps as (its instance id, the ENCLOSING trail) — its own id is NOT appended:
+          // the evaluator stores a component's exposed outputs under `(*trail, instanceId)`. Ports are the
+          // pinned def's exposed_outputs (cache miss → [] → the response's own output_port labels the value).
+          componentPath={componentPath}
+          valuePorts={def?.exposed_outputs.map((o) => o.name) ?? []}
+          valuesOnly
+        />
       </div>
     )
   }
 
-  // A primitive inner node: identity + read-only params + Explanation + Ports (no At-session slot).
+  // A primitive inner node: identity + read-only params + Explanation + Ports + the values-only At session.
   const nodeType = catalog === undefined ? undefined : nodeTypeById(catalog, node.type_id)
   return (
     <div className="inspector">
@@ -577,6 +609,16 @@ function ComponentNodeInspector({
           <PortsSection nodeType={nodeType} catalog={catalog} />
         </>
       )}
+      <AtSessionSection
+        atSession={atSession}
+        nodeId={node.id}
+        componentCategory={undefined}
+        componentPath={componentPath}
+        // The inner node taps at the trail; ports are its catalog outputs (unknown type → [] → the
+        // response's own output_port labels the value).
+        valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
+        valuesOnly
+      />
     </div>
   )
 }
@@ -591,8 +633,8 @@ export interface InspectorProps {
   atSession?: AtSessionProps | undefined
   /**
    * M13.9 O3: a node selected INSIDE a read-only component view. When set, the Inspector renders that
-   * node's identity, CONFIGURED params, meaning, and ports READ-ONLY — a component definition is
-   * immutable — taking precedence over `selectedNodeId`.
+   * node's identity, CONFIGURED params, meaning, ports, and a values-only "At session" section (M14.2b)
+   * READ-ONLY — a component definition is immutable — taking precedence over `selectedNodeId`.
    */
   componentNode?: ComponentNodeSelection | undefined
 }
@@ -608,15 +650,17 @@ export function Inspector({
   const { catalog } = useCatalog()
   const { get } = useComponentDefs()
 
-  // M13.9 O3: a node selected inside a read-only component view takes precedence — render its internals
-  // read-only (immutable definition). No `actions`, no "At session" (Node Value Tap) for inner nodes.
+  // M13.9 O3 / M14.2b: a node selected inside a read-only component view takes precedence — render its
+  // internals read-only (immutable definition). No `actions`; its "At session" section is values-only (D-f).
   if (componentNode !== undefined) {
     return (
       <ComponentNodeInspector
         node={componentNode.node}
         componentRefs={componentNode.componentRefs}
+        componentPath={componentNode.componentPath}
         catalog={catalog}
         getDef={get}
+        atSession={atSession}
       />
     )
   }

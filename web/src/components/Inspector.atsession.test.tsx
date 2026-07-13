@@ -43,6 +43,13 @@ vi.mock('../components-cache', () => ({
     errorOf: () => undefined,
   }),
 }))
+// The M14.2a value block mounts on every evaluated session; stub its fetch with a never-resolving promise
+// so no real network fires in jsdom and no state settles after render (test hygiene — every assertion
+// below is unchanged). errorMessage/ApiClientError stay real so useFetch keeps working.
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/client')>()
+  return { ...actual, getNodeValue: vi.fn(() => new Promise<never>(() => {})) }
+})
 
 // eslint-disable-next-line import/first
 import { Inspector } from './Inspector'

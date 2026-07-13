@@ -472,7 +472,10 @@ function AppShell(): ReactElement {
     const tipDef = componentDefs.get(componentCacheKey(tip.componentId, tip.version))
     if (tipDef === undefined || tipDef.implementation.kind !== 'graph') return undefined
     const node = tipDef.implementation.graph.nodes.find((n) => n.id === componentSelectedNodeId)
-    return node === undefined ? undefined : { node, componentRefs: tipDef.component_refs }
+    // The trail IS the value-tap component_path for a node at this depth (outermost instance first).
+    return node === undefined
+      ? undefined
+      : { node, componentRefs: tipDef.component_refs, componentPath: componentTrail.map((e) => e.instanceId) }
   })()
 
   // The active dataset's introspection metadata (M13.1) — drives the strategy-bar chip's date range.

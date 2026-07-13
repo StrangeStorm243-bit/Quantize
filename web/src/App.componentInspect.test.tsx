@@ -66,11 +66,17 @@ vi.mock('./components/Canvas', () => ({
   ),
 }))
 
-// Inspector stub: surface the resolved read-only `componentNode` (its node id), or 'none'.
+// Inspector stub: surface the resolved read-only `componentNode` — its node id and its `componentPath`
+// (the value-tap address the App threads from the trail's instance ids), or 'none'.
 vi.mock('./components/Inspector', () => ({
-  Inspector: (props: { componentNode?: { node: { id: string } } }) => (
-    <div data-testid="inspector-component-node">
-      {props.componentNode ? props.componentNode.node.id : 'none'}
+  Inspector: (props: { componentNode?: { node: { id: string }; componentPath: string[] } }) => (
+    <div>
+      <div data-testid="inspector-component-node">
+        {props.componentNode ? props.componentNode.node.id : 'none'}
+      </div>
+      <div data-testid="inspector-component-path">
+        {props.componentNode ? props.componentNode.componentPath.join(',') : 'none'}
+      </div>
     </div>
   ),
 }))
@@ -128,6 +134,9 @@ describe('App read-only component-internals inspection (O3)', () => {
     // The click selected the node, and the App resolved it from the tip definition graph.
     expect(screen.getByTestId('comp-sel')).toHaveTextContent('rk')
     expect(screen.getByTestId('inspector-component-node')).toHaveTextContent('rk')
+    // M14.2b: the App threads the trail's INSTANCE ids into the value-tap address — a node one level deep
+    // taps under `component_path = ['inst']` (the entered instance's id), not its own inner-node id.
+    expect(screen.getByTestId('inspector-component-path')).toHaveTextContent('inst')
     await act(async () => {
       await Promise.resolve()
     })
