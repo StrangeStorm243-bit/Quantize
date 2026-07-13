@@ -114,7 +114,7 @@ function makeDef(componentId: string, name: string): ComponentDefinition {
 }
 
 function trailOf(...ids: string[]): ComponentTrailEntry[] {
-  return ids.map((componentId) => ({ componentId, version: '1.0.0' }))
+  return ids.map((componentId) => ({ componentId, version: '1.0.0', instanceId: `${componentId}-inst` }))
 }
 
 function renderCanvas(props: Partial<Parameters<typeof Canvas>[0]>): ReturnType<typeof render> {

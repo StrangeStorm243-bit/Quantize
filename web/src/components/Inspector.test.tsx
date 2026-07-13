@@ -142,7 +142,8 @@ describe('Inspector — ComponentRefNode branch', () => {
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: /enter component/i }))
-    expect(onEnter).toHaveBeenCalledWith({ componentId: CID, version: '1.0.0' })
+    // The entry carries the selected instance node's id — the value tap's `component_path` segment.
+    expect(onEnter).toHaveBeenCalledWith({ componentId: CID, version: '1.0.0', instanceId: 'mom' })
   })
 
   it('calls onEnterComponent even on a cache miss (the ref alone pins componentId/version)', () => {
@@ -157,7 +158,7 @@ describe('Inspector — ComponentRefNode branch', () => {
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: /enter component/i }))
-    expect(onEnter).toHaveBeenCalledWith({ componentId: CID, version: '1.0.0' })
+    expect(onEnter).toHaveBeenCalledWith({ componentId: CID, version: '1.0.0', instanceId: 'mom' })
   })
 
   it('renders the "At session" shell for a component instance (value-tap slot, M13.5)', () => {

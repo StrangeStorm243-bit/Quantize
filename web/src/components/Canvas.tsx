@@ -750,7 +750,7 @@ export function Canvas({
       if (ref === undefined) {
         return
       }
-      onEnterComponent({ componentId: ref.component_id, version: ref.version })
+      onEnterComponent({ componentId: ref.component_id, version: ref.version, instanceId: node.id })
     },
     [extractionMode, onEnterComponent, readOnly, tipDef, doc],
   )

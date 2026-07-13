@@ -44,7 +44,7 @@ vi.mock('./components-cache', () => ({
 }))
 
 // Canvas stub: enter a component (matching the seeded def), click an inner node, surface the selection.
-type Entry = { componentId: string; version: string }
+type Entry = { componentId: string; version: string; instanceId: string }
 vi.mock('./components/Canvas', () => ({
   Canvas: (props: {
     componentSelectedNodeId?: string | null
@@ -53,7 +53,10 @@ vi.mock('./components/Canvas', () => ({
   }) => (
     <div>
       <span data-testid="comp-sel">{String(props.componentSelectedNodeId)}</span>
-      <button type="button" onClick={() => props.onEnterComponent?.({ componentId: CID, version: '1.0.0' })}>
+      <button
+        type="button"
+        onClick={() => props.onEnterComponent?.({ componentId: CID, version: '1.0.0', instanceId: 'inst' })}
+      >
         canvas-enter
       </button>
       <button type="button" onClick={() => props.onComponentNodeClick?.('rk')}>

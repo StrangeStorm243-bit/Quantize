@@ -463,24 +463,26 @@ describe('resolveTrailFromPath', () => {
   ])
 
   it('resolves a single-level path to the entered component identity', () => {
+    // Each entry carries the INSTANCE node id it was reached through — exactly the value tap's
+    // `component_path` segment for that level.
     expect(resolveTrailFromPath(doc, ['mom'], fullMap)).toEqual([
-      { componentId: CID_A, version: '1.0.0' },
+      { componentId: CID_A, version: '1.0.0', instanceId: 'mom' },
     ])
   })
 
   it('resolves a nested path, swapping ref scope per level', () => {
     expect(resolveTrailFromPath(doc, ['mom', 'inner'], fullMap)).toEqual([
-      { componentId: CID_A, version: '1.0.0' },
-      { componentId: CID_B, version: '2.0.0' },
+      { componentId: CID_A, version: '1.0.0', instanceId: 'mom' },
+      { componentId: CID_B, version: '2.0.0', instanceId: 'inner' },
     ])
   })
 
   it('returns the ref-proven prefix when the tip definition is a cache miss', () => {
-    // Definition A absent: the ref alone proves level 1, but its body is unknown so the walk cannot
-    // continue into `inner`. The tip is what the view ensures + loads next.
+    // Definition A absent: the ref alone proves level 1 (instance `mom`), but its body is unknown so
+    // the walk cannot continue into `inner`. The tip is what the view ensures + loads next.
     const onlyB = new Map([[componentCacheKey(CID_B, '2.0.0'), DEF_B]])
     expect(resolveTrailFromPath(doc, ['mom', 'inner'], onlyB)).toEqual([
-      { componentId: CID_A, version: '1.0.0' },
+      { componentId: CID_A, version: '1.0.0', instanceId: 'mom' },
     ])
   })
 
@@ -497,7 +499,7 @@ describe('resolveTrailFromPath', () => {
       [componentCacheKey(CID_B, '2.0.0'), DEF_B],
     ])
     expect(resolveTrailFromPath(doc, ['mom', 'inner'], map)).toEqual([
-      { componentId: CID_A, version: '1.0.0' },
+      { componentId: CID_A, version: '1.0.0', instanceId: 'mom' },
     ])
   })
 

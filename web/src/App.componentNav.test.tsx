@@ -33,7 +33,7 @@ vi.mock('./api/client', async (importOriginal) => {
 // Canvas stub: surface the App-owned trail (length + ids) and the component-view selection, and expose
 // buttons that fire the navigation callbacks — `canvas-enter` (the double-click path) appends via the
 // SAME `onEnterComponent` the Inspector uses; `nav-0`/`nav-1` are crumb clicks at those depths.
-type Entry = { componentId: string; version: string }
+type Entry = { componentId: string; version: string; instanceId: string }
 vi.mock('./components/Canvas', () => ({
   Canvas: (props: {
     componentTrail?: Entry[]
@@ -49,7 +49,9 @@ vi.mock('./components/Canvas', () => ({
       <span data-testid="comp-sel">{String(props.componentSelectedNodeId)}</span>
       <button
         type="button"
-        onClick={() => props.onEnterComponent?.({ componentId: 'cid-canvas', version: '1.0.0' })}
+        onClick={() =>
+          props.onEnterComponent?.({ componentId: 'cid-canvas', version: '1.0.0', instanceId: 'inst-canvas' })
+        }
       >
         canvas-enter
       </button>
@@ -64,12 +66,14 @@ vi.mock('./components/Canvas', () => ({
 }))
 
 // Inspector stub: a single button that fires the "Enter component" callback with a ComponentTrailEntry
-// payload (`{componentId, version}`) — exactly what the real Inspector's button emits.
+// payload (`{componentId, version, instanceId}`) — exactly what the real Inspector's button emits.
 vi.mock('./components/Inspector', () => ({
   Inspector: (props: { onEnterComponent?: (entry: Entry) => void }) => (
     <button
       type="button"
-      onClick={() => props.onEnterComponent?.({ componentId: 'cid-inspector', version: '2.0.0' })}
+      onClick={() =>
+        props.onEnterComponent?.({ componentId: 'cid-inspector', version: '2.0.0', instanceId: 'inst-inspector' })
+      }
     >
       inspector-enter
     </button>

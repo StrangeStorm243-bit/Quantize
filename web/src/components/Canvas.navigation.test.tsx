@@ -164,7 +164,7 @@ function seedDefs(...defs: ComponentDefinition[]): void {
 }
 
 function trailOf(...ids: string[]): ComponentTrailEntry[] {
-  return ids.map((componentId) => ({ componentId, version: '1.0.0' }))
+  return ids.map((componentId) => ({ componentId, version: '1.0.0', instanceId: `${componentId}-inst` }))
 }
 
 function renderCanvas(props: Partial<Parameters<typeof Canvas>[0]>): ReturnType<typeof render> {
@@ -333,7 +333,8 @@ describe('Canvas component-view mode', () => {
     const onEnterComponent = vi.fn()
     const { unmount } = renderCanvas({ doc, onEnterComponent })
     fireEvent.doubleClick(await screen.findByTestId(`node-${compNodeId}`))
-    expect(onEnterComponent).toHaveBeenCalledWith({ componentId: CID, version: '1.0.0' })
+    // The entry carries the DOUBLE-CLICKED instance node's id — the value tap's `component_path` segment.
+    expect(onEnterComponent).toHaveBeenCalledWith({ componentId: CID, version: '1.0.0', instanceId: compNodeId })
     unmount()
 
     // Extraction mode: entering is disabled.
@@ -348,7 +349,7 @@ describe('Canvas component-view mode', () => {
     seedDefs(makeParentWithNestedRef())
     renderCanvas({ componentTrail: trailOf(CID), onEnterComponent })
     fireEvent.doubleClick(await screen.findByTestId('node-sub'))
-    expect(onEnterComponent).toHaveBeenCalledWith({ componentId: SUB_CID, version: '1.0.0' })
+    expect(onEnterComponent).toHaveBeenCalledWith({ componentId: SUB_CID, version: '1.0.0', instanceId: 'sub' })
   })
 
   // 9

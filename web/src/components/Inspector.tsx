@@ -34,6 +34,7 @@ import { labelOf, nodeTypeById, useCatalog } from '../catalog'
 import { portColor } from '../catalog/colors'
 import { useComponentDefs } from '../components-cache'
 import { findComponentRef } from '../document/flow'
+import type { ComponentTrailEntry } from '../document/flow'
 import { noEvaluationLine } from '../document/schedule'
 import type { NodeParams, StrategyDocumentActions } from '../document/store'
 import type { AtSessionState } from '../run/useDebugLoopState'
@@ -585,7 +586,7 @@ export interface InspectorProps {
   selectedNodeId: string | null
   actions: StrategyDocumentActions
   /** Navigate the main canvas into a component instance's read-only internals (App owns the trail, M13.8). */
-  onEnterComponent?: (target: { componentId: string; version: string }) => void
+  onEnterComponent?: (entry: ComponentTrailEntry) => void
   /** Live "At session" data (M13.7); undefined until a run + cursor exist — the slot stays inert then. */
   atSession?: AtSessionProps | undefined
   /**
@@ -644,7 +645,7 @@ export function Inspector({
         <button
           type="button"
           className="pform__btn inspector__inspect"
-          onClick={() => onEnterComponent({ componentId: ref.component_id, version: ref.version })}
+          onClick={() => onEnterComponent({ componentId: ref.component_id, version: ref.version, instanceId: node.id })}
         >
           Enter component
         </button>

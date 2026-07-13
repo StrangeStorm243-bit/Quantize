@@ -194,6 +194,9 @@ export function componentPorts(def: ComponentDefinition): {
 export interface ComponentTrailEntry {
   componentId: string
   version: string
+  /** the ComponentRef INSTANCE node id at this level — outermost-first, these are exactly the value
+   * tap's `component_path` segments (envelope convention). */
+  instanceId: string
 }
 
 /**
@@ -215,7 +218,7 @@ export function resolveTrailFromPath(
     if (node === undefined || !('ref' in node)) break
     const ref = findComponentRef(refs, node.ref)
     if (ref === undefined) break
-    trail.push({ componentId: ref.component_id, version: ref.version })
+    trail.push({ componentId: ref.component_id, version: ref.version, instanceId })
     // The ref proves this level; the walk can only descend into a cached, navigable-graph body. It
     // stops here (tip = this entry) on either a cache miss — body unknown until the view loads it —
     // or a non-`graph` implementation kind: a body exists but isn't a graph to walk (the component
