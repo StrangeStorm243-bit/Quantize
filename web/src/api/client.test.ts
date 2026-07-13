@@ -6,6 +6,7 @@ import type {
   BacktestRunRequest,
   MetaResponse,
   NodeCatalogResponse,
+  NodeValueResponse,
   RunRecordResponse,
   TraceResponse,
   TraceTreeResponse,
@@ -16,6 +17,7 @@ import {
   ApiClientError,
   getMeta,
   getNodeCatalog,
+  getNodeValue,
   getRun,
   getTrace,
   getTraceTree,
@@ -53,6 +55,20 @@ const DOC: StrategyDocument = {
   component_refs: [],
   nodes: [],
   edges: [],
+}
+
+// A minimal, fully-typed NodeValueResponse used as a served value-tap payload fixture.
+const NODE_VALUE: NodeValueResponse = {
+  node_id: 'n1',
+  output_port: 'out',
+  component_path: [],
+  session_date: '2026-05-15',
+  value_summary: { kind: 'scalar', dtype: 'Number', value: 1.5 },
+  provenance: {
+    captured: true,
+    dataset_fingerprint: '0'.repeat(64),
+    run_id: 'r1',
+  },
 }
 
 // Build a Response-like stub. `fetch` in the client only touches `ok`, `status`, `statusText`, and
@@ -179,6 +195,36 @@ describe('GET wrappers', () => {
     expect(lastCall()[0]).toBe('/v1/runs/run-1/trace-tree')
   })
 
+  it('getNodeValue builds the full address query with encoded run id', async () => {
+    mockFetch(stubResponse(NODE_VALUE))
+
+    const result = await getNodeValue('run 1', {
+      nodeId: 'n1',
+      sessionDate: '2026-05-15',
+      componentPath: ['a', 'b'],
+      outputPort: 'out',
+    })
+
+    expect(lastCall()[0]).toBe(
+      '/v1/runs/run%201/values?node_id=n1&session_date=2026-05-15&component_path=a%2Cb&output_port=out',
+    )
+    expect(result).toEqual(NODE_VALUE)
+  })
+
+  it('getNodeValue omits component_path and output_port for a top-level, single-port node', async () => {
+    mockFetch(stubResponse(NODE_VALUE))
+
+    await getNodeValue('r1', {
+      nodeId: 'n1',
+      sessionDate: '2026-05-15',
+      componentPath: [],
+    })
+
+    expect(lastCall()[0]).toBe(
+      '/v1/runs/r1/values?node_id=n1&session_date=2026-05-15',
+    )
+  })
+
   it('listRuns omits the query when no strategy id is given', async () => {
     mockFetch(stubResponse({ runs: [] }))
 
@@ -303,6 +349,24 @@ describe('error path', () => {
     // And it is the concrete class, so callers can `instanceof` it.
     const error = await getRun('missing').catch((e: unknown) => e)
     expect(error).toBeInstanceOf(ApiClientError)
+  })
+
+  it('getNodeValue throws ApiClientError carrying a served value-tap error', async () => {
+    mockFetch(
+      stubResponse(
+        { code: 'ambiguous_output_port', message: 'Node has multiple output ports.' },
+        { ok: false, status: 422, statusText: 'Unprocessable Entity' },
+      ),
+    )
+
+    await expect(
+      getNodeValue('r1', { nodeId: 'n1', sessionDate: '2026-05-15' }),
+    ).rejects.toMatchObject({
+      name: 'ApiClientError',
+      code: 'ambiguous_output_port',
+      message: 'Node has multiple output ports.',
+      status: 422,
+    })
   })
 
   it('falls back to status-derived defaults when the error body is not JSON', async () => {

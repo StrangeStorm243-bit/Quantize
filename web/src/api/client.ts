@@ -16,6 +16,7 @@ import type {
   ForwardRunRequest,
   MetaResponse,
   NodeCatalogResponse,
+  NodeValueResponse,
   RunCreated,
   RunList,
   RunRecordResponse,
@@ -211,5 +212,35 @@ export function getTraceTree(
       : `?session_date=${encodeURIComponent(sessionDate)}`
   return request<TraceTreeResponse>(
     `/v1/runs/${encodeURIComponent(runId)}/trace-tree${query}`,
+  )
+}
+
+// The Node Value Tap (M14.2): the value a node's output port produced at a session — served,
+// recompute-on-demand (`GET /v1/runs/{id}/values`). `componentPath` is the enclosing
+// ComponentRef INSTANCE ids, outermost first, comma-joined in the query (segments are
+// schema-constrained to ^[A-Za-z0-9_]+$, so the join is unambiguous); omitted for a top-level
+// node. `outputPort` may be omitted only when the node has one output port — the server 422s an
+// ambiguous omission, and the caller renders that served error rather than guessing.
+export function getNodeValue(
+  runId: string,
+  address: {
+    nodeId: string
+    sessionDate: string
+    componentPath?: readonly string[]
+    outputPort?: string
+  },
+): Promise<NodeValueResponse> {
+  const query = new URLSearchParams({
+    node_id: address.nodeId,
+    session_date: address.sessionDate,
+  })
+  if (address.componentPath !== undefined && address.componentPath.length > 0) {
+    query.set('component_path', address.componentPath.join(','))
+  }
+  if (address.outputPort !== undefined) {
+    query.set('output_port', address.outputPort)
+  }
+  return request<NodeValueResponse>(
+    `/v1/runs/${encodeURIComponent(runId)}/values?${query.toString()}`,
   )
 }
