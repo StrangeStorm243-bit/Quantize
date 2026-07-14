@@ -350,7 +350,8 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     // SPY (non-empty): a sparkline SVG renders, and its raw rows live inside a `<details>` whose summary
     // reads "SPY · 2 points", COLLAPSED by default (no `open` attribute). The served rows survive verbatim.
     const spy = within(shell).getByText('SPY · 2 points').closest('.inspector__value-series') as HTMLElement
-    expect(spy.querySelector('svg')).not.toBeNull()
+    // The sparkline announces THIS asset's series — not SvgLineChart's default portfolio-value label.
+    expect(spy.querySelector('svg')).toHaveAttribute('aria-label', 'SPY series')
     const spyDetails = spy.querySelector('details') as HTMLDetailsElement
     expect(spyDetails).not.toBeNull()
     expect(spyDetails.hasAttribute('open')).toBe(false)

@@ -45,9 +45,17 @@ export interface SvgLineChartProps {
   /** Optional interactivity (M13.7): hover crosshair + click-to-select. The chart maps a pixel x to a
    *  point INDEX and reports the SERVER date at that index — it derives no number (invariant 5). */
   onSelectPoint?: ((date: string) => void) | undefined
+  /** The svg's accessible label — it must describe what the CALLER plots. Defaults to the original
+   *  portfolio-value phrasing so the ResultsView consumer (and its tests) stay byte-identical; a
+   *  per-series consumer (the Inspector value-tap sparkline, M14.2) passes its own asset label. */
+  ariaLabel?: string
 }
 
-export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): ReactElement {
+export function SvgLineChart({
+  points,
+  onSelectPoint,
+  ariaLabel = 'portfolio value over time',
+}: SvgLineChartProps): ReactElement {
   // The hovered point INDEX (or null when not hovering / not interactive). It indexes the served
   // points array; it is never used to compute a value.
   const [hover, setHover] = useState<number | null>(null)
@@ -89,7 +97,7 @@ export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): Reac
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         preserveAspectRatio="none"
         role="img"
-        aria-label="portfolio value over time"
+        aria-label={ariaLabel}
         onMouseMove={interactive ? (e) => setHover(indexAt(e)) : undefined}
         onMouseLeave={interactive ? () => setHover(null) : undefined}
         // Click-to-select is a MOUSE affordance; the keyboard-accessible path to selecting a session is
