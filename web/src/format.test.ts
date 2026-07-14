@@ -25,6 +25,14 @@ describe('fmtValue', () => {
     expect(fmtValue(0.025)).toBe('0.025')
   })
 
+  it('normalizes a tiny negative that rounds to zero magnitude to plain 0 (no -0)', () => {
+    expect(fmtValue(-0.00001)).toBe('0')
+  })
+
+  it('passes an exponent-notation toFixed result through (documented, accepted)', () => {
+    expect(fmtValue(1e21)).toBe('1e+21')
+  })
+
   it('passes booleans through unchanged', () => {
     expect(fmtValue(true)).toBe('true')
     expect(fmtValue(false)).toBe('false')

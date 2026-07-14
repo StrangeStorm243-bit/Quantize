@@ -8,13 +8,17 @@
 // malformed value stays VISIBLE rather than crashing (the ResultsView guard). A finite number renders
 // at 4 dp, then trailing zeros (and any bare decimal point) are trimmed by STRING manipulation of the
 // toFixed result — never arithmetic on the value — so integer-valued served numbers (ranks, counts)
-// show bare (`126`, not `126.0000`) while `0.025` keeps its digits.
+// show bare (`126`, not `126.0000`) while `0.025` keeps its digits. Two edge cases are pinned in the
+// tests: a tiny negative that rounds to zero magnitude normalizes to plain `0` (not the confusing `-0`),
+// and a magnitude ≥ 1e21 where `toFixed` itself returns exponent notation (`1e+21`) passes through as-is.
 export function fmtValue(value: number | boolean): string {
   if (typeof value === 'boolean') return String(value)
   if (!Number.isFinite(value)) return String(value)
   const fixed = value.toFixed(4)
-  // toFixed(4) always has a '.', so trim the fractional tail: drop trailing zeros, then a dangling point.
-  return fixed.replace(/\.?0+$/, '')
+  // toFixed(4) normally has a '.', so trim the fractional tail: drop trailing zeros, then a dangling point.
+  const trimmed = fixed.replace(/\.?0+$/, '')
+  // A tiny negative rounds to '-0' after trimming; show it as plain '0' (a sign on a zero is noise, not info).
+  return trimmed === '-0' ? '0' : trimmed
 }
 
 // A long content-addressed id → head…tail for display, with the full id kept in a `title` at the call

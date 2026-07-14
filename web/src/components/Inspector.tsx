@@ -42,6 +42,7 @@ import type { AtSessionState } from '../run/useDebugLoopState'
 import { NoteLine } from './NoteLine'
 import type { ParameterSchema } from './ParamForm'
 import { ParamForm } from './ParamForm'
+import { SvgLineChart } from './SvgLineChart'
 import { TraceEventBody } from './TraceView'
 
 // W3: the node's meaning, role sentence first (D-13). `doc.latex` is RESERVED and never rendered.
@@ -237,15 +238,33 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
               {summary.window.first_date} → {summary.window.last_date}
             </div>
           ) : null}
+          {/* Per asset: a SPARKLINE of the served points (reusing SvgLineChart AS-IS — pure display
+              scaling of the verbatim points, invariant 5), with the raw date/value rows moved behind a
+              collapsed `<details>` disclosure so 64 rows/asset no longer bury the summary (PX-B). An asset
+              the server sent with no points is named with a "0 points" summary and gets neither a
+              sparkline (its own empty state's wording is wrong here) nor a disclosure. */}
           {(data.series_preview ?? []).map((series) => (
             <div key={series.asset} className="inspector__value-series">
-              <span className="inspector__value-label">{series.asset}</span>
-              {series.points.map(([date, val], i) => (
-                <div key={i} className="inspector__value-row">
-                  <span className="inspector__value-label">{date}</span>
-                  <span title={String(val)}>{fmtValue(val)}</span>
-                </div>
-              ))}
+              {series.points.length > 0 ? (
+                <>
+                  <div className="inspector__value-spark">
+                    <SvgLineChart points={series.points} />
+                  </div>
+                  <details className="inspector__value-points">
+                    <summary>
+                      {series.asset} · {series.points.length} points
+                    </summary>
+                    {series.points.map(([date, val], i) => (
+                      <div key={i} className="inspector__value-row">
+                        <span className="inspector__value-label">{date}</span>
+                        <span title={String(val)}>{fmtValue(val)}</span>
+                      </div>
+                    ))}
+                  </details>
+                </>
+              ) : (
+                <span className="inspector__value-label">{series.asset} · 0 points</span>
+              )}
             </div>
           ))}
         </>

@@ -320,7 +320,7 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     expect(within(shell).getByText('QQQ')).toBeInTheDocument()
   })
 
-  it('renders a time_series window and per-asset preview points, empty preview shows label only', async () => {
+  it('renders a time_series as a per-asset sparkline + a collapsed rows disclosure; empty asset gets no sparkline', async () => {
     asMock().mockResolvedValue(
       value({
         output_port: 'series',
@@ -343,13 +343,26 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
       />,
     )
     const shell = screen.getByRole('region', { name: 'at session' })
+    // The kind-level summary line and window row above the per-asset blocks are unchanged.
     expect(await within(shell).findByText('2 assets · 3 points')).toBeInTheDocument()
     expect(within(shell).getByText('2026-05-01 → 2026-05-15')).toBeInTheDocument()
-    // SPY's two served points render; QQQ's empty group shows its label with zero point rows.
-    const spy = within(shell).getByText('SPY').closest('.inspector__value-series') as HTMLElement
-    expect(within(spy).getByText('2026-05-01')).toBeInTheDocument()
-    expect(within(spy).getByText('2026-05-15')).toBeInTheDocument()
-    const qqq = within(shell).getByText('QQQ').closest('.inspector__value-series') as HTMLElement
+
+    // SPY (non-empty): a sparkline SVG renders, and its raw rows live inside a `<details>` whose summary
+    // reads "SPY · 2 points", COLLAPSED by default (no `open` attribute). The served rows survive verbatim.
+    const spy = within(shell).getByText('SPY · 2 points').closest('.inspector__value-series') as HTMLElement
+    expect(spy.querySelector('svg')).not.toBeNull()
+    const spyDetails = spy.querySelector('details') as HTMLDetailsElement
+    expect(spyDetails).not.toBeNull()
+    expect(spyDetails.hasAttribute('open')).toBe(false)
+    // The two served points render, in served order, inside the disclosure (jsdom keeps details content
+    // in the DOM regardless of open state — asserting the rows exist is enough).
+    const dates = within(spyDetails).getAllByText(/2026-05-/).map((el) => el.textContent)
+    expect(dates).toEqual(['2026-05-01', '2026-05-15'])
+
+    // QQQ (empty): named with a "0 points" summary, but NO sparkline and NO row disclosure.
+    const qqq = within(shell).getByText('QQQ · 0 points').closest('.inspector__value-series') as HTMLElement
+    expect(qqq.querySelector('svg')).toBeNull()
+    expect(qqq.querySelector('details')).toBeNull()
     expect(qqq.querySelectorAll('.inspector__value-row').length).toBe(0)
   })
 

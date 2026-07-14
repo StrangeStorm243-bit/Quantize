@@ -989,9 +989,32 @@ button.crumbs__item:hover {
   color: var(--text);
 }
 
-/* One asset's time-series preview group: its label then its served point rows. */
+/* One asset's time-series preview group: a compact sparkline then a collapsed rows disclosure. */
 .inspector__value-series {
-  margin-top: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+/* A compact per-asset sparkline (PX-B): SvgLineChart reused AS-IS, sized DOWN via CSS. Its 320×120
+   viewBox scales (preserveAspectRatio="none"), so overriding the plot height (and the absolutely
+   positioned y-axis, which hard-codes the plot height to sit its min label at the baseline) reshapes
+   it into a sidebar sparkline without touching the component. */
+.inspector__value-spark .chart {
+  margin: 0;
+}
+
+.inspector__value-spark .chart__svg,
+.inspector__value-spark .chart__axis--y {
+  height: 44px;
+}
+
+/* The raw date/value rows, now behind a per-asset disclosure — collapsed by default so the sparkline and
+   summary carry the panel; the exact served points stay one click away, never removed from the DOM. */
+.inspector__value-points > summary {
+  cursor: pointer;
+  padding: var(--space-1) 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
 }
 
 /* The recompute-provenance footer (or "Captured at run"). */
