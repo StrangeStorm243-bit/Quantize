@@ -14,6 +14,10 @@ const catalog = catalogJson as unknown as NodeCatalogResponse
 // The memoized allow-set the component threads into `decideConnection`; here we build it once.
 const compatSet = buildCompatibilitySet(catalog)
 
+// waitFor options for the catalog-resolve → first-RF-paint gate: under full-suite parallel load it can
+// exceed findBy's 1s default (observed ~1.1s in gate runs — an intermittent whole-gate failure).
+const FIRST_PAINT = { timeout: 5000 }
+
 // No network in tests: the CatalogProvider's fetch resolves to the committed golden, and the
 // component-definition cache resolves to a fixed definition (the ComponentsProvider fetches every
 // pinned ref on mount). `errorMessage` is used by the cache's failure path.
@@ -290,8 +294,10 @@ describe('Canvas render', () => {
         </ComponentsProvider>
       </CatalogProvider>,
     )
-    // Once the catalog resolves, the custom node shows the type's display name.
-    expect(await screen.findByText('Trailing Return')).toBeInTheDocument()
+    // Once the catalog resolves, the custom node shows the type's display name. The catalog-resolve →
+    // first-RF-paint gate can exceed findBy's 1s default under full-suite parallel load (observed at
+    // ~1.1s in gate runs) — an extended timeout everywhere this file awaits that first paint.
+    expect(await screen.findByText('Trailing Return', undefined, FIRST_PAINT)).toBeInTheDocument()
     expect(screen.getByText('Rank')).toBeInTheDocument()
   })
 
@@ -304,7 +310,7 @@ describe('Canvas render', () => {
         </ComponentsProvider>
       </CatalogProvider>,
     )
-    await screen.findByText('Trailing Return')
+    await screen.findByText('Trailing Return', undefined, FIRST_PAINT)
     // A node type the first render never saw ("Fixed Universe" is absent from buildDoc). Since
     // RF-local state must reconcile FROM the doc, the added node's display name must appear after
     // rerender — a refactor that let RF-local state win instead would fail this.
@@ -351,7 +357,7 @@ describe('Canvas M13.4 legibility', () => {
     const { container } = renderCanvas(
       <Canvas doc={doc} actions={stubActions()} nodeValidity={new Map([[nodeId, 'error']])} />,
     )
-    await screen.findByText('Trailing Return')
+    await screen.findByText('Trailing Return', undefined, FIRST_PAINT)
     // Category color/icon: the card carries the served category class and an inline svg glyph.
     const card = container.querySelector('.snode--cat-transform')
     expect(card).not.toBeNull()
@@ -365,7 +371,7 @@ describe('Canvas M13.4 legibility', () => {
   it('gives the card a description tooltip and each port row a served type title (PX-3)', async () => {
     const { doc } = cardDoc()
     const { container } = renderCanvas(<Canvas doc={doc} actions={stubActions()} />)
-    await screen.findByText('Trailing Return')
+    await screen.findByText('Trailing Return', undefined, FIRST_PAINT)
     // The card's hover tooltip is the catalog description verbatim.
     const retType = catalog.node_types.find((n) => n.type_id === 'transform.trailing_return')
     const card = container.querySelector('.snode--cat-transform')
