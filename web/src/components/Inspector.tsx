@@ -293,11 +293,17 @@ function ValueBlock({
         ))}
       </select>
     ) : null
+  // Port context for the pre-data states (review P3): a SOLE listed port renders as a static label so a
+  // pending or refused request still names the port it addressed — load-bearing for nested ComponentRefs,
+  // which have no Ports section. Multi-port keeps the selector; zero listed ports have nothing honest to
+  // claim (the request omitted the port), so only the response's own `output_port` may label the value.
+  const portContext =
+    selector ?? (ports.length === 1 ? <div className="inspector__value-port">out {ports[0]}</div> : null)
 
   if (loading) {
     return (
       <>
-        {selector}
+        {portContext}
         <p className="inspector__empty-note">Loading value…</p>
       </>
     )
@@ -305,7 +311,7 @@ function ValueBlock({
   if (error !== undefined) {
     return (
       <>
-        {selector}
+        {portContext}
         {/* The served message verbatim (engine_drift, dataset_mismatch, ambiguous_output_port, …) — the
             honest-refusal pattern: render what the server said rather than guessing a value. */}
         <p className="inspector__at-error" role="alert">
@@ -314,7 +320,7 @@ function ValueBlock({
       </>
     )
   }
-  if (data === undefined) return <>{selector}</>
+  if (data === undefined) return <>{portContext}</>
 
   return (
     <>

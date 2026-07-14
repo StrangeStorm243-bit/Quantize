@@ -339,6 +339,37 @@ describe('Inspector — component-internal "At session" values (M14.2b)', () => 
     })
   })
 
+  it('keeps the sole exposed port visible as static context while the value is still loading', () => {
+    state.catalog = catalogJson
+    state.def = {
+      schema_version: '0.1.0', component_id: 'cid-sub', version: '1.0.0', name: 'Sub Component',
+      description: null, component_refs: [],
+      implementation: { kind: 'graph', graph: { nodes: [], edges: [] } },
+      exposed_inputs: [],
+      exposed_outputs: [{ name: 'picks', maps_to: ['sel', 'assets'], type: { kind: 'AssetSet' } }],
+      exposed_params: [],
+      provenance: {
+        owner: '22222222-2222-2222-2222-222222222222', creator: '22222222-2222-2222-2222-222222222222',
+        contributors: [], visibility: 'private', duplicable: false,
+        created_at: '2026-07-06T00:00:00Z', forked_from: null,
+      },
+    }
+    // A pending request (never resolves): the nested ref has NO Ports section, so the sole exposed
+    // port must label the pending value itself (review P3 — port context during loading/error).
+    asMock().mockReturnValue(new Promise(() => undefined))
+    renderInspector(
+      {
+        node: { id: 'sub', type_id: 'component', ref: 'subref', params: {} } as never,
+        componentRefs: [{ id: 'subref', component_id: 'cid-sub', version: '1.0.0' }],
+        componentPath: ['mom'],
+      },
+      atSession(),
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(within(shell).getByText(/Loading value/)).toBeInTheDocument()
+    expect(within(shell).getByText('out picks')).toBeInTheDocument()
+  })
+
   it('shows the honest no-eval line and fires no value fetch on a non-evaluated session', () => {
     state.catalog = catalogJson
     renderInspector(
