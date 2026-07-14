@@ -29,6 +29,7 @@ import type {
 } from '@quantize/quantize-api'
 import type { ComponentDefinition, JsonValue, StrategyDocument } from '@quantize/quantize-ir'
 import { getNodeValue } from '../api/client'
+import { abbrev, fmtValue } from '../format'
 import { useFetch } from '../useFetch'
 import { labelOf, nodeTypeById, useCatalog } from '../catalog'
 import { portColor } from '../catalog/colors'
@@ -141,9 +142,11 @@ function EventRow({ event }: { event: TraceTreeNodeDto['events'][number] }): Rea
 
 // --- Node Value Tap: the served value at the session cursor (M14.2a) ------------------------------
 // The value a node's output port PRODUCED at the session, from GET /v1/runs/{id}/values (recompute on
-// demand). EVERY field is rendered verbatim in served order via String(...) — nothing is summed,
-// ranked, sorted, rounded, or highlighted here (invariant 5). One request per (address, selected port);
-// changing the selector fires a new request for that port only — no prefetch, no cache.
+// demand). EVERY field is rendered in served order — nothing is summed, ranked, sorted, or highlighted
+// here (invariant 5). Served numbers pass through `fmtValue` (PX-C): per-number DISPLAY formatting of
+// one already-served value, with the verbatim value preserved in a `title` — presentation, never a
+// computed aggregate. One request per (address, selected port); changing the selector fires a new
+// request for that port only — no prefetch, no cache.
 
 // The shared asset→value table (cross_section / portfolio_targets), served order, verbatim. Rendered
 // only when the response carries a non-empty `asset_values`; the caller passes it straight through.
@@ -155,7 +158,8 @@ function AssetValuesTable({ rows }: { rows: readonly AssetValueDto[] }): ReactEl
         {rows.map((row, i) => (
           <tr key={`${row.asset}:${i}`}>
             <td>{row.asset}</td>
-            <td>{String(row.value)}</td>
+            {/* Display-formatted served cell; the verbatim value stays reachable in `title` (PX-C). */}
+            <td title={String(row.value)}>{fmtValue(row.value)}</td>
           </tr>
         ))}
       </tbody>
@@ -170,7 +174,12 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
   const assetRows = data.asset_values ?? []
   switch (summary.kind) {
     case 'scalar':
-      return <div className="inspector__value-row">{`${summary.dtype}: ${String(summary.value)}`}</div>
+      // Display-formatted value; the row's `title` keeps the verbatim served number reachable (PX-C).
+      return (
+        <div className="inspector__value-row" title={String(summary.value)}>
+          {`${summary.dtype}: ${fmtValue(summary.value)}`}
+        </div>
+      )
     case 'asset_set':
       return (
         <>
@@ -191,10 +200,14 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
           {summary.dtype === 'Number' ? (
             <>
               {summary.min != null ? (
-                <div className="inspector__value-row">Min: {String(summary.min)}</div>
+                <div className="inspector__value-row" title={String(summary.min)}>
+                  Min: {fmtValue(summary.min)}
+                </div>
               ) : null}
               {summary.max != null ? (
-                <div className="inspector__value-row">Max: {String(summary.max)}</div>
+                <div className="inspector__value-row" title={String(summary.max)}>
+                  Max: {fmtValue(summary.max)}
+                </div>
               ) : null}
             </>
           ) : (
@@ -230,7 +243,7 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
               {series.points.map(([date, val], i) => (
                 <div key={i} className="inspector__value-row">
                   <span className="inspector__value-label">{date}</span>
-                  <span>{String(val)}</span>
+                  <span title={String(val)}>{fmtValue(val)}</span>
                 </div>
               ))}
             </div>
@@ -241,8 +254,14 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
       return (
         <>
           <AssetValuesTable rows={assetRows} />
-          <div className="inspector__value-row">Weight sum: {String(summary.weight_sum)}</div>
-          <div className="inspector__value-row">Cash: {String(summary.cash)}</div>
+          {/* Served aggregates, DISPLAY-formatted — the client renders the numbers the server sent (each
+              verbatim in `title`); it never re-sums the weights above (invariant 5 / PX-C). */}
+          <div className="inspector__value-row" title={String(summary.weight_sum)}>
+            Weight sum: {fmtValue(summary.weight_sum)}
+          </div>
+          <div className="inspector__value-row" title={String(summary.cash)}>
+            Cash: {fmtValue(summary.cash)}
+          </div>
         </>
       )
   }
@@ -334,7 +353,10 @@ function ValueBlock({
         ) : (
           <>
             Recomputed on demand from the run's pinned inputs{' '}
-            <code>{data.provenance.dataset_fingerprint}</code>
+            {/* Abbreviated for the narrow panel (PX-E); the full 64-char hash stays reachable in `title`. */}
+            <code title={data.provenance.dataset_fingerprint}>
+              {abbrev(data.provenance.dataset_fingerprint)}
+            </code>
           </>
         )}
       </p>

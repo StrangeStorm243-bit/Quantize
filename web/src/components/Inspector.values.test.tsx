@@ -192,14 +192,16 @@ afterEach(() => {
 describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
   it('renders SERVED portfolio_targets weight_sum/cash verbatim — no client arithmetic', async () => {
     // Weights sum to 1.0, but the server says weight_sum=0.75, cash=0.25. The client must NOT recompute:
-    // the rendered totals are the served ones (0.75 / 0.25), proving no summation happened here.
+    // the rendered totals are the served ones (0.75 / 0.25), proving no summation happened here. The
+    // weights are DISPLAY-formatted (PX-C): the long served weight shows trimmed, with the verbatim
+    // value in `title`.
     asMock().mockResolvedValue(
       value({
         output_port: 'targets',
         value_summary: { kind: 'portfolio_targets', count: 2, weight_sum: 0.75, cash: 0.25 },
         asset_values: [
-          { asset: 'SPY', value: 0.5 },
-          { asset: 'QQQ', value: 0.5 },
+          { asset: 'SPY', value: 0.3333333333333333 },
+          { asset: 'QQQ', value: 0.6666666666666667 },
         ],
       }),
     )
@@ -216,6 +218,9 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     expect(within(shell).getByText('Cash: 0.25')).toBeInTheDocument()
     // The un-summed weights render, but their arithmetic sum (1) is never shown as the total.
     expect(within(shell).queryByText('Weight sum: 1')).not.toBeInTheDocument()
+    // The served weight is display-formatted to 4 dp, but the verbatim value survives in `title` (PX-C).
+    const spyWeight = within(shell).getByText('0.3333')
+    expect(spyWeight).toHaveAttribute('title', '0.3333333333333333')
     // A zero-output node sends NO output_port — the response's own output_port labels the value.
     expect(asMock().mock.calls[0][1]).toEqual({ nodeId: 'x', sessionDate: '2026-05-15', componentPath: [] })
     expect(within(shell).getByText('out targets')).toBeInTheDocument()
@@ -495,8 +500,11 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     expect(within(shell).getByText(/loading value/i)).toBeInTheDocument()
   })
 
-  it('shows the recompute-provenance footer with the served dataset fingerprint', async () => {
-    asMock().mockResolvedValue(value({ provenance: prov({ captured: false, dataset_fingerprint: 'fp-777' }) }))
+  it('shows the recompute-provenance footer with the ABBREVIATED dataset fingerprint (full hash in title)', async () => {
+    // A full 64-char content-addressed hash would overflow the narrow panel — the footer abbreviates it
+    // to head…tail (PX-E) and keeps the verbatim hash reachable in `title`.
+    const fp = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+    asMock().mockResolvedValue(value({ provenance: prov({ captured: false, dataset_fingerprint: fp }) }))
     render(
       <Inspector
         doc={docWith('x', 'transform.trailing_return')}
@@ -507,6 +515,9 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     )
     const shell = screen.getByRole('region', { name: 'at session' })
     expect(await within(shell).findByText(/Recomputed on demand/i)).toBeInTheDocument()
-    expect(within(shell).getByText('fp-777')).toBeInTheDocument()
+    const code = within(shell).getByText('0123456789…abcdef')
+    expect(code).toHaveAttribute('title', fp)
+    // The full untruncated hash is NOT rendered inline (it lives in the title only).
+    expect(within(shell).queryByText(fp)).not.toBeInTheDocument()
   })
 })
