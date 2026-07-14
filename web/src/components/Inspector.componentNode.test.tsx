@@ -278,6 +278,67 @@ describe('Inspector — component-internal "At session" values (M14.2b)', () => 
     })
   })
 
+  it('re-defaults the output port when a late-loading definition first lists the ports', async () => {
+    state.catalog = catalogJson
+    asMock().mockResolvedValue(
+      value({
+        node_id: 'sub',
+        component_path: ['mom'],
+        output_port: 'picks',
+        value_summary: { kind: 'asset_set', count: 1, members: ['SPY'] },
+      }),
+    )
+    // The definition is NOT cached yet (state.def undefined): the nested ref renders with zero listed
+    // ports, so the first request omits output_port (the server answers or 422s — served either way).
+    const inspectorFor = (): Parameters<typeof render>[0] => (
+      <Inspector
+        doc={emptyDoc()}
+        selectedNodeId={null}
+        actions={stubActions()}
+        componentNode={{
+          node: { id: 'sub', type_id: 'component', ref: 'subref', params: {} } as never,
+          componentRefs: [{ id: 'subref', component_id: 'cid-sub', version: '1.0.0' }],
+          componentPath: ['mom'],
+        }}
+        atSession={atSession()}
+      />
+    )
+    const view = render(inspectorFor())
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(await within(shell).findByText('1 members')).toBeInTheDocument()
+    expect(asMock()).toHaveBeenCalledTimes(1)
+    expect(asMock().mock.calls[0][1]).toEqual({
+      nodeId: 'sub', sessionDate: '2026-05-15', componentPath: ['mom'],
+    })
+
+    // The definition arrives (cache fill) exposing TWO outputs. The value block must re-default to the
+    // FIRST listed port — not sit on the stale portless state — and offer the selector.
+    state.def = {
+      schema_version: '0.1.0', component_id: 'cid-sub', version: '1.0.0', name: 'Sub Component',
+      description: null, component_refs: [],
+      implementation: { kind: 'graph', graph: { nodes: [], edges: [] } },
+      exposed_inputs: [],
+      exposed_outputs: [
+        { name: 'picks', maps_to: ['sel', 'assets'], type: { kind: 'AssetSet' } },
+        { name: 'scores', maps_to: ['rk', 'values'], type: { kind: 'CrossSection', dtype: 'Number' } },
+      ],
+      exposed_params: [],
+      provenance: {
+        owner: '22222222-2222-2222-2222-222222222222', creator: '22222222-2222-2222-2222-222222222222',
+        contributors: [], visibility: 'private', duplicable: false,
+        created_at: '2026-07-06T00:00:00Z', forked_from: null,
+      },
+    }
+    view.rerender(inspectorFor())
+    const selector = await within(screen.getByRole('region', { name: 'at session' }))
+      .findByRole('combobox', { name: 'output port' })
+    expect((selector as HTMLSelectElement).value).toBe('picks')
+    expect(asMock()).toHaveBeenCalledTimes(2)
+    expect(asMock().mock.calls[1][1]).toEqual({
+      nodeId: 'sub', sessionDate: '2026-05-15', componentPath: ['mom'], outputPort: 'picks',
+    })
+  })
+
   it('shows the honest no-eval line and fires no value fetch on a non-evaluated session', () => {
     state.catalog = catalogJson
     renderInspector(

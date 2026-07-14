@@ -443,11 +443,14 @@ function AtSessionSection({
 
     // The Node Value Tap (M14.2a): the served value, ABOVE the trace facts, EVALUATED sessions only —
     // on a non-evaluated session the server could only 404 (no_evaluation_at_session) and the honest
-    // no-eval line already renders, so we do not fetch. Keyed by address so `port` resets per node.
+    // no-eval line already renders, so we do not fetch. Keyed by address AND the listed-port identity:
+    // `port` initializes once, so a definition that loads AFTER mount (nested-ref cache miss, valuePorts
+    // [] → [names]) must remount the block to re-default to the first listed port. Every segment matches
+    // ^[A-Za-z0-9_]+$, so the '/'-joined composite key is unambiguous.
     const valueBlock = atSession.evaluated ? (
       <div className="inspector__at-values">
         <ValueBlock
-          key={`${componentPath.join(',')}/${nodeId}`}
+          key={`${componentPath.join(',')}/${nodeId}/${valuePorts.join(',')}`}
           runId={atSession.runId}
           sessionDate={atSession.cursor}
           nodeId={nodeId}
