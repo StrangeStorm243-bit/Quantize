@@ -35,8 +35,8 @@ from quantize.nodes import build_core_catalog
 from quantize.persistence.closure import load_component_catalog
 from quantize.persistence.database import Database
 from quantize.persistence.datasets import DatasetRepository
-from quantize.persistence.errors import PersistenceError
 from quantize.persistence.documents import StrategyRepository
+from quantize.persistence.errors import PersistenceError
 from quantize.persistence.provenance import (
     CALENDAR_MISMATCH,
     DATASET_MISMATCH,

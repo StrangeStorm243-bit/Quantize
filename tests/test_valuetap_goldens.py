@@ -77,9 +77,7 @@ def strategy_b(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]
 def _save_run(
     db: Database, document: StrategyDocument, result: BacktestResult, market: MarketDataSet
 ) -> None:
-    RunRepository(db).save_run(
-        document, result, input_provenance=recorded_input_provenance(market)
-    )
+    RunRepository(db).save_run(document, result, input_provenance=recorded_input_provenance(market))
 
 
 def _golden_targets(name: str, session: date) -> dict[str, float]:

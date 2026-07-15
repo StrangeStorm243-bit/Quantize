@@ -519,9 +519,9 @@ def test_depth_two_inner_core_node_is_tappable_by_two_segment_path(
     market: MarketDataSet,
 ) -> None:
     """A CORE node two component-instance levels deep resolves by its two-segment
-    ``component_path`` ``("mom", "inner")``. The outer component's graph is a single ``ComponentRef``
-    to the Momentum Selector, so ``ret`` lives at depth 2 — and, because the recompute pins
-    ``build_core_catalog()``, the whole shape is built from core node types (no ``test.*``).
+    ``component_path`` ``("mom", "inner")``. The outer component's graph is a single
+    ``ComponentRef`` to the Momentum Selector, so ``ret`` lives at depth 2 — and, because the
+    recompute pins ``build_core_catalog()``, the whole shape is built from core node types.
 
     Oracles are non-tautological: the recomputed present set equals the run's OWN persisted
     ``transform.computed`` set at that two-level path, and ``ret.values['QQQ']`` equals the exact
