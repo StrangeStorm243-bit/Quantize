@@ -11,6 +11,7 @@ early and present late). All fixture data; no network.
 from __future__ import annotations
 
 import dataclasses
+import logging
 from collections.abc import Mapping
 from datetime import date, datetime
 
@@ -517,6 +518,56 @@ def _persist_dual(
 ) -> PersistedRunRecord:
     ComponentRepository(db).save(dual_component())
     return _persist(db, document, result, market)
+
+
+# --- 12. latency-log observability: one elapsed_ms line per resolution attempt (M14.9, D-28) -----
+
+
+def test_successful_tap_logs_one_elapsed_ms_line(
+    db: Database, strategy_a_run: PersistedRunRecord, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A resolved tap emits exactly one ``value tap … elapsed_ms=`` INFO record on
+    ``quantize.valuetap`` — the flip-trigger-3 latency instrument."""
+    when = strategy_a_run.evaluations[-1].session_date
+    with caplog.at_level(logging.INFO, logger="quantize.valuetap"):
+        resolve_node_value(db, run_id=RUN_ID, node_id="ret", session_date=when)
+    records = [r for r in caplog.records if r.name == "quantize.valuetap"]
+    assert len(records) == 1
+    assert "elapsed_ms=" in records[0].getMessage()
+
+
+def test_refused_tap_logs_one_line_carrying_its_code(
+    db: Database, strategy_a_run: PersistedRunRecord, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A refused resolution (unknown node -> ValueTapError) still emits exactly one latency
+    record, and it carries the refusal's outcome ``code`` so the log distinguishes it from a serve.
+    """
+    when = strategy_a_run.evaluations[-1].session_date
+    with caplog.at_level(logging.INFO, logger="quantize.valuetap"):
+        with pytest.raises(ValueTapError):
+            resolve_node_value(db, run_id=RUN_ID, node_id="nope", session_date=when)
+    records = [r for r in caplog.records if r.name == "quantize.valuetap"]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert "elapsed_ms=" in message
+    assert VALUE_ADDRESS_NOT_FOUND in message
+
+
+def test_unknown_run_tap_logs_one_line_before_persistence_error_escapes(
+    db: Database, strategy_a_run: PersistedRunRecord, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The unknown-run lookup raises ``PersistenceError`` before any ValueTapError path — it must
+    NOT escape the latency instrument: exactly one record, carrying the persistence code."""
+    with caplog.at_level(logging.INFO, logger="quantize.valuetap"):
+        with pytest.raises(PersistenceError):
+            resolve_node_value(
+                db, run_id=UNKNOWN_RUN_ID, node_id="cap", session_date=date(2025, 1, 3)
+            )
+    records = [r for r in caplog.records if r.name == "quantize.valuetap"]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert "elapsed_ms=" in message
+    assert ARTIFACT_NOT_FOUND in message
 
 
 def _insert_dataset_row(
