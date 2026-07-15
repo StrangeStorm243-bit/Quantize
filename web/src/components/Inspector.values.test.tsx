@@ -329,7 +329,8 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
           window: { first_date: '2026-05-01', last_date: '2026-05-15' },
         },
         series_preview: [
-          { asset: 'SPY', points: [['2026-05-01', 1], ['2026-05-15', 1.1]] },
+          // Many-digit served closes so String() (raw dump) and fmtValue (4 dp) differ observably.
+          { asset: 'SPY', points: [['2026-05-01', 103.29239033354406], ['2026-05-15', 105.9278994766752]] },
           { asset: 'QQQ', points: [] },
         ],
       }),
@@ -359,6 +360,13 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     // in the DOM regardless of open state — asserting the rows exist is enough).
     const dates = within(spyDetails).getAllByText(/2026-05-/).map((el) => el.textContent)
     expect(dates).toEqual(['2026-05-01', '2026-05-15'])
+    // The sparkline's own min/max axis labels are DISPLAY-formatted via fmtValue (PX-1), not a raw
+    // String() 17-digit dump — the chart takes the caller's formatter.
+    const spyAxis = spy.querySelector('.chart__axis--y') as HTMLElement
+    expect(spyAxis).not.toBeNull()
+    expect(spyAxis.textContent).toContain('105.9279')
+    expect(spyAxis.textContent).toContain('103.2924')
+    expect(spyAxis.textContent).not.toContain('105.9278994766752')
 
     // QQQ (empty): named with a "0 points" summary, but NO sparkline and NO row disclosure.
     const qqq = within(shell).getByText('QQQ · 0 points').closest('.inspector__value-series') as HTMLElement

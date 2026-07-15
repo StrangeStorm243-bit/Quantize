@@ -250,7 +250,11 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
               {series.points.length > 0 ? (
                 <>
                   <div className="inspector__value-spark">
-                    <SvgLineChart points={series.points} ariaLabel={`${series.asset} series`} />
+                    <SvgLineChart
+                      points={series.points}
+                      ariaLabel={`${series.asset} series`}
+                      formatValue={fmtValue}
+                    />
                   </div>
                   <details className="inspector__value-points">
                     <summary>
