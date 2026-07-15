@@ -245,8 +245,10 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
               collapsed `<details>` disclosure so 64 rows/asset no longer bury the summary (PX-B). An asset
               the server sent with no points is named with a "0 points" summary and gets neither a
               sparkline (its own empty state's wording is wrong here) nor a disclosure. */}
-          {(data.series_preview ?? []).map((series) => (
-            <div key={series.asset} className="inspector__value-series">
+          {(data.series_preview ?? []).map((series, i) => (
+            // `:${i}` fold matches the sibling maps' defensive keys: asset uniqueness is a server
+            // invariant (the value constructor rejects duplicates), but the client must not rely on it.
+            <div key={`${series.asset}:${i}`} className="inspector__value-series">
               {series.points.length > 0 ? (
                 <>
                   <div className="inspector__value-spark">

@@ -10,13 +10,17 @@
 // toFixed result — never arithmetic on the value — so integer-valued served numbers (ranks, counts)
 // show bare (`126`, not `126.0000`) while `0.025` keeps its digits. Two edge cases are pinned in the
 // tests: a tiny negative that rounds to zero magnitude normalizes to plain `0` (not the confusing `-0`),
-// and a magnitude ≥ 1e21 where `toFixed` itself returns exponent notation (`1e+21`) passes through as-is.
+// and a magnitude ≥ 1e21 where `toFixed` itself returns exponent notation (`1e+30`, `1.5e+50`) passes
+// through WHOLE — the trim is gated on the absence of an 'e', because in exponent notation trailing
+// digits are magnitude, not padding (an unconditional trim turns `1e+30` into `1e+3`; a '.'-presence
+// gate is not enough — `1.5e+50` has a mantissa dot and would still lose its exponent's zero).
 export function fmtValue(value: number | boolean): string {
   if (typeof value === 'boolean') return String(value)
   if (!Number.isFinite(value)) return String(value)
   const fixed = value.toFixed(4)
-  // toFixed(4) normally has a '.', so trim the fractional tail: drop trailing zeros, then a dangling point.
-  const trimmed = fixed.replace(/\.?0+$/, '')
+  // Trim the fractional tail (trailing zeros, then a dangling point) only in plain notation; a
+  // non-exponent toFixed(4) always carries a '.', so the trim can never eat integer digits.
+  const trimmed = fixed.includes('e') ? fixed : fixed.replace(/\.?0+$/, '')
   // A tiny negative rounds to '-0' after trimming; show it as plain '0' (a sign on a zero is noise, not info).
   return trimmed === '-0' ? '0' : trimmed
 }

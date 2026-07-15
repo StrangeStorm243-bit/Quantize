@@ -33,6 +33,14 @@ describe('fmtValue', () => {
     expect(fmtValue(1e21)).toBe('1e+21')
   })
 
+  it('never trims exponent digits: exponents ending in 0 pass through whole', () => {
+    // (1e30).toFixed(4) === '1e+30' — an unconditional trailing-zero trim would strip the exponent's
+    // final digit ('1e+3', wrong by 27 orders of magnitude). The trim must apply only to a fractional tail.
+    expect(fmtValue(1e30)).toBe('1e+30')
+    expect(fmtValue(1.5e50)).toBe('1.5e+50')
+    expect(fmtValue(5e29)).toBe('5e+29')
+  })
+
   it('passes booleans through unchanged', () => {
     expect(fmtValue(true)).toBe('true')
     expect(fmtValue(false)).toBe('false')
