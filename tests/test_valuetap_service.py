@@ -57,7 +57,13 @@ from quantize.valuetap import (
 from quantize.valuetap.service import _select_output_port
 from tests.helpers import load_fixture
 from tests.market_fixture import fixture_close
-from tests.valuetap_helpers import dual_component, dual_strategy
+from tests.valuetap_helpers import (
+    dual_component,
+    dual_strategy,
+    momentum_component,
+    outer_momentum_component,
+    outer_momentum_strategy,
+)
 
 RUN_ID = "99999999-9999-9999-9999-999999999999"
 UNKNOWN_RUN_ID = "88888888-8888-8888-8888-888888888888"
@@ -497,6 +503,48 @@ def test_nested_inner_node_and_exposed_output(
     assert isinstance(exposed.value, AssetSetValue)
     # The component's selected assets are exactly the assets carried into the target weights.
     assert set(exposed.value.assets) == set(dict(record.evaluations[-1].target_weights))
+
+
+@pytest.fixture(scope="module")
+def outer_momentum_result(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]:
+    """The pure backtest for the depth-2 outer-momentum pair — computed ONCE per module."""
+    document = outer_momentum_strategy()
+    components = ComponentCatalog([outer_momentum_component(), momentum_component()])
+    return document, _run(document, market, components=components)
+
+
+def test_depth_two_inner_core_node_is_tappable_by_two_segment_path(
+    db: Database,
+    outer_momentum_result: tuple[StrategyDocument, BacktestResult],
+    market: MarketDataSet,
+) -> None:
+    """A CORE node two component-instance levels deep resolves by its two-segment
+    ``component_path`` ``("mom", "inner")``. The outer component's graph is a single ``ComponentRef``
+    to the Momentum Selector, so ``ret`` lives at depth 2 — and, because the recompute pins
+    ``build_core_catalog()``, the whole shape is built from core node types (no ``test.*``).
+
+    Oracles are non-tautological: the recomputed present set equals the run's OWN persisted
+    ``transform.computed`` set at that two-level path, and ``ret.values['QQQ']`` equals the exact
+    hand-computed fixture trailing return — never a second recompute."""
+    document, result = outer_momentum_result
+    ComponentRepository(db).save(outer_momentum_component())
+    ComponentRepository(db).save(momentum_component())
+    record = _persist(db, document, result, market)
+    when = record.evaluations[-1].session_date
+
+    resolved = resolve_node_value(
+        db, run_id=RUN_ID, node_id="ret", session_date=when, component_path=("mom", "inner")
+    )
+    assert isinstance(resolved.value, CrossSectionValue)
+    assert resolved.component_path == ("mom", "inner")
+    # The recomputed present set equals the run's own recorded computed set at depth 2.
+    assert set(resolved.value.present_assets) == _computed_assets(db, "ret", when, ("mom", "inner"))
+
+    # Independent hand-computed anchor: QQQ's 126-session trailing return at the tapped session.
+    session_dates = list(market.calendar.session_dates)
+    index = session_dates.index(when)
+    expected = fixture_close("QQQ", index) / fixture_close("QQQ", index - LOOKBACK) - 1.0
+    assert resolved.value.as_dict()["QQQ"] == pytest.approx(expected)
 
 
 # --- 11. determinism ------------------------------------------------------------------------------
