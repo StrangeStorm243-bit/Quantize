@@ -70,9 +70,9 @@ vi.mock('./components/Canvas', () => ({
     actions: { replace: (doc: StrategyDocument) => void }
     selectedNodeId: string | null
     focusRequest: { nodeId: string; nonce: number } | null
-    componentTrail?: { componentId: string; version: string }[]
+    componentTrail?: { componentId: string; version: string; instanceId: string }[]
     componentSelectedNodeId?: string | null
-    onEnterComponent?: (entry: { componentId: string; version: string }) => void
+    onEnterComponent?: (entry: { componentId: string; version: string; instanceId: string }) => void
     onNavigateToDepth?: (depth: number) => void
   }) => (
     <div>
@@ -86,7 +86,7 @@ vi.mock('./components/Canvas', () => ({
       </button>
       <button
         type="button"
-        onClick={() => props.onEnterComponent?.({ componentId: 'cid-nested', version: '1.0.0' })}
+        onClick={() => props.onEnterComponent?.({ componentId: 'cid-nested', version: '1.0.0', instanceId: 'inst-nested' })}
       >
         canvas-enter
       </button>

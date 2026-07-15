@@ -727,8 +727,11 @@ button.crumbs__item:hover {
   margin-top: 0.6rem;
 }
 
-/* Inspector meaning sections (M13.5): Explanation, Ports, At-session. Each is a vertical block with
-   a subtle top separator; the first (Parameters) drops the border and hugs the header. */
+/* Inspector meaning sections (M13.5): At-session, Parameters, Explanation, Ports. Each is a vertical
+   block with a subtle top separator; the FIRST section drops the border and hugs the header. Since
+   PX-A promoted "At session" to the top of every branch, that first section is now At-session — the
+   positional `:first-of-type` follows the DOM order, so the promoted section hugs the header and the
+   now-second Parameters section takes the separator. No section names are hard-coded in the selector. */
 .inspector__section {
   margin-top: var(--space-4);
   padding-top: var(--space-4);
@@ -931,6 +934,110 @@ button.crumbs__item:hover {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--engine-accent);
+}
+
+/* --- Inspector Node Value Tap: the served value at the session cursor (M14.2a) --------------- */
+
+/* The value block, above the trace facts within the "At session" slot — a subtle divider below it. */
+.inspector__at-values {
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px dashed var(--border-faint);
+}
+
+/* The response's resolved output port, labeling which port's value is shown. */
+.inspector__value-port {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+}
+
+/* One served summary line (a stat, a count, a window, or a preview point). */
+.inspector__value-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.inspector__value-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+}
+
+/* The asset→value list (asset_set members). */
+.inspector__value-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text);
+}
+
+/* The shared asset→value table (cross_section / portfolio_targets), served order. */
+.inspector__value-table {
+  margin-top: var(--space-1);
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.inspector__value-table td {
+  padding: 0.1rem var(--space-2) 0.1rem 0;
+  color: var(--text);
+}
+
+/* One asset's time-series preview group: a compact sparkline then a collapsed rows disclosure. */
+.inspector__value-series {
+  margin-top: var(--space-2);
+}
+
+/* A compact per-asset sparkline (PX-B): SvgLineChart reused AS-IS, sized DOWN via CSS. Its 320×120
+   viewBox scales (preserveAspectRatio="none"), so overriding the plot height (and the absolutely
+   positioned y-axis, which hard-codes the plot height to sit its min label at the baseline) reshapes
+   it into a sidebar sparkline without touching the component. */
+.inspector__value-spark .chart {
+  margin: 0;
+}
+
+.inspector__value-spark .chart__svg,
+.inspector__value-spark .chart__axis--y {
+  height: 44px;
+}
+
+/* The raw date/value rows, now behind a per-asset disclosure — collapsed by default so the sparkline and
+   summary carry the panel; the exact served points stay one click away, never removed from the DOM. */
+.inspector__value-points > summary {
+  cursor: pointer;
+  padding: var(--space-1) 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+}
+
+/* The recompute-provenance footer (or "Captured at run"). */
+.inspector__value-provenance {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+.inspector__value-provenance code {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* The output-port selector — only when the node exposes more than one output. */
+.inspector__port-select {
+  margin-bottom: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
 }
 
 /* --- Extraction toolbar + banner (M12.5) ----------------------------------------------------- */

@@ -45,9 +45,23 @@ export interface SvgLineChartProps {
   /** Optional interactivity (M13.7): hover crosshair + click-to-select. The chart maps a pixel x to a
    *  point INDEX and reports the SERVER date at that index — it derives no number (invariant 5). */
   onSelectPoint?: ((date: string) => void) | undefined
+  /** The svg's accessible label — it must describe what the CALLER plots. Defaults to the original
+   *  portfolio-value phrasing so the ResultsView consumer (and its tests) stay byte-identical; a
+   *  per-series consumer (the Inspector value-tap sparkline, M14.2) passes its own asset label. */
+  ariaLabel?: string
+  /** Display formatting for an axis label (and the hover readout's value) — caller-supplied, still pure
+   *  presentation of one already-plotted value (invariant 5). Defaults to `String` so the ResultsView
+   *  consumer keeps its verbatim rendering; the value-tap sparkline passes `fmtValue` (PX-1) so its
+   *  min/max labels don't leak a 17-digit float. */
+  formatValue?: (value: number) => string
 }
 
-export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): ReactElement {
+export function SvgLineChart({
+  points,
+  onSelectPoint,
+  ariaLabel = 'portfolio value over time',
+  formatValue = String,
+}: SvgLineChartProps): ReactElement {
   // The hovered point INDEX (or null when not hovering / not interactive). It indexes the served
   // points array; it is never used to compute a value.
   const [hover, setHover] = useState<number | null>(null)
@@ -89,7 +103,7 @@ export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): Reac
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         preserveAspectRatio="none"
         role="img"
-        aria-label="portfolio value over time"
+        aria-label={ariaLabel}
         onMouseMove={interactive ? (e) => setHover(indexAt(e)) : undefined}
         onMouseLeave={interactive ? () => setHover(null) : undefined}
         // Click-to-select is a MOUSE affordance; the keyboard-accessible path to selecting a session is
@@ -109,16 +123,16 @@ export function SvgLineChart({ points, onSelectPoint }: SvgLineChartProps): Reac
           />
         ) : null}
       </svg>
-      {/* Readout of the hovered point — the VERBATIM record date and value (String(...), never formatted
-          or derived). role="status" announces it to assistive tech as the hover moves. */}
+      {/* Readout of the hovered point — the record date and its value through the caller's formatter
+          (default `String`, never derived). role="status" announces it to assistive tech as the hover moves. */}
       {interactive && hoverIndex !== null ? (
         <div className="chart__readout" role="status">
-          {points[hoverIndex][0]} · {String(points[hoverIndex][1])}
+          {points[hoverIndex][0]} · {formatValue(points[hoverIndex][1])}
         </div>
       ) : null}
       <div className="chart__axis chart__axis--y">
-        <span className="chart__label">{maxValue}</span>
-        <span className="chart__label">{minValue}</span>
+        <span className="chart__label">{formatValue(maxValue)}</span>
+        <span className="chart__label">{formatValue(minValue)}</span>
       </div>
       <div className="chart__axis chart__axis--x">
         <span className="chart__label">{firstDate}</span>

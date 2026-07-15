@@ -31,6 +31,8 @@ import { defaultCursor, evaluatedSet, gatedRecord, noteFor, sessionAxis } from '
  * Undefined until a run + on-axis cursor exist — the Inspector's value-tap slot stays inert then.
  */
 export interface AtSessionState {
+  /** The SELECTED run — the value-tap request address needs it; gated like every other field here. */
+  runId: string
   cursor: string
   trees: TraceTreeDto[] | undefined
   loading: boolean
@@ -302,8 +304,12 @@ export function useDebugLoopState(selectedRunId: string | undefined): DebugLoopS
     // previous run's date, `sessionDates` already the new run's axis or empty) would build an
     // atSession with an off-axis cursor and `evaluated: false`, flashing "No evaluation this session"
     // in the Inspector instead of the inert empty slot. Off-axis → undefined keeps the slot inert.
+    // Redundant with the predicate below at runtime (it checks the run too), present only to narrow
+    // `selectedRunId` to a string for the `runId` field — as the trace-fetch effect's clause does.
+    if (selectedRunId === undefined) return undefined
     if (!isCursorOnAxis(selectedRunId, sessionCursor, sessionDates)) return undefined
     return {
+      runId: selectedRunId,
       cursor: sessionCursor,
       trees: traceTrees,
       loading: traceLoading,

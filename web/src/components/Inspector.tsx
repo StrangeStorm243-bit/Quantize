@@ -1,7 +1,9 @@
-// The node inspector (M11.5, M12.4, M13.5, M13.7): identity + schema-driven parameter form for the
-// selected node, plus its meaning. The primitive-node branch renders four sections: Parameters (the
-// doc-labeled ParamForm), Explanation (role sentence → formula → semantics/warm-up), Ports (typed,
-// labeled), and the "At session" section — the Node Value Tap slot (design W4), now LIVE (M13.7): the
+// The node inspector (M11.5, M12.4, M13.5, M13.7, M14.2 PX-A): identity + schema-driven parameter form
+// for the selected node, plus its meaning. The primitive-node branch renders four sections; PX-A
+// promotes the "At session" section to the TOP (directly under the header, above Parameters) in every
+// branch and unconditionally, so the order is: "At session", Parameters (the doc-labeled ParamForm),
+// Explanation (role sentence → formula → semantics/warm-up), Ports (typed, labeled). "At session" is
+// the Node Value Tap slot (design W4), now LIVE (M13.7): the
 // selected node's SERVED trace events at the shared session cursor, addressed by (node_id,
 // component_path); at the output boundary it appends the engine reconciliation rows. All of it is pure
 // projection of served catalog metadata + served trace facts; no numerical, compatibility, or decision
@@ -17,24 +19,32 @@
 // param's verbatim `schema` fragment. "Enter component" navigates the MAIN canvas into the definition's
 // read-only internal view (M13.8 in-canvas breadcrumb, superseding the E11 modal drawer).
 import type { ReactElement } from 'react'
+import { useState } from 'react'
 import type {
+  AssetValueDto,
   NodeCatalogResponse,
   NodeTypeDto,
+  NodeValueResponse,
   ParamDocDto,
   TraceTreeDto,
   TraceTreeNodeDto,
 } from '@quantize/quantize-api'
 import type { ComponentDefinition, JsonValue, StrategyDocument } from '@quantize/quantize-ir'
+import { getNodeValue } from '../api/client'
+import { abbrev, fmtValue } from '../format'
+import { useFetch } from '../useFetch'
 import { labelOf, nodeTypeById, useCatalog } from '../catalog'
 import { portColor } from '../catalog/colors'
 import { useComponentDefs } from '../components-cache'
 import { findComponentRef } from '../document/flow'
+import type { ComponentTrailEntry } from '../document/flow'
 import { noEvaluationLine } from '../document/schedule'
 import type { NodeParams, StrategyDocumentActions } from '../document/store'
 import type { AtSessionState } from '../run/useDebugLoopState'
 import { NoteLine } from './NoteLine'
 import type { ParameterSchema } from './ParamForm'
 import { ParamForm } from './ParamForm'
+import { SvgLineChart } from './SvgLineChart'
 import { TraceEventBody } from './TraceView'
 
 // W3: the node's meaning, role sentence first (D-13). `doc.latex` is RESERVED and never rendered.
@@ -133,6 +143,254 @@ function EventRow({ event }: { event: TraceTreeNodeDto['events'][number] }): Rea
   )
 }
 
+// --- Node Value Tap: the served value at the session cursor (M14.2a) ------------------------------
+// The value a node's output port PRODUCED at the session, from GET /v1/runs/{id}/values (recompute on
+// demand). EVERY field is rendered in served order — nothing is summed, ranked, sorted, or highlighted
+// here (invariant 5). Served numbers pass through `fmtValue` (PX-C): per-number DISPLAY formatting of
+// one already-served value, with the verbatim value preserved in a `title` — presentation, never a
+// computed aggregate. One request per (address, selected port); changing the selector fires a new
+// request for that port only — no prefetch, no cache.
+
+// The shared asset→value table (cross_section / portfolio_targets), served order, verbatim. Rendered
+// only when the response carries a non-empty `asset_values`; the caller passes it straight through.
+function AssetValuesTable({ rows }: { rows: readonly AssetValueDto[] }): ReactElement | null {
+  if (rows.length === 0) return null
+  return (
+    <table className="inspector__value-table">
+      <tbody>
+        {rows.map((row, i) => (
+          <tr key={`${row.asset}:${i}`}>
+            <td>{row.asset}</td>
+            {/* Display-formatted served cell; the verbatim value stays reachable in `title` (PX-C). */}
+            <td title={String(row.value)}>{fmtValue(row.value)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+// The value_summary → rows projection. TS narrows the discriminated union on `.kind`; each branch reads
+// only served fields (String() for numbers/booleans) and renders stat rows only when the server sent them.
+function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
+  const summary = data.value_summary
+  const assetRows = data.asset_values ?? []
+  switch (summary.kind) {
+    case 'scalar':
+      // Display-formatted value; the row's `title` keeps the verbatim served number reachable (PX-C).
+      return (
+        <div className="inspector__value-row" title={String(summary.value)}>
+          {`${summary.dtype}: ${fmtValue(summary.value)}`}
+        </div>
+      )
+    case 'asset_set':
+      return (
+        <>
+          <div className="inspector__value-row">{summary.count} members</div>
+          <ul className="inspector__value-members">
+            {summary.members.map((m, i) => (
+              <li key={`${m}:${i}`}>{m}</li>
+            ))}
+          </ul>
+        </>
+      )
+    case 'cross_section':
+      return (
+        <>
+          <div className="inspector__value-row">
+            {summary.present_count} of {summary.domain_count} assets
+          </div>
+          {summary.dtype === 'Number' ? (
+            <>
+              {summary.min != null ? (
+                <div className="inspector__value-row" title={String(summary.min)}>
+                  Min: {fmtValue(summary.min)}
+                </div>
+              ) : null}
+              {summary.max != null ? (
+                <div className="inspector__value-row" title={String(summary.max)}>
+                  Max: {fmtValue(summary.max)}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {summary.true_count != null ? (
+                <div className="inspector__value-row">True: {String(summary.true_count)}</div>
+              ) : null}
+              {summary.false_count != null ? (
+                <div className="inspector__value-row">False: {String(summary.false_count)}</div>
+              ) : null}
+            </>
+          )}
+          {summary.missing.length > 0 ? (
+            <div className="inspector__value-row">Missing: {summary.missing.join(', ')}</div>
+          ) : null}
+          <AssetValuesTable rows={assetRows} />
+        </>
+      )
+    case 'time_series':
+      return (
+        <>
+          <div className="inspector__value-row">
+            {summary.asset_count} assets · {summary.total_points} points
+          </div>
+          {summary.window != null ? (
+            <div className="inspector__value-row">
+              {summary.window.first_date} → {summary.window.last_date}
+            </div>
+          ) : null}
+          {/* Per asset: a SPARKLINE of the served points (reusing SvgLineChart AS-IS — pure display
+              scaling of the verbatim points, invariant 5), with the raw date/value rows moved behind a
+              collapsed `<details>` disclosure so 64 rows/asset no longer bury the summary (PX-B). An asset
+              the server sent with no points is named with a "0 points" summary and gets neither a
+              sparkline (its own empty state's wording is wrong here) nor a disclosure. */}
+          {(data.series_preview ?? []).map((series, i) => (
+            // `:${i}` fold matches the sibling maps' defensive keys: asset uniqueness is a server
+            // invariant (the value constructor rejects duplicates), but the client must not rely on it.
+            <div key={`${series.asset}:${i}`} className="inspector__value-series">
+              {series.points.length > 0 ? (
+                <>
+                  <div className="inspector__value-spark">
+                    <SvgLineChart
+                      points={series.points}
+                      ariaLabel={`${series.asset} series`}
+                      formatValue={fmtValue}
+                    />
+                  </div>
+                  <details className="inspector__value-points">
+                    <summary>
+                      {series.asset} · {series.points.length} points
+                    </summary>
+                    {series.points.map(([date, val], i) => (
+                      <div key={i} className="inspector__value-row">
+                        <span className="inspector__value-label">{date}</span>
+                        <span title={String(val)}>{fmtValue(val)}</span>
+                      </div>
+                    ))}
+                  </details>
+                </>
+              ) : (
+                <span className="inspector__value-label">{series.asset} · 0 points</span>
+              )}
+            </div>
+          ))}
+        </>
+      )
+    case 'portfolio_targets':
+      return (
+        <>
+          <AssetValuesTable rows={assetRows} />
+          {/* Served aggregates, DISPLAY-formatted — the client renders the numbers the server sent (each
+              verbatim in `title`); it never re-sums the weights above (invariant 5 / PX-C). */}
+          <div className="inspector__value-row" title={String(summary.weight_sum)}>
+            Weight sum: {fmtValue(summary.weight_sum)}
+          </div>
+          <div className="inspector__value-row" title={String(summary.cash)}>
+            Cash: {fmtValue(summary.cash)}
+          </div>
+        </>
+      )
+  }
+}
+
+// The value block for one node address. `ports` is the node's LISTED output ports (catalog outputs or a
+// component's exposed_outputs); empty = unknown → the request omits the port and the response's own
+// `output_port` labels the value. A selector appears ONLY when there is a genuine choice (>1 ports).
+// Keyed by address at the call site, so `port` resets per node (the ParamForm remount precedent).
+function ValueBlock({
+  runId,
+  sessionDate,
+  nodeId,
+  componentPath,
+  ports,
+}: {
+  runId: string
+  sessionDate: string
+  nodeId: string
+  componentPath: readonly string[]
+  ports: readonly string[]
+}): ReactElement {
+  const [port, setPort] = useState<string | undefined>(ports[0])
+  const { data, loading, error } = useFetch(
+    () =>
+      getNodeValue(runId, {
+        nodeId,
+        sessionDate,
+        componentPath,
+        ...(port !== undefined ? { outputPort: port } : {}),
+      }),
+    // `componentPath.join(',')` — the array identity is not a stable dependency key.
+    [runId, sessionDate, nodeId, componentPath.join(','), port],
+  )
+
+  const selector =
+    ports.length > 1 ? (
+      <select
+        className="inspector__port-select"
+        aria-label="output port"
+        value={port}
+        onChange={(e) => setPort(e.target.value)}
+      >
+        {ports.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
+        ))}
+      </select>
+    ) : null
+  // Port context for the pre-data states (review P3): a SOLE listed port renders as a static label so a
+  // pending or refused request still names the port it addressed — load-bearing for nested ComponentRefs,
+  // which have no Ports section. Multi-port keeps the selector; zero listed ports have nothing honest to
+  // claim (the request omitted the port), so only the response's own `output_port` may label the value.
+  const portContext =
+    selector ?? (ports.length === 1 ? <div className="inspector__value-port">out {ports[0]}</div> : null)
+
+  if (loading) {
+    return (
+      <>
+        {portContext}
+        <p className="inspector__empty-note">Loading value…</p>
+      </>
+    )
+  }
+  if (error !== undefined) {
+    return (
+      <>
+        {portContext}
+        {/* The served message verbatim (engine_drift, dataset_mismatch, ambiguous_output_port, …) — the
+            honest-refusal pattern: render what the server said rather than guessing a value. */}
+        <p className="inspector__at-error" role="alert">
+          {error}
+        </p>
+      </>
+    )
+  }
+  if (data === undefined) return <>{portContext}</>
+
+  return (
+    <>
+      {selector}
+      {/* The port from the RESPONSE (served, so a defaulted/omitted port labels itself). */}
+      <div className="inspector__value-port">out {data.output_port}</div>
+      <ValueSummary data={data} />
+      <p className="inspector__value-provenance">
+        {data.provenance.captured ? (
+          'Captured at run'
+        ) : (
+          <>
+            Recomputed on demand from the run's pinned inputs{' '}
+            {/* Abbreviated for the narrow panel (PX-E); the full 64-char hash stays reachable in `title`. */}
+            <code title={data.provenance.dataset_fingerprint}>
+              {abbrev(data.provenance.dataset_fingerprint)}
+            </code>
+          </>
+        )}
+      </p>
+    </>
+  )
+}
+
 // The Node Value Tap rendering slot (design W4): the stable "At session" section, now LIVE (M13.7).
 // Without an `atSession` (no run/cursor) it renders the ORIGINAL inert empty state, unchanged, in the
 // SAME container so the slot never relayouts when data arrives (the M13.5 contract). With one, it shows
@@ -143,10 +401,22 @@ function AtSessionSection({
   atSession,
   nodeId,
   componentCategory,
+  componentPath,
+  valuePorts,
+  valuesOnly = false,
 }: {
   atSession: AtSessionProps | undefined
   nodeId: string
   componentCategory: string | undefined
+  /** Enclosing ComponentRef instance ids, outermost first; empty at top level (design W4). */
+  componentPath: readonly string[]
+  /** The node's LISTED output-port names (catalog outputs / exposed_outputs); empty = unknown. */
+  valuePorts: readonly string[]
+  /** M14.2b, decision D-f: inside a read-only component view the section is VALUES-ONLY — the value
+   * block is the whole story, with NO node-events part and NO engine subsection. The section container,
+   * title, cursor date, empty note, and no-eval phrasing stay SHARED (never duplicated). Defaults false
+   * so every top-level call renders the full section unchanged (byte-identical). */
+  valuesOnly?: boolean
 }): ReactElement {
   if (atSession === undefined) {
     return (
@@ -180,7 +450,7 @@ function AtSessionSection({
     // (a) The NODE-EVENTS part. When evaluated: locate the selected node among the served roots and
     // render its events (a ComponentRef instance carries children — flatten ONE level so the instance
     // shows what its internal nodes did). When NOT evaluated: the honest no-eval line + the served note.
-    let nodePart: ReactElement
+    let nodePart: ReactElement | null
     if (!atSession.evaluated) {
       nodePart = (
         <>
@@ -192,37 +462,71 @@ function AtSessionSection({
           ) : null}
         </>
       )
+    } else if (valuesOnly) {
+      // Values-only variant (D-f): inside a component view we surface the VALUE alone — the trace facts
+      // (node events + engine) are out of scope, so the value block below is the entire body.
+      nodePart = null
     } else {
       const found = findRoot(trees, nodeId)
       const hasOwnEvents = found !== undefined && found.events.length > 0
       // KNOWN LIMITATION (deferred to post-M13.8): this flattens exactly ONE level, so a nested-component
       // child that emits nothing itself but whose OWN children (grandchildren) did is dropped here.
       const childrenWithEvents = (found?.children ?? []).filter((c) => c.events.length > 0)
-      nodePart =
-        !hasOwnEvents && childrenWithEvents.length === 0 ? (
-          <p className="inspector__empty-note">This node emitted no events at this session.</p>
-        ) : (
-          <>
-            {found?.events.map((event, i) => <EventRow key={`own:${i}`} event={event} />)}
-            {childrenWithEvents.map((child) => (
-              <div key={child.node_id} className="inspector__at-child">
-                <span className="inspector__at-child-id">{child.node_id}</span>
-                {child.events.map((event, i) => (
-                  <EventRow key={`${child.node_id}:${i}`} event={event} />
-                ))}
-              </div>
-            ))}
-          </>
-        )
+      // The Decisions subhead labels this whole traced-decisions layer — including the honest "no events"
+      // note, which is itself a statement ABOUT the decisions area — so it never mislabels served content.
+      nodePart = (
+        <>
+          <h4 className="inspector__at-subhead">Decisions</h4>
+          {!hasOwnEvents && childrenWithEvents.length === 0 ? (
+            <p className="inspector__empty-note">This node emitted no events at this session.</p>
+          ) : (
+            <>
+              {found?.events.map((event, i) => <EventRow key={`own:${i}`} event={event} />)}
+              {childrenWithEvents.map((child) => (
+                <div key={child.node_id} className="inspector__at-child">
+                  <span className="inspector__at-child-id">{child.node_id}</span>
+                  {child.events.map((event, i) => (
+                    <EventRow key={`${child.node_id}:${i}`} event={event} />
+                  ))}
+                </div>
+              ))}
+            </>
+          )}
+        </>
+      )
     }
 
     // (b) The ENGINE subsection — only at the output boundary (category 'output'), and INDEPENDENT of
     // evaluation: whenever the served trees carry engine reconciliation rows, show them (the guard also
-    // suppresses an empty "Engine" heading). ComponentRef instances pass `undefined` → never rendered.
-    const engine = componentCategory === 'output' ? engineRoots(trees) : []
+    // suppresses an empty "Engine" heading). ComponentRef instances pass `undefined` → never rendered;
+    // the values-only variant never reaches the output boundary (an inner node), so it never shows engine.
+    const engine = !valuesOnly && componentCategory === 'output' ? engineRoots(trees) : []
+
+    // The Node Value Tap (M14.2a): the served value, ABOVE the trace facts, EVALUATED sessions only —
+    // on a non-evaluated session the server could only 404 (no_evaluation_at_session) and the honest
+    // no-eval line already renders, so we do not fetch. Keyed by address AND the listed-port identity:
+    // `port` initializes once, so a definition that loads AFTER mount (nested-ref cache miss, valuePorts
+    // [] → [names]) must remount the block to re-default to the first listed port. Every segment matches
+    // ^[A-Za-z0-9_]+$, so the '/'-joined composite key is unambiguous.
+    // The subheads (here + on `nodePart` below) label two SERVED layers — the port's VALUE vs the node's
+    // traced DECISIONS — so that when both echo the same numbers they read as complementary, not duplicated.
+    const valueBlock = atSession.evaluated ? (
+      <div className="inspector__at-values">
+        <h4 className="inspector__at-subhead">Value</h4>
+        <ValueBlock
+          key={`${componentPath.join(',')}/${nodeId}/${valuePorts.join(',')}`}
+          runId={atSession.runId}
+          sessionDate={atSession.cursor}
+          nodeId={nodeId}
+          componentPath={componentPath}
+          ports={valuePorts}
+        />
+      </div>
+    ) : null
 
     body = (
       <>
+        {valueBlock}
         {nodePart}
         {engine.length > 0 ? (
           <div className="inspector__at-engine">
@@ -251,9 +555,10 @@ function AtSessionSection({
 // --- Read-only internals of a component-view node (M13.9 O3) --------------------------------------
 // A component definition is immutable, but its internals must still be understandable. These render a
 // node from the trail tip's definition graph READ-ONLY: its CONFIGURED parameter values (never an
-// editable ParamForm, no `actions`), plus — for a primitive node — its Explanation and Ports. There is
-// NO "At session" section (that is the Node Value Tap slot, out of scope for inner nodes). Pure
-// projection of served catalog metadata + the definition's own configured params (invariant 5).
+// editable ParamForm, no `actions`), plus — for a primitive node — its Explanation and Ports, and a
+// VALUES-ONLY "At session" section (M14.2b, D-f): the value the inner node produced at the cursor,
+// tapped by (node id, the enclosing trail) — but no trace facts, staying read-only. Pure projection of
+// served catalog metadata + served value + the definition's own configured params (invariant 5).
 
 /** Present a JSON param value for read-only display: objects/arrays as compact JSON, scalars verbatim. */
 function formatParamValue(value: JsonValue): string {
@@ -294,18 +599,27 @@ export interface ComponentNodeSelection {
   node: StrategyDocument['nodes'][number]
   /** The tip definition's refs, to resolve a nested ComponentRef inner node to its pinned definition. */
   componentRefs: StrategyDocument['component_refs']
+  /** The enclosing ComponentRef INSTANCE ids, outermost first — the trail IS the value-tap
+   * `component_path` for a node at this depth (design W4). Empty is impossible here (a component view). */
+  componentPath: readonly string[]
 }
 
 function ComponentNodeInspector({
   node,
   componentRefs,
+  componentPath,
   catalog,
   getDef,
+  atSession,
 }: {
   node: StrategyDocument['nodes'][number]
   componentRefs: StrategyDocument['component_refs']
+  /** The enclosing ComponentRef instance ids (outermost first) — the value-tap component_path here. */
+  componentPath: readonly string[]
   catalog: NodeCatalogResponse | undefined
   getDef: (componentId: string, version: string) => ComponentDefinition | undefined
+  /** Live "At session" data (M14.2b) — threaded through so an inner node can show its VALUE (values-only). */
+  atSession: AtSessionProps | undefined
 }): ReactElement {
   const readOnlyNote = <p className="inspector__ro-note">Component internals — read-only.</p>
 
@@ -322,12 +636,25 @@ function ComponentNodeInspector({
           </div>
         </header>
         {readOnlyNote}
+        {/* PX-A: the values-only "At session" section is promoted above the params, directly under the
+            read-only note (which stays first — it frames everything below it). */}
+        <AtSessionSection
+          atSession={atSession}
+          nodeId={node.id}
+          componentCategory={undefined}
+          // A nested ref taps as (its instance id, the ENCLOSING trail) — its own id is NOT appended:
+          // the evaluator stores a component's exposed outputs under `(*trail, instanceId)`. Ports are the
+          // pinned def's exposed_outputs (cache miss → [] → the response's own output_port labels the value).
+          componentPath={componentPath}
+          valuePorts={def?.exposed_outputs.map((o) => o.name) ?? []}
+          valuesOnly
+        />
         <ReadOnlyParamsSection params={node.params} />
       </div>
     )
   }
 
-  // A primitive inner node: identity + read-only params + Explanation + Ports (no At-session slot).
+  // A primitive inner node: identity + read-only params + Explanation + Ports + the values-only At session.
   const nodeType = catalog === undefined ? undefined : nodeTypeById(catalog, node.type_id)
   return (
     <div className="inspector">
@@ -336,6 +663,18 @@ function ComponentNodeInspector({
         <div className="inspector__typeid">{node.type_id}</div>
       </header>
       {readOnlyNote}
+      {/* PX-A: the values-only "At session" section is promoted above params/Explanation/Ports, directly
+          under the read-only note (which stays first — it frames everything below it). */}
+      <AtSessionSection
+        atSession={atSession}
+        nodeId={node.id}
+        componentCategory={undefined}
+        componentPath={componentPath}
+        // The inner node taps at the trail; ports are its catalog outputs (unknown type → [] → the
+        // response's own output_port labels the value).
+        valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
+        valuesOnly
+      />
       {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
       {nodeType === undefined || catalog === undefined ? (
         <p className="inspector__unknown">
@@ -360,13 +699,13 @@ export interface InspectorProps {
   selectedNodeId: string | null
   actions: StrategyDocumentActions
   /** Navigate the main canvas into a component instance's read-only internals (App owns the trail, M13.8). */
-  onEnterComponent?: (target: { componentId: string; version: string }) => void
+  onEnterComponent?: (entry: ComponentTrailEntry) => void
   /** Live "At session" data (M13.7); undefined until a run + cursor exist — the slot stays inert then. */
   atSession?: AtSessionProps | undefined
   /**
    * M13.9 O3: a node selected INSIDE a read-only component view. When set, the Inspector renders that
-   * node's identity, CONFIGURED params, meaning, and ports READ-ONLY — a component definition is
-   * immutable — taking precedence over `selectedNodeId`.
+   * node's identity, CONFIGURED params, meaning, ports, and a values-only "At session" section (M14.2b)
+   * READ-ONLY — a component definition is immutable — taking precedence over `selectedNodeId`.
    */
   componentNode?: ComponentNodeSelection | undefined
 }
@@ -382,15 +721,17 @@ export function Inspector({
   const { catalog } = useCatalog()
   const { get } = useComponentDefs()
 
-  // M13.9 O3: a node selected inside a read-only component view takes precedence — render its internals
-  // read-only (immutable definition). No `actions`, no "At session" (Node Value Tap) for inner nodes.
+  // M13.9 O3 / M14.2b: a node selected inside a read-only component view takes precedence — render its
+  // internals read-only (immutable definition). No `actions`; its "At session" section is values-only (D-f).
   if (componentNode !== undefined) {
     return (
       <ComponentNodeInspector
         node={componentNode.node}
         componentRefs={componentNode.componentRefs}
+        componentPath={componentNode.componentPath}
         catalog={catalog}
         getDef={get}
+        atSession={atSession}
       />
     )
   }
@@ -419,7 +760,7 @@ export function Inspector({
         <button
           type="button"
           className="pform__btn inspector__inspect"
-          onClick={() => onEnterComponent({ componentId: ref.component_id, version: ref.version })}
+          onClick={() => onEnterComponent({ componentId: ref.component_id, version: ref.version, instanceId: node.id })}
         >
           Enter component
         </button>
@@ -433,11 +774,18 @@ export function Inspector({
             <div className="inspector__type">Component</div>
             <div className="inspector__typeid">{node.ref}</div>
           </header>
+          {/* PX-A: "At session" promoted directly under the header, above the unknown note + Enter button. */}
+          <AtSessionSection
+            atSession={atSession}
+            nodeId={node.id}
+            componentCategory={undefined}
+            componentPath={[]}
+            valuePorts={[]}
+          />
           <p className="inspector__unknown">
             Component definition is not loaded (or the ref is unknown) — parameters cannot be shown yet.
           </p>
           {enterButton}
-          <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={undefined} />
         </div>
       )
     }
@@ -459,6 +807,16 @@ export function Inspector({
             <p className="inspector__desc">{def.description}</p>
           ) : null}
         </header>
+        {/* PX-A: "At session" promoted directly under the header, above the params form + Enter button. */}
+        <AtSessionSection
+          atSession={atSession}
+          nodeId={node.id}
+          componentCategory={undefined}
+          componentPath={[]}
+          // A ComponentRef instance taps as (instance id, empty path); its ports are the def's exposed
+          // outputs — the evaluator stores those under the instance path, so no special-casing.
+          valuePorts={def.exposed_outputs.map((o) => o.name)}
+        />
         {def.exposed_params.length === 0 ? (
           <p className="pform__empty">No exposed parameters.</p>
         ) : (
@@ -471,7 +829,6 @@ export function Inspector({
           />
         )}
         {enterButton}
-        <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={undefined} />
       </div>
     )
   }
@@ -485,6 +842,17 @@ export function Inspector({
         <div className="inspector__type">{nodeType?.display_name ?? node.type_id}</div>
         <div className="inspector__typeid">{node.type_id}</div>
       </header>
+      {/* PX-A: the "At session" section (the Node Value Tap payoff) is promoted directly under the header,
+          above Parameters/Explanation/Ports, in every branch and UNCONDITIONALLY — a stable position means
+          selecting a run never relayouts the panel, and the inert note advertises the feature while editing. */}
+      <AtSessionSection
+        atSession={atSession}
+        nodeId={node.id}
+        componentCategory={nodeType?.category}
+        componentPath={[]}
+        // Unknown node type → no listed ports; the response's own output_port still labels the value.
+        valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
+      />
       {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
       {nodeType === undefined || catalog === undefined ? (
         <p className="inspector__unknown">
@@ -507,7 +875,6 @@ export function Inspector({
           <PortsSection nodeType={nodeType} catalog={catalog} />
         </>
       )}
-      <AtSessionSection atSession={atSession} nodeId={node.id} componentCategory={nodeType?.category} />
     </div>
   )
 }

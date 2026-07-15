@@ -216,7 +216,7 @@ describe('Canvas focus request (one-shot)', () => {
           doc={doc}
           actions={actions}
           selectedNodeId={'sel'}
-          componentTrail={[{ componentId: CID, version: '1.0.0' }]}
+          componentTrail={[{ componentId: CID, version: '1.0.0', instanceId: 'inst' }]}
           componentSelectedNodeId={'sel'}
           focusRequest={{ nodeId: 'sel', nonce: 1 }}
         />
@@ -262,7 +262,7 @@ describe('Canvas focus request (one-shot)', () => {
             doc={doc}
             actions={actions}
             selectedNodeId={'sel'}
-            componentTrail={[{ componentId: CID, version: '1.0.0' }]}
+            componentTrail={[{ componentId: CID, version: '1.0.0', instanceId: 'inst' }]}
             componentSelectedNodeId={'sel'}
             focusRequest={{ nodeId: 'sel', nonce: 1 }}
           />

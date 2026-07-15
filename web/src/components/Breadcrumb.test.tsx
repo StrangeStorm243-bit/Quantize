@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ComponentTrailEntry } from '../document/flow'
 import { Breadcrumb } from './Breadcrumb'
 
-const oneLevel: ComponentTrailEntry[] = [{ componentId: 'mom', version: '1.0.0' }]
+const oneLevel: ComponentTrailEntry[] = [{ componentId: 'mom', version: '1.0.0', instanceId: 'mom-1' }]
 const twoLevel: ComponentTrailEntry[] = [
-  { componentId: 'mom', version: '1.0.0' },
-  { componentId: 'rank', version: '2.1.0' },
+  { componentId: 'mom', version: '1.0.0', instanceId: 'mom-1' },
+  { componentId: 'rank', version: '2.1.0', instanceId: 'rank-1' },
 ]
 
 describe('Breadcrumb', () => {

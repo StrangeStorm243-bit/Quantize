@@ -1,15 +1,18 @@
-// Inspector — read-only internals for a node INSIDE a component view (M13.9 O3). A component
+// Inspector — read-only internals for a node INSIDE a component view (M13.9 O3 + M14.2b). A component
 // definition is immutable, but its internals must still be understandable: given a `componentNode`
 // (a node resolved from the trail tip's definition graph), the Inspector renders that node's identity,
-// its CONFIGURED parameter values (read-only — no editable controls), its Explanation (meaning), and
-// its Ports. It renders NO "At session" section (that is the Node Value Tap slot, out of scope here).
-// The catalog is the golden catalog (real nodeTypeById); the component cache is stubbed. NO network.
-import { render, screen } from '@testing-library/react'
+// its CONFIGURED parameter values (read-only — no editable controls), its Explanation (meaning), its
+// Ports, and — M14.2b — a VALUES-ONLY "At session" section (decision D-f): the value the inner node
+// produced at the cursor, tapped by (node id, the enclosing trail), with NO trace facts and NO editing.
+// The catalog is the golden catalog (real nodeTypeById); the component cache is stubbed; getNodeValue is
+// stubbed (the value block mounts on evaluated sessions — keep it off the network from the start). NO network.
+import { render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { NodeValueResponse, ProvenanceDto } from '@quantize/quantize-api'
 import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
 import catalogJson from '../../../tests/goldens/node_catalog.json'
 import type { StrategyDocumentActions } from '../document/store'
-import { Inspector } from './Inspector'
+import type { AtSessionProps } from './Inspector'
 
 const state = vi.hoisted(() => ({
   catalog: undefined as unknown,
@@ -33,6 +36,18 @@ vi.mock('../components-cache', () => ({
     errorOf: () => undefined,
   }),
 }))
+// Stub ONLY getNodeValue; keep the rest of '../api/client' real (useFetch imports errorMessage there).
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/client')>()
+  return { ...actual, getNodeValue: vi.fn() }
+})
+
+// eslint-disable-next-line import/first
+import { getNodeValue } from '../api/client'
+// eslint-disable-next-line import/first
+import { Inspector } from './Inspector'
+
+const asMock = () => vi.mocked(getNodeValue)
 
 function stubActions(): StrategyDocumentActions {
   return {
@@ -64,13 +79,51 @@ function emptyDoc(): StrategyDocument {
   }
 }
 
-function renderInspector(componentNode: NonNullable<Parameters<typeof Inspector>[0]['componentNode']>) {
+// --- Served value fixtures (the value block reads these verbatim) ---------------------------------
+
+function prov(overrides: Partial<ProvenanceDto> = {}): ProvenanceDto {
+  return { captured: false, dataset_fingerprint: 'fp-9f3c', run_id: 'run-1', ...overrides }
+}
+
+function value(overrides: Partial<NodeValueResponse>): NodeValueResponse {
+  return {
+    node_id: 'x',
+    component_path: [],
+    output_port: 'values',
+    session_date: '2026-05-15',
+    provenance: prov(),
+    value_summary: { kind: 'scalar', dtype: 'Number', value: 0.5 },
+    ...overrides,
+  }
+}
+
+// The App-owned "At session" props; evaluated + a run cursor by default so the value block mounts. The
+// trees are empty — the values-only section never reads them (no trace facts, D-f).
+function atSession(overrides: Partial<AtSessionProps> = {}): AtSessionProps {
+  return {
+    runId: 'run-1',
+    cursor: '2026-05-15',
+    trees: [],
+    loading: false,
+    error: undefined,
+    evaluated: true,
+    note: undefined,
+    scheduleKind: undefined,
+    ...overrides,
+  }
+}
+
+function renderInspector(
+  componentNode: NonNullable<Parameters<typeof Inspector>[0]['componentNode']>,
+  atSessionProp?: AtSessionProps,
+) {
   return render(
     <Inspector
       doc={emptyDoc()}
       selectedNodeId={null}
       actions={stubActions()}
       componentNode={componentNode}
+      {...(atSessionProp !== undefined ? { atSession: atSessionProp } : {})}
     />,
   )
 }
@@ -90,6 +143,7 @@ describe('Inspector — read-only component internals (O3)', () => {
         params: { lookback_sessions: 126 },
       } as never,
       componentRefs: [],
+      componentPath: ['mom'],
     })
 
     // Identity: the catalog display name + type id.
@@ -108,8 +162,11 @@ describe('Inspector — read-only component internals (O3)', () => {
     expect(screen.getByText(/r_D = close\(D\)/)).toBeInTheDocument()
     expect(screen.getByText('values')).toBeInTheDocument()
 
-    // NO "At session" section — the Node Value Tap slot is out of scope for inner nodes.
-    expect(screen.queryByRole('region', { name: 'at session' })).not.toBeInTheDocument()
+    // The values-only "At session" section IS present (M14.2b), but with no run/cursor it is INERT: the
+    // shared empty note renders and no value fetch fires.
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(within(shell).getByText(/run a strategy and select a session/i)).toBeInTheDocument()
+    expect(asMock()).not.toHaveBeenCalled()
   })
 
   it('renders a nested ComponentRef inner node read-only: definition identity + exposed values', () => {
@@ -129,13 +186,230 @@ describe('Inspector — read-only component internals (O3)', () => {
     renderInspector({
       node: { id: 'sub', type_id: 'component', ref: 'subref', params: { threshold: 0.5 } } as never,
       componentRefs: [{ id: 'subref', component_id: 'cid-sub', version: '1.0.0' }],
+      componentPath: ['mom'],
     })
 
     expect(screen.getByText('Sub Component')).toBeInTheDocument()
     expect(screen.getByText('0.5')).toBeInTheDocument()
     expect(screen.getByText(/read-only/i)).toBeInTheDocument()
-    // Still no editable control and no At-session section.
+    // Still no editable control; the At-session section is present but inert (no run/cursor).
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: 'at session' })).not.toBeInTheDocument()
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(within(shell).getByText(/run a strategy and select a session/i)).toBeInTheDocument()
+  })
+})
+
+describe('Inspector — component-internal "At session" values (M14.2b)', () => {
+  it('taps an inner primitive node by (node id, the trail), rendering the served value', async () => {
+    state.catalog = catalogJson
+    asMock().mockResolvedValue(
+      value({
+        node_id: 'ret',
+        component_path: ['mom'],
+        output_port: 'values',
+        value_summary: {
+          kind: 'cross_section', dtype: 'Number', domain_count: 3, present_count: 2,
+          missing: ['GLD'], min: 0.01, max: 0.2, true_count: null, false_count: null,
+        },
+        asset_values: [
+          { asset: 'SPY', value: 0.2 },
+          { asset: 'QQQ', value: 0.01 },
+        ],
+      }),
+    )
+    renderInspector(
+      {
+        node: {
+          id: 'ret', type_id: 'transform.trailing_return', type_version: '1.0.0',
+          params: { lookback_sessions: 126 },
+        } as never,
+        componentRefs: [],
+        componentPath: ['mom'],
+      },
+      atSession(),
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(await within(shell).findByText('2 of 3 assets')).toBeInTheDocument()
+    // The tap address is (the inner node's OWN id, the enclosing trail); the port is its catalog output.
+    expect(asMock().mock.calls[0][0]).toBe('run-1')
+    expect(asMock().mock.calls[0][1]).toEqual({
+      nodeId: 'ret', sessionDate: '2026-05-15', componentPath: ['mom'], outputPort: 'values',
+    })
+    // Values-only (D-f): the Value subhead labels the served value, but the Decisions subhead is ABSENT —
+    // the trace-facts layer is out of scope inside a read-only component view, so there is nothing to label.
+    expect(within(shell).getByRole('heading', { name: 'Value' })).toBeInTheDocument()
+    expect(within(shell).queryByRole('heading', { name: 'Decisions' })).not.toBeInTheDocument()
+  })
+
+  it('taps a nested ComponentRef inner node by (its instance id, the trail); ports from exposed_outputs', async () => {
+    state.catalog = catalogJson
+    state.def = {
+      schema_version: '0.1.0', component_id: 'cid-sub', version: '1.0.0', name: 'Sub Component',
+      description: null, component_refs: [],
+      implementation: { kind: 'graph', graph: { nodes: [], edges: [] } },
+      exposed_inputs: [],
+      exposed_outputs: [{ name: 'picks', maps_to: ['sel', 'assets'], type: { kind: 'AssetSet' } }],
+      exposed_params: [],
+      provenance: {
+        owner: '22222222-2222-2222-2222-222222222222', creator: '22222222-2222-2222-2222-222222222222',
+        contributors: [], visibility: 'private', duplicable: false,
+        created_at: '2026-07-06T00:00:00Z', forked_from: null,
+      },
+    }
+    asMock().mockResolvedValue(
+      value({
+        node_id: 'sub',
+        component_path: ['mom'],
+        output_port: 'picks',
+        value_summary: { kind: 'asset_set', count: 1, members: ['SPY'] },
+      }),
+    )
+    renderInspector(
+      {
+        node: { id: 'sub', type_id: 'component', ref: 'subref', params: {} } as never,
+        componentRefs: [{ id: 'subref', component_id: 'cid-sub', version: '1.0.0' }],
+        componentPath: ['mom'],
+      },
+      atSession(),
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(await within(shell).findByText('1 members')).toBeInTheDocument()
+    // The nested ref taps as (ITS instance id, the trail) — its own id is NOT appended: the evaluator
+    // stores a component's exposed outputs under `(*trail, instanceId)`. The port comes from exposed_outputs.
+    expect(asMock().mock.calls[0][0]).toBe('run-1')
+    expect(asMock().mock.calls[0][1]).toEqual({
+      nodeId: 'sub', sessionDate: '2026-05-15', componentPath: ['mom'], outputPort: 'picks',
+    })
+  })
+
+  it('re-defaults the output port when a late-loading definition first lists the ports', async () => {
+    state.catalog = catalogJson
+    asMock().mockResolvedValue(
+      value({
+        node_id: 'sub',
+        component_path: ['mom'],
+        output_port: 'picks',
+        value_summary: { kind: 'asset_set', count: 1, members: ['SPY'] },
+      }),
+    )
+    // The definition is NOT cached yet (state.def undefined): the nested ref renders with zero listed
+    // ports, so the first request omits output_port (the server answers or 422s — served either way).
+    const inspectorFor = (): Parameters<typeof render>[0] => (
+      <Inspector
+        doc={emptyDoc()}
+        selectedNodeId={null}
+        actions={stubActions()}
+        componentNode={{
+          node: { id: 'sub', type_id: 'component', ref: 'subref', params: {} } as never,
+          componentRefs: [{ id: 'subref', component_id: 'cid-sub', version: '1.0.0' }],
+          componentPath: ['mom'],
+        }}
+        atSession={atSession()}
+      />
+    )
+    const view = render(inspectorFor())
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(await within(shell).findByText('1 members')).toBeInTheDocument()
+    expect(asMock()).toHaveBeenCalledTimes(1)
+    expect(asMock().mock.calls[0][1]).toEqual({
+      nodeId: 'sub', sessionDate: '2026-05-15', componentPath: ['mom'],
+    })
+
+    // The definition arrives (cache fill) exposing TWO outputs. The value block must re-default to the
+    // FIRST listed port — not sit on the stale portless state — and offer the selector.
+    state.def = {
+      schema_version: '0.1.0', component_id: 'cid-sub', version: '1.0.0', name: 'Sub Component',
+      description: null, component_refs: [],
+      implementation: { kind: 'graph', graph: { nodes: [], edges: [] } },
+      exposed_inputs: [],
+      exposed_outputs: [
+        { name: 'picks', maps_to: ['sel', 'assets'], type: { kind: 'AssetSet' } },
+        { name: 'scores', maps_to: ['rk', 'values'], type: { kind: 'CrossSection', dtype: 'Number' } },
+      ],
+      exposed_params: [],
+      provenance: {
+        owner: '22222222-2222-2222-2222-222222222222', creator: '22222222-2222-2222-2222-222222222222',
+        contributors: [], visibility: 'private', duplicable: false,
+        created_at: '2026-07-06T00:00:00Z', forked_from: null,
+      },
+    }
+    view.rerender(inspectorFor())
+    const selector = await within(screen.getByRole('region', { name: 'at session' }))
+      .findByRole('combobox', { name: 'output port' })
+    expect((selector as HTMLSelectElement).value).toBe('picks')
+    expect(asMock()).toHaveBeenCalledTimes(2)
+    expect(asMock().mock.calls[1][1]).toEqual({
+      nodeId: 'sub', sessionDate: '2026-05-15', componentPath: ['mom'], outputPort: 'picks',
+    })
+  })
+
+  it('keeps the sole exposed port visible as static context while the value is still loading', () => {
+    state.catalog = catalogJson
+    state.def = {
+      schema_version: '0.1.0', component_id: 'cid-sub', version: '1.0.0', name: 'Sub Component',
+      description: null, component_refs: [],
+      implementation: { kind: 'graph', graph: { nodes: [], edges: [] } },
+      exposed_inputs: [],
+      exposed_outputs: [{ name: 'picks', maps_to: ['sel', 'assets'], type: { kind: 'AssetSet' } }],
+      exposed_params: [],
+      provenance: {
+        owner: '22222222-2222-2222-2222-222222222222', creator: '22222222-2222-2222-2222-222222222222',
+        contributors: [], visibility: 'private', duplicable: false,
+        created_at: '2026-07-06T00:00:00Z', forked_from: null,
+      },
+    }
+    // A pending request (never resolves): the nested ref has NO Ports section, so the sole exposed
+    // port must label the pending value itself (review P3 — port context during loading/error).
+    asMock().mockReturnValue(new Promise(() => undefined))
+    renderInspector(
+      {
+        node: { id: 'sub', type_id: 'component', ref: 'subref', params: {} } as never,
+        componentRefs: [{ id: 'subref', component_id: 'cid-sub', version: '1.0.0' }],
+        componentPath: ['mom'],
+      },
+      atSession(),
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(within(shell).getByText(/Loading value/)).toBeInTheDocument()
+    expect(within(shell).getByText('out picks')).toBeInTheDocument()
+  })
+
+  // PX-A: inside a read-only component view the values-only "At session" section is also promoted — it
+  // renders directly under the read-only note, BEFORE the parameters list (position only; still read-only).
+  it('renders the at-session region BEFORE the parameters list for an inner node (PX-A)', () => {
+    state.catalog = catalogJson
+    renderInspector(
+      {
+        node: {
+          id: 'ret', type_id: 'transform.trailing_return', type_version: '1.0.0',
+          params: { lookback_sessions: 126 },
+        } as never,
+        componentRefs: [],
+        componentPath: ['mom'],
+      },
+      // Non-evaluated so no value fetch fires; the section still renders in its promoted position.
+      atSession({ cursor: '2026-05-14', trees: [], evaluated: false }),
+    )
+    const at = screen.getByRole('region', { name: 'at session' })
+    const params = screen.getByRole('region', { name: 'parameters' })
+    expect(at.compareDocumentPosition(params) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('shows the honest no-eval line and fires no value fetch on a non-evaluated session', () => {
+    state.catalog = catalogJson
+    renderInspector(
+      {
+        node: {
+          id: 'ret', type_id: 'transform.trailing_return', type_version: '1.0.0',
+          params: { lookback_sessions: 126 },
+        } as never,
+        componentRefs: [],
+        componentPath: ['mom'],
+      },
+      atSession({ cursor: '2026-05-14', trees: [], evaluated: false }),
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    expect(within(shell).getByText(/No evaluation this session/i)).toBeInTheDocument()
+    expect(asMock()).not.toHaveBeenCalled()
   })
 })
