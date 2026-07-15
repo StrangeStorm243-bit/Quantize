@@ -235,6 +235,10 @@ describe('Inspector — component-internal "At session" values (M14.2b)', () => 
     expect(asMock().mock.calls[0][1]).toEqual({
       nodeId: 'ret', sessionDate: '2026-05-15', componentPath: ['mom'], outputPort: 'values',
     })
+    // Values-only (D-f): the Value subhead labels the served value, but the Decisions subhead is ABSENT —
+    // the trace-facts layer is out of scope inside a read-only component view, so there is nothing to label.
+    expect(within(shell).getByRole('heading', { name: 'Value' })).toBeInTheDocument()
+    expect(within(shell).queryByRole('heading', { name: 'Decisions' })).not.toBeInTheDocument()
   })
 
   it('taps a nested ComponentRef inner node by (its instance id, the trail); ports from exposed_outputs', async () => {

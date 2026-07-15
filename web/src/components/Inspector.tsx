@@ -464,22 +464,28 @@ function AtSessionSection({
       // KNOWN LIMITATION (deferred to post-M13.8): this flattens exactly ONE level, so a nested-component
       // child that emits nothing itself but whose OWN children (grandchildren) did is dropped here.
       const childrenWithEvents = (found?.children ?? []).filter((c) => c.events.length > 0)
-      nodePart =
-        !hasOwnEvents && childrenWithEvents.length === 0 ? (
-          <p className="inspector__empty-note">This node emitted no events at this session.</p>
-        ) : (
-          <>
-            {found?.events.map((event, i) => <EventRow key={`own:${i}`} event={event} />)}
-            {childrenWithEvents.map((child) => (
-              <div key={child.node_id} className="inspector__at-child">
-                <span className="inspector__at-child-id">{child.node_id}</span>
-                {child.events.map((event, i) => (
-                  <EventRow key={`${child.node_id}:${i}`} event={event} />
-                ))}
-              </div>
-            ))}
-          </>
-        )
+      // The Decisions subhead labels this whole traced-decisions layer — including the honest "no events"
+      // note, which is itself a statement ABOUT the decisions area — so it never mislabels served content.
+      nodePart = (
+        <>
+          <h4 className="inspector__at-subhead">Decisions</h4>
+          {!hasOwnEvents && childrenWithEvents.length === 0 ? (
+            <p className="inspector__empty-note">This node emitted no events at this session.</p>
+          ) : (
+            <>
+              {found?.events.map((event, i) => <EventRow key={`own:${i}`} event={event} />)}
+              {childrenWithEvents.map((child) => (
+                <div key={child.node_id} className="inspector__at-child">
+                  <span className="inspector__at-child-id">{child.node_id}</span>
+                  {child.events.map((event, i) => (
+                    <EventRow key={`${child.node_id}:${i}`} event={event} />
+                  ))}
+                </div>
+              ))}
+            </>
+          )}
+        </>
+      )
     }
 
     // (b) The ENGINE subsection — only at the output boundary (category 'output'), and INDEPENDENT of
@@ -494,8 +500,11 @@ function AtSessionSection({
     // `port` initializes once, so a definition that loads AFTER mount (nested-ref cache miss, valuePorts
     // [] → [names]) must remount the block to re-default to the first listed port. Every segment matches
     // ^[A-Za-z0-9_]+$, so the '/'-joined composite key is unambiguous.
+    // The subheads (here + on `nodePart` below) label two SERVED layers — the port's VALUE vs the node's
+    // traced DECISIONS — so that when both echo the same numbers they read as complementary, not duplicated.
     const valueBlock = atSession.evaluated ? (
       <div className="inspector__at-values">
+        <h4 className="inspector__at-subhead">Value</h4>
         <ValueBlock
           key={`${componentPath.join(',')}/${nodeId}/${valuePorts.join(',')}`}
           runId={atSession.runId}

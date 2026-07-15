@@ -450,6 +450,9 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     const shell = screen.getByRole('region', { name: 'at session' })
     expect(within(shell).getByText(/No evaluation this session/i)).toBeInTheDocument()
     expect(asMock()).not.toHaveBeenCalled()
+    // Neither layer subhead renders — there is no served value or trace part to label (the no-eval line stands alone).
+    expect(within(shell).queryByRole('heading', { name: 'Value' })).not.toBeInTheDocument()
+    expect(within(shell).queryByRole('heading', { name: 'Decisions' })).not.toBeInTheDocument()
   })
 
   it('taps a ComponentRef instance by (instance id, empty path), ports from exposed_outputs', async () => {
@@ -498,6 +501,31 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     expect(within(shell).getByText('2026-05-15')).toBeInTheDocument()
     expect(within(shell).getByText('mystery.unknown')).toBeInTheDocument()
     expect(within(shell).getByText('gizmo')).toBeInTheDocument()
+  })
+
+  it('labels the two served layers — a Value subhead over the value, a Decisions subhead over the trace facts (PX-D/F)', async () => {
+    // The served value and the served trace facts often echo the same numbers; the subheads name them as
+    // COMPLEMENTARY layers (the port's value vs the node's traced decisions) rather than duplicate twins.
+    asMock().mockResolvedValue(value({}))
+    render(
+      <Inspector
+        doc={docWith('x', 'transform.trailing_return')}
+        selectedNodeId="x"
+        actions={stubActions()}
+        atSession={atSession()}
+      />,
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    // Both subheads render, in DOM order Value → Decisions (the value block sits above the trace facts).
+    const subheads = await within(shell).findAllByRole('heading', { level: 4 })
+    expect(subheads.map((h) => h.textContent)).toEqual(['Value', 'Decisions'])
+    // The Value subhead sits INSIDE the value block, directly above the served value.
+    const valuesWrap = shell.querySelector('.inspector__at-values') as HTMLElement
+    expect(within(valuesWrap).getByRole('heading', { name: 'Value' })).toBeInTheDocument()
+    expect(within(valuesWrap).getByText('Number: 0.5')).toBeInTheDocument()
+    // The Decisions subhead labels the node's own trace event (which lives OUTSIDE the value block).
+    expect(within(valuesWrap).queryByRole('heading', { name: 'Decisions' })).not.toBeInTheDocument()
+    expect(within(shell).getByRole('heading', { name: 'Decisions' })).toBeInTheDocument()
   })
 
   it('shows a loading note while the value fetch is in flight', () => {
