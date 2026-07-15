@@ -542,6 +542,36 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     expect(within(shell).getByText(/loading value/i)).toBeInTheDocument()
   })
 
+  // PX-A: the "At session" section is promoted DIRECTLY under the header, above Parameters, in every
+  // branch and UNCONDITIONALLY — its position never depends on whether a run/cursor exists.
+  it('renders the at-session region BEFORE the parameters section for a primitive node with a live atSession', async () => {
+    asMock().mockResolvedValue(value({}))
+    render(
+      <Inspector
+        doc={docWith('x', 'transform.trailing_return')}
+        selectedNodeId="x"
+        actions={stubActions()}
+        atSession={atSession()}
+      />,
+    )
+    const at = screen.getByRole('region', { name: 'at session' })
+    const params = screen.getByRole('region', { name: 'parameters' })
+    // Parameters FOLLOWS At session in DOM order (At session is promoted above the fold).
+    expect(at.compareDocumentPosition(params) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Flush the in-flight value fetch so the async state update lands inside act().
+    await within(at).findByText('Number: 0.5')
+  })
+
+  it('keeps the at-session region first even when INERT (no run/cursor) — the position is unconditional', () => {
+    render(<Inspector doc={docWith('x', 'transform.trailing_return')} selectedNodeId="x" actions={stubActions()} />)
+    const at = screen.getByRole('region', { name: 'at session' })
+    const params = screen.getByRole('region', { name: 'parameters' })
+    expect(at.compareDocumentPosition(params) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Inert: the advertised empty note renders and no value fetch fires.
+    expect(within(at).getByText(/run a strategy and select a session/i)).toBeInTheDocument()
+    expect(asMock()).not.toHaveBeenCalled()
+  })
+
   it('shows the recompute-provenance footer with the ABBREVIATED dataset fingerprint (full hash in title)', async () => {
     // A full 64-char content-addressed hash would overflow the narrow panel — the footer abbreviates it
     // to head…tail (PX-E) and keeps the verbatim hash reachable in `title`.

@@ -374,6 +374,27 @@ describe('Inspector — component-internal "At session" values (M14.2b)', () => 
     expect(within(shell).getByText('out picks')).toBeInTheDocument()
   })
 
+  // PX-A: inside a read-only component view the values-only "At session" section is also promoted — it
+  // renders directly under the read-only note, BEFORE the parameters list (position only; still read-only).
+  it('renders the at-session region BEFORE the parameters list for an inner node (PX-A)', () => {
+    state.catalog = catalogJson
+    renderInspector(
+      {
+        node: {
+          id: 'ret', type_id: 'transform.trailing_return', type_version: '1.0.0',
+          params: { lookback_sessions: 126 },
+        } as never,
+        componentRefs: [],
+        componentPath: ['mom'],
+      },
+      // Non-evaluated so no value fetch fires; the section still renders in its promoted position.
+      atSession({ cursor: '2026-05-14', trees: [], evaluated: false }),
+    )
+    const at = screen.getByRole('region', { name: 'at session' })
+    const params = screen.getByRole('region', { name: 'parameters' })
+    expect(at.compareDocumentPosition(params) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('shows the honest no-eval line and fires no value fetch on a non-evaluated session', () => {
     state.catalog = catalogJson
     renderInspector(

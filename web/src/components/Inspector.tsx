@@ -1,7 +1,9 @@
-// The node inspector (M11.5, M12.4, M13.5, M13.7): identity + schema-driven parameter form for the
-// selected node, plus its meaning. The primitive-node branch renders four sections: Parameters (the
-// doc-labeled ParamForm), Explanation (role sentence → formula → semantics/warm-up), Ports (typed,
-// labeled), and the "At session" section — the Node Value Tap slot (design W4), now LIVE (M13.7): the
+// The node inspector (M11.5, M12.4, M13.5, M13.7, M14.2 PX-A): identity + schema-driven parameter form
+// for the selected node, plus its meaning. The primitive-node branch renders four sections; PX-A
+// promotes the "At session" section to the TOP (directly under the header, above Parameters) in every
+// branch and unconditionally, so the order is: "At session", Parameters (the doc-labeled ParamForm),
+// Explanation (role sentence → formula → semantics/warm-up), Ports (typed, labeled). "At session" is
+// the Node Value Tap slot (design W4), now LIVE (M13.7): the
 // selected node's SERVED trace events at the shared session cursor, addressed by (node_id,
 // component_path); at the output boundary it appends the engine reconciliation rows. All of it is pure
 // projection of served catalog metadata + served trace facts; no numerical, compatibility, or decision
@@ -628,7 +630,8 @@ function ComponentNodeInspector({
           </div>
         </header>
         {readOnlyNote}
-        <ReadOnlyParamsSection params={node.params} />
+        {/* PX-A: the values-only "At session" section is promoted above the params, directly under the
+            read-only note (which stays first — it frames everything below it). */}
         <AtSessionSection
           atSession={atSession}
           nodeId={node.id}
@@ -640,6 +643,7 @@ function ComponentNodeInspector({
           valuePorts={def?.exposed_outputs.map((o) => o.name) ?? []}
           valuesOnly
         />
+        <ReadOnlyParamsSection params={node.params} />
       </div>
     )
   }
@@ -653,6 +657,18 @@ function ComponentNodeInspector({
         <div className="inspector__typeid">{node.type_id}</div>
       </header>
       {readOnlyNote}
+      {/* PX-A: the values-only "At session" section is promoted above params/Explanation/Ports, directly
+          under the read-only note (which stays first — it frames everything below it). */}
+      <AtSessionSection
+        atSession={atSession}
+        nodeId={node.id}
+        componentCategory={undefined}
+        componentPath={componentPath}
+        // The inner node taps at the trail; ports are its catalog outputs (unknown type → [] → the
+        // response's own output_port labels the value).
+        valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
+        valuesOnly
+      />
       {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
       {nodeType === undefined || catalog === undefined ? (
         <p className="inspector__unknown">
@@ -668,16 +684,6 @@ function ComponentNodeInspector({
           <PortsSection nodeType={nodeType} catalog={catalog} />
         </>
       )}
-      <AtSessionSection
-        atSession={atSession}
-        nodeId={node.id}
-        componentCategory={undefined}
-        componentPath={componentPath}
-        // The inner node taps at the trail; ports are its catalog outputs (unknown type → [] → the
-        // response's own output_port labels the value).
-        valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
-        valuesOnly
-      />
     </div>
   )
 }
@@ -762,10 +768,7 @@ export function Inspector({
             <div className="inspector__type">Component</div>
             <div className="inspector__typeid">{node.ref}</div>
           </header>
-          <p className="inspector__unknown">
-            Component definition is not loaded (or the ref is unknown) — parameters cannot be shown yet.
-          </p>
-          {enterButton}
+          {/* PX-A: "At session" promoted directly under the header, above the unknown note + Enter button. */}
           <AtSessionSection
             atSession={atSession}
             nodeId={node.id}
@@ -773,6 +776,10 @@ export function Inspector({
             componentPath={[]}
             valuePorts={[]}
           />
+          <p className="inspector__unknown">
+            Component definition is not loaded (or the ref is unknown) — parameters cannot be shown yet.
+          </p>
+          {enterButton}
         </div>
       )
     }
@@ -794,6 +801,16 @@ export function Inspector({
             <p className="inspector__desc">{def.description}</p>
           ) : null}
         </header>
+        {/* PX-A: "At session" promoted directly under the header, above the params form + Enter button. */}
+        <AtSessionSection
+          atSession={atSession}
+          nodeId={node.id}
+          componentCategory={undefined}
+          componentPath={[]}
+          // A ComponentRef instance taps as (instance id, empty path); its ports are the def's exposed
+          // outputs — the evaluator stores those under the instance path, so no special-casing.
+          valuePorts={def.exposed_outputs.map((o) => o.name)}
+        />
         {def.exposed_params.length === 0 ? (
           <p className="pform__empty">No exposed parameters.</p>
         ) : (
@@ -806,15 +823,6 @@ export function Inspector({
           />
         )}
         {enterButton}
-        <AtSessionSection
-          atSession={atSession}
-          nodeId={node.id}
-          componentCategory={undefined}
-          componentPath={[]}
-          // A ComponentRef instance taps as (instance id, empty path); its ports are the def's exposed
-          // outputs — the evaluator stores those under the instance path, so no special-casing.
-          valuePorts={def.exposed_outputs.map((o) => o.name)}
-        />
       </div>
     )
   }
@@ -828,6 +836,17 @@ export function Inspector({
         <div className="inspector__type">{nodeType?.display_name ?? node.type_id}</div>
         <div className="inspector__typeid">{node.type_id}</div>
       </header>
+      {/* PX-A: the "At session" section (the Node Value Tap payoff) is promoted directly under the header,
+          above Parameters/Explanation/Ports, in every branch and UNCONDITIONALLY — a stable position means
+          selecting a run never relayouts the panel, and the inert note advertises the feature while editing. */}
+      <AtSessionSection
+        atSession={atSession}
+        nodeId={node.id}
+        componentCategory={nodeType?.category}
+        componentPath={[]}
+        // Unknown node type → no listed ports; the response's own output_port still labels the value.
+        valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
+      />
       {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
       {nodeType === undefined || catalog === undefined ? (
         <p className="inspector__unknown">
@@ -850,14 +869,6 @@ export function Inspector({
           <PortsSection nodeType={nodeType} catalog={catalog} />
         </>
       )}
-      <AtSessionSection
-        atSession={atSession}
-        nodeId={node.id}
-        componentCategory={nodeType?.category}
-        componentPath={[]}
-        // Unknown node type → no listed ports; the response's own output_port still labels the value.
-        valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
-      />
     </div>
   )
 }

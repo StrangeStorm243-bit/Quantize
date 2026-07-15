@@ -727,8 +727,11 @@ button.crumbs__item:hover {
   margin-top: 0.6rem;
 }
 
-/* Inspector meaning sections (M13.5): Explanation, Ports, At-session. Each is a vertical block with
-   a subtle top separator; the first (Parameters) drops the border and hugs the header. */
+/* Inspector meaning sections (M13.5): At-session, Parameters, Explanation, Ports. Each is a vertical
+   block with a subtle top separator; the FIRST section drops the border and hugs the header. Since
+   PX-A promoted "At session" to the top of every branch, that first section is now At-session — the
+   positional `:first-of-type` follows the DOM order, so the promoted section hugs the header and the
+   now-second Parameters section takes the separator. No section names are hard-coded in the selector. */
 .inspector__section {
   margin-top: var(--space-4);
   padding-top: var(--space-4);
