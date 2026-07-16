@@ -86,7 +86,10 @@ the whole loop and ticks each step as you perform it (dismiss it anytime — it 
    row) to jump the shared **session cursor** to that session and open the **Trace** beside it.
 4. In the **Trace**, click a decision row to center its emitting node on the **canvas** — the
    **trace ↔ canvas ↔ results** loop — and read that node's role and formula in the **Inspector**'s
-   **Explanation**. The **Problems** tab's **Validate** button re-checks the document at any time.
+   **Explanation**. With a run selected, the Inspector's **"At session"** section shows the value that
+   node produced at the session cursor (the served value summary and per-asset values, above the trace
+   facts); non-evaluated sessions and no-output nodes get an honest refusal instead of a blank. The
+   **Problems** tab's **Validate** button re-checks the document at any time.
 5. **Extract a component**: click **Extract component**, marquee a connected subgraph, name it, and
    Create — the run results stay identical and the component appears in the **Library** rail's
    **Components** section. **Enter** it — the Inspector's **Enter component**, or a double-click on
@@ -127,13 +130,19 @@ shorting, no options/futures, no intraday/HFT, scheduled daily/weekly/monthly ev
 ## Status
 
 The MVP is built as a spine — **IR + one engine + tracing + persistence + API + editor** — proven
-end to end on two reference strategies. **Milestones M1–M12 and the M13 IDE reorientation
-(M13.1–M13.9) are complete** (M12 delivered the component authoring/extraction UI; M13 reoriented
-the app into a document-centric visual IDE — Home + strategy bar + dock, category-colored node
-cards, a pipeline stage strip, the debug loop, in-canvas component breadcrumb navigation, and a
-first-run journey checklist). The latest M13.9 closeout gate is green with **985 Python tests**
-(`pytest`) and **598 web tests across 62 files** (`vitest`), on Python 3.13/3.14 and Windows/Linux,
-with byte-stable golden and backtest↔forward consistency coverage.
+end to end on two reference strategies. **Milestones M1–M12, the M13 IDE reorientation
+(M13.1–M13.9), and M14 (Node Value Tap) are complete** (M12 delivered the component
+authoring/extraction UI; M13 reoriented the app into a document-centric visual IDE — Home + strategy
+bar + dock, category-colored node cards, a pipeline stage strip, the debug loop, in-canvas component
+breadcrumb navigation, and a first-run journey checklist). **M14** made every node's output
+inspectable: click a node and the Inspector's **"At session"** section shows the value it produced at
+the session cursor — including read-only component internals — served by a new `GET
+/v1/runs/{run_id}/values` endpoint that **recomputes on demand from the run's pinned inputs over the
+one evaluator** (no separate value store; `provenance.captured: false`), with honest structured
+refusals for non-evaluated sessions, no-output nodes, and addresses that do not exist in a run's
+strategy. The latest M14 closeout gate is green with **1054 Python tests** (`pytest`) and **633 web
+tests across 64 files** (`vitest`), on Python 3.13/3.14 and Windows/Linux, with byte-stable golden
+and backtest↔forward consistency coverage.
 
 For the full milestone breakdown (M1 IR + structural validation through the M13 IDE reorientation),
 see [`docs/MVP_PLAN.md`](docs/MVP_PLAN.md).
