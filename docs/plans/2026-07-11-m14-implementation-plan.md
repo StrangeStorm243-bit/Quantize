@@ -35,33 +35,83 @@
 M14 is done when all of the following hold (each is verified in its slice; the closeout
 re-verifies the set):
 
-- [ ] `GET /v1/runs/{run_id}/values` serves the frozen M13 W4 contract shape, recompute-on-
+- [x] `GET /v1/runs/{run_id}/values` serves the frozen M13 W4 contract shape, recompute-on-
       demand, with `provenance.captured: false` and the run's recorded
       `dataset_fingerprint`.
-- [ ] The recompute dataset is **resolved by fingerprint** (runs store no dataset id): one
+      *(M14.1 — tests/api/test_values_endpoint.py::test_happy_path_targets_equal_persisted_weights
+      + ::test_body_validates_against_committed_schema; `ProvenanceDto.captured` is hard-False at
+      `quantize/api/dto/values.py:105`, with the run's recorded `dataset_fingerprint`.)*
+- [x] The recompute dataset is **resolved by fingerprint** (runs store no dataset id): one
       match serves; zero matches and unknown-provenance runs refuse with structured errors;
       duplicate-content rows are all acceptable.
-- [ ] The tapped value at a fixture session equals the value the run produced there, for
+      *(M14.1a — tests/test_valuetap_service.py::test_dataset_resolves_by_fingerprint /
+      ::test_absent_dataset_is_refused / ::test_unknown_provenance_run_is_refused /
+      ::test_duplicate_content_dataset_rows_still_serve.)*
+- [x] The tapped value at a fixture session equals the value the run produced there, for
       **both** reference strategies, asserted against the existing committed goldens.
-- [ ] A node **inside a component** (any depth) is tappable by `component_path`, and a
+      *(M14.9 Task 1.5a, commit 2b1fe06 —
+      tests/test_valuetap_goldens.py::test_strategy_a_cap_targets_match_committed_golden /
+      ::test_strategy_b_mask_targets_match_committed_golden vs the committed
+      `strategy_{a,b}_backtest.json`; ::test_reference_signal_taps_match_minted_value_golden
+      vs minted `tests/goldens/valuetap_reference_signals.json`.)*
+- [x] A node **inside a component** (any depth) is tappable by `component_path`, and a
       `ComponentRef` node's exposed output ports are tappable as the instance's own ports.
-- [ ] Every failure mode in design §6 returns its structured error per the status table
+      *(M14.9 Task 1.5b, commit 0b7697b —
+      tests/test_valuetap_service.py::test_depth_two_inner_core_node_is_tappable_by_two_segment_path
+      + ::test_nested_inner_node_and_exposed_output (also the endpoint's
+      ::test_nested_inner_node_and_exposed_output); the single-segment `("mom",)` case covered by
+      the sibling service tests.)*
+- [x] Every failure mode in design §6 returns its structured error per the status table
       below; none returns an empty 200. The no-eval case cites the run's recorded note
       verbatim (M13 honest-empty-state pattern). `ok:false` runs serve completed outputs and
       surface diagnostics for missing ones.
-- [ ] `series_preview` is capped server-side at **64 most-recent observations per asset**
+      *(M14.1/M14.9 — tests/api/test_values_endpoint.py covers each mode
+      (test_no_evaluation_session_is_404_with_recorded_note, the 404/409/422 rows, none empty-200);
+      tests/test_valuetap_service.py::test_ok_false_recompute_serves_completed_upstream_nodes; live
+      no-eval note (verbatim) + v1-run 404 in docs/reviews/2026-07-15-m14-closeout.md Steps 5a/5b.)*
+- [x] `series_preview` is capped server-side at **64 most-recent observations per asset**
       (the plan's constant; changing it is a reviewed diff, not a tweak).
-- [ ] The Inspector's "At session" section renders `value_summary` + `asset_values` /
+      *(M14.1 —
+      tests/test_valuetap_summarize.py::test_time_series_preview_capped_to_most_recent_per_asset.)*
+- [x] The Inspector's "At session" section renders `value_summary` + `asset_values` /
       `series_preview` for the selected node's output port(s) at the cursor, **with zero
       relayout of the slot**, alongside the trace facts it already shows.
-- [ ] The read-only component-internals Inspector (M13.9 O3) gains an "At session" section
+      *(M14.2a — web/src/components/Inspector.values.test.tsx (served summary/asset rows/series,
+      order preserved, per-port fetch) atop the pre-reserved M13.7 slot exercised in
+      Inspector.atsession.test.tsx (same section across empty/loading/error/values, no branch
+      relayout); live in docs/reviews/2026-07-15-m14-closeout.md Step 2, screenshot m149-02.)*
+- [x] The read-only component-internals Inspector (M13.9 O3) gains an "At session" section
       for inner nodes, addressed by the breadcrumb trail's `component_path`.
-- [ ] No numeric derivation exists in `web/` (review + test-asserted: the client renders
+      *(M14.2 — web/src/components/Inspector.componentNode.test.tsx +
+      web/src/App.componentInspect.test.tsx (inner-node "At session" addressed by the breadcrumb's
+      `component_path`); live in docs/reviews/2026-07-15-m14-closeout.md Steps 3–4, screenshots
+      m149-03 (exposed port) / m149-04 (inner `ret`).)*
+- [x] No numeric derivation exists in `web/` (review + test-asserted: the client renders
       served fields verbatim).
-- [ ] The new response DTO ships through the API-DTO codegen bundle; `python -m
+      *(M14.2 PX-C — re-reviewed 2026-07-16: `web/src/format.ts` `fmtValue` is per-number display
+      only (`toFixed(4)` + STRING trim gated on absence of `e` so exponent digits survive per
+      05ae5b6; verbatim value kept in a `title`) — no arithmetic, no cross-value op; Inspector.tsx
+      value path (lines 149–294) routes every served number through `fmtValue`, preserves server
+      order (no client sort), and derives no order/emphasis — the only comparisons are
+      `.length`/`!= null` render guards. Asserted by web/src/format.test.ts and
+      Inspector.values.test.tsx's no-client-sort test.)*
+- [x] The new response DTO ships through the API-DTO codegen bundle; `python -m
       quantize.codegen check` is clean; both `.d.ts` artifacts regenerate byte-stable.
-- [ ] `./scripts/gate.ps1` passes end-to-end.
-- [ ] Tap latency is logged server-side per request (flip-trigger 3 must be observable).
+      *(M14.1 — `NodeValueResponse` in quantize/api/dto/values.py generates into committed
+      schema/quantize-api.schema.json + ts/quantize-api.d.ts; `python -m quantize.codegen check`
+      is a green stage in the Task 1.6 gate (both `.d.ts` byte-stable); endpoint byte determinism
+      separately pinned by test_values_endpoint.py::test_identical_gets_are_byte_identical.)*
+- [x] `./scripts/gate.ps1` passes end-to-end.
+      *(M14.9 Task 1.6 published gate — all stages green: pytest 1054, web 633 tests / 64 files;
+      Task 9 re-runs the gate and reconciles the published counts before the PR.)*
+- [x] Tap latency is logged server-side per request (flip-trigger 3 must be observable).
+      *(M14.9 Task 1.5c, commits 65a0ae0/61169bf — quantize/valuetap/service.py `_log_attempt`
+      emits exactly one `value tap … elapsed_ms=` INFO record per resolution ATTEMPT (serve and
+      refusal alike); caplog tests test_valuetap_service.py::test_successful_tap_logs_one_elapsed_ms_line
+      / ::test_refused_tap_logs_one_line_carrying_its_code /
+      ::test_unknown_run_tap_logs_one_line_before_persistence_error_escapes; observed live (23-line
+      console capture, PASS) in docs/reviews/2026-07-15-m14-closeout.md Latency section. Boundary:
+      route-layer 422s never reach the service and are outside this instrument.)*
 
 **Explicitly NOT done in M14 (no claim of completion):** capture-at-run persistence,
 value-over-time series, edge-hover canvas dataflow (M14.3 — gated on §13 per D-4), new node
