@@ -39,8 +39,8 @@ re-verifies the set):
       demand, with `provenance.captured: false` and the run's recorded
       `dataset_fingerprint`.
       *(M14.1 — tests/api/test_values_endpoint.py::test_happy_path_targets_equal_persisted_weights
-      + ::test_body_validates_against_committed_schema; `ProvenanceDto.captured` is hard-False at
-      `quantize/api/dto/values.py:105`, with the run's recorded `dataset_fingerprint`.)*
+      + ::test_body_validates_against_committed_schema; `captured=False` is assigned at
+      `quantize/valuetap/service.py:263`, with the run's recorded `dataset_fingerprint`.)*
 - [x] The recompute dataset is **resolved by fingerprint** (runs store no dataset id): one
       match serves; zero matches and unknown-provenance runs refuse with structured errors;
       duplicate-content rows are all acceptable.
