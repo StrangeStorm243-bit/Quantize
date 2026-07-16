@@ -1606,9 +1606,10 @@ breadcrumb first, and the served address is qualified by the component path
 (`addr=n43c03b4…/ret port=values` in the server log). The walkthrough recorded QQQ's `ret` as **0.2232**
 — check your hand figure against that, and against what the tap serves.
 
-**Verification status (honest, per CLAUDE.md).** Full canonical gate green: **pytest 1054 · ruff check
+**Verification status (honest, per CLAUDE.md).** Full canonical gate green: **pytest 1060 · ruff check
 clean · ruff format · mypy clean · Node-24 · codegen check (artifacts up to date) · root `tsc` + web
-typecheck clean · web 633 tests / 64 files**. Beyond the gate, M14 was **driven live in the real
+typecheck clean · web 633 tests / 64 files** (1054 at the closeout PR; +6 from the 2026-07-16
+external-review fix pass — latency-instrument launch-path tests and the untyped-exception log test). Beyond the gate, M14 was **driven live in the real
 browser** (Playwright MCP, API + Vite dev servers up) against the ETF Momentum Rotation demo — the
 walkthrough (`docs/reviews/2026-07-15-m14-closeout.md`) records every tap's *observed* Inspector text
 and the `elapsed_ms` server lines, run against a **throwaway copy** of the demo DB (proven isolated by

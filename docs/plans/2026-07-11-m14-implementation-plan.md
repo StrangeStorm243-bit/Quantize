@@ -103,7 +103,8 @@ re-verifies the set):
       separately pinned by test_values_endpoint.py::test_identical_gets_are_byte_identical.)*
 - [x] `./scripts/gate.ps1` passes end-to-end.
       *(M14.9 Task 1.6 published gate — all stages green: pytest 1054, web 633 tests / 64 files;
-      Task 9 re-runs the gate and reconciles the published counts before the PR.)*
+      post-review fix pass 2026-07-16 reconciled the final published gate to pytest 1060, web
+      633/64 — see the closeout report addendum.)*
 - [x] Tap latency is logged server-side per request (flip-trigger 3 must be observable).
       *(M14.9 Task 1.5c, commits 65a0ae0/61169bf — quantize/valuetap/service.py `_log_attempt`
       emits exactly one `value tap … elapsed_ms=` INFO record per resolution ATTEMPT (serve and
@@ -111,7 +112,11 @@ re-verifies the set):
       / ::test_refused_tap_logs_one_line_carrying_its_code /
       ::test_unknown_run_tap_logs_one_line_before_persistence_error_escapes; observed live (23-line
       console capture, PASS) in docs/reviews/2026-07-15-m14-closeout.md Latency section. Boundary:
-      route-layer 422s never reach the service and are outside this instrument.)*
+      route-layer 422s never reach the service and are outside this instrument. Hardened by the
+      2026-07-16 review fix pass: untyped exceptions now log `outcome=unexpected_failure`
+      (::test_unexpected_failure_logs_one_line_before_escaping), and `create_app` enables the
+      instrument under the documented plain-uvicorn launch (tests/api/test_app_logging.py;
+      launch-path lines quoted in the closeout addendum).)*
 
 **Explicitly NOT done in M14 (no claim of completion):** capture-at-run persistence,
 value-over-time series, edge-hover canvas dataflow (M14.3 — gated on §13 per D-4), new node
