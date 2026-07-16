@@ -61,6 +61,10 @@ VALUE_ADDRESS_NOT_FOUND = "value_address_not_found"
 AMBIGUOUS_OUTPUT_PORT = "ambiguous_output_port"
 RECOMPUTE_FAILED = "recompute_failed"
 ENGINE_DRIFT = "engine_drift"
+# Not a ValueTapError code (never on the wire): the latency-log outcome for an exception the
+# service did not type — evaluator/database/programming faults that would otherwise bypass the
+# per-attempt instrument entirely.
+UNEXPECTED_FAILURE = "unexpected_failure"
 
 # The HTTP disposition of every code a ``ValueTapError`` can carry (the M14 plan's status table),
 # kept BESIDE the codes so adding a refusal reason is ONE edit site — a code defined here but
@@ -159,6 +163,11 @@ def resolve_node_value(
         # A refusal (typed ValueTapError) or an unknown-run PersistenceError still carries a
         # latency signal — log its outcome code before letting it propagate to the route.
         _log_attempt(run_id, addr, session_date, started, outcome=error.code)
+        raise
+    except Exception:
+        # An untyped exception (evaluator/database/programming fault) is still a resolution
+        # attempt — log the stable unexpected-failure outcome, then propagate unchanged.
+        _log_attempt(run_id, addr, session_date, started, outcome=UNEXPECTED_FAILURE)
         raise
     _log_attempt(run_id, addr, session_date, started, port=resolved.output_port)
     return resolved

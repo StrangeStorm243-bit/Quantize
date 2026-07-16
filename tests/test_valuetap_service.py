@@ -49,11 +49,13 @@ from quantize.valuetap import (
     AMBIGUOUS_OUTPUT_PORT,
     NO_EVALUATION_AT_SESSION,
     RECOMPUTE_FAILED,
+    UNEXPECTED_FAILURE,
     VALUE_ADDRESS_NOT_FOUND,
     ResolvedNodeValue,
     ValueTapError,
     resolve_node_value,
 )
+from quantize.valuetap import service as valuetap_service
 from quantize.valuetap.service import _select_output_port
 from tests.helpers import load_fixture
 from tests.market_fixture import fixture_close
@@ -616,6 +618,31 @@ def test_unknown_run_tap_logs_one_line_before_persistence_error_escapes(
     message = records[0].getMessage()
     assert "elapsed_ms=" in message
     assert ARTIFACT_NOT_FOUND in message
+
+
+def test_unexpected_failure_logs_one_line_before_escaping(
+    db: Database,
+    strategy_a_run: PersistedRunRecord,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected (non-typed) exception inside the resolve body must NOT bypass the latency
+    instrument: exactly one record carrying the stable ``unexpected_failure`` outcome, and the
+    exception itself propagates unchanged (no swallowing, no re-wrapping)."""
+
+    def _boom(*_args: object, **_kwargs: object) -> ResolvedNodeValue:
+        raise RuntimeError("injected unexpected failure")
+
+    monkeypatch.setattr(valuetap_service, "_resolve", _boom)
+    when = strategy_a_run.evaluations[-1].session_date
+    with caplog.at_level(logging.INFO, logger="quantize.valuetap"):
+        with pytest.raises(RuntimeError, match="injected unexpected failure"):
+            resolve_node_value(db, run_id=RUN_ID, node_id="ret", session_date=when)
+    records = [r for r in caplog.records if r.name == "quantize.valuetap"]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert "elapsed_ms=" in message
+    assert f"outcome={UNEXPECTED_FAILURE}" in message
 
 
 def _insert_dataset_row(
