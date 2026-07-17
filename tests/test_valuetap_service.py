@@ -18,11 +18,9 @@ from datetime import date, datetime
 import pytest
 
 from quantize.components.resolve import ComponentCatalog
-from quantize.engine.backtest import run_backtest
 from quantize.engine.records import BacktestResult
-from quantize.engine.state import PortfolioState
 from quantize.market.data import MarketDataSet
-from quantize.nodes import build_core_catalog, core_node_implementations
+from quantize.nodes import core_node_implementations
 from quantize.persistence.database import Database
 from quantize.persistence.datasets import DatasetRepository
 from quantize.persistence.documents import ComponentRepository
@@ -60,16 +58,19 @@ from quantize.valuetap.service import _select_output_port
 from tests.helpers import load_fixture
 from tests.market_fixture import fixture_close
 from tests.valuetap_helpers import (
+    PINNED_CASH,
     dual_component,
     dual_strategy,
     momentum_component,
     outer_momentum_component,
     outer_momentum_strategy,
+    persist_backtest_run,
+    run_pinned_backtest,
 )
 
 RUN_ID = "99999999-9999-9999-9999-999999999999"
 UNKNOWN_RUN_ID = "88888888-8888-8888-8888-888888888888"
-CASH = 1_000_000.0
+CASH = PINNED_CASH  # the shared seeding cash — local alias for the fixture-arithmetic assertions
 LOOKBACK = 126  # strategy_a's trailing-return window (the fixture-arithmetic anchor)
 
 
@@ -83,14 +84,7 @@ def _run(
     *,
     components: ComponentCatalog | None = None,
 ) -> BacktestResult:
-    return run_backtest(
-        document,
-        catalog=build_core_catalog(),
-        market_data=market,
-        run_id=RUN_ID,
-        initial_state=PortfolioState.of(cash=CASH),
-        components=components,
-    )
+    return run_pinned_backtest(document, market, run_id=RUN_ID, components=components)
 
 
 @pytest.fixture(scope="module")
@@ -116,13 +110,8 @@ def _persist(
     *,
     save_dataset: bool = True,
 ) -> PersistedRunRecord:
-    """Persist a PRECOMPUTED backtest (and, by default, its dataset) into a fresh db. Returns the
-    loaded record."""
-    if save_dataset:
-        DatasetRepository(db).save(market)
-    runs = RunRepository(db)
-    runs.save_run(document, result, input_provenance=recorded_input_provenance(market))
-    return runs.load_run(RUN_ID)
+    """Persist a PRECOMPUTED backtest into a fresh db via the SHARED seeding helper."""
+    return persist_backtest_run(db, document, result, market, save_dataset=save_dataset)
 
 
 @pytest.fixture
