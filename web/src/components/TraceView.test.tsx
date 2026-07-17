@@ -152,6 +152,39 @@ function renderTrace(props: {
 }
 
 describe('TraceView', () => {
+  it('renders numeric payload fields through the shared display formatter, verbatim in the title (D-27)', () => {
+    renderTrace({
+      runId: 'run-1',
+      sessions: ['2026-05-15'],
+      sessionCursor: '2026-05-15',
+      trees: [
+        {
+          run_id: 'run-1',
+          instant: '2026-05-15T21:00:00+00:00',
+          roots: [
+            treeNode({
+              node_id: 'sig',
+              events: [
+                event({
+                  node_id: 'sig',
+                  event_type: 'mystery.numeric',
+                  payload: { v: 1, signal: 0.025015130971708377 },
+                }),
+              ],
+            }),
+          ],
+        },
+      ],
+    })
+
+    // The served 17-digit float displays trimmed — one shared formatter across all panels — and the
+    // verbatim served number stays reachable in the cell's title.
+    const valueCell = screen.getByText('0.025')
+    expect(valueCell).toBeInTheDocument()
+    expect(valueCell).toHaveAttribute('title', '0.025015130971708377')
+    expect(screen.queryByText('0.025015130971708377')).not.toBeInTheDocument()
+  })
+
   it('renders the served nested tree for the cursor session with tailored + generic renderers', () => {
     renderTrace({
       runId: 'run-1',

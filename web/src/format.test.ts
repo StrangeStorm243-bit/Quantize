@@ -25,8 +25,17 @@ describe('fmtValue', () => {
     expect(fmtValue(0.025)).toBe('0.025')
   })
 
-  it('normalizes a tiny negative that rounds to zero magnitude to plain 0 (no -0)', () => {
-    expect(fmtValue(-0.00001)).toBe('0')
+  it('never displays a nonzero served value as a bare 0 — falls back to exponential (D-27)', () => {
+    // A returns-scale signal below the 4-dp floor must stay visibly nonzero: 0.0000 would tell the
+    // user the signal is zero when it is not. The fallback is still per-number display formatting.
+    expect(fmtValue(0.000025015)).toBe('2.5e-5')
+    expect(fmtValue(-0.00001)).toBe('-1e-5')
+    expect(fmtValue(1e-7)).toBe('1e-7')
+  })
+
+  it('keeps exact zero (and served -0) as plain 0 — the fallback is for nonzero only', () => {
+    expect(fmtValue(0)).toBe('0')
+    expect(fmtValue(-0)).toBe('0')
   })
 
   it('passes an exponent-notation toFixed result through (documented, accepted)', () => {

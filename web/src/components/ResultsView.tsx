@@ -4,6 +4,7 @@
 // record is a valid run to inspect, not an error.
 import type { ReactElement } from 'react'
 import type { RunRecordResponse } from '@quantize/quantize-api'
+import { fmtValue } from '../format'
 import { SvgLineChart } from './SvgLineChart'
 
 export interface ResultsViewProps {
@@ -20,11 +21,8 @@ export interface ResultsViewProps {
   onSelectSession?: ((date: string) => void) | undefined
 }
 
-// Display formatting only — a raw record number rendered with a fixed precision. Non-finite guards
-// keep a malformed value visible rather than crashing; this is presentation, not derivation.
-function fmt(value: number, digits = 4): string {
-  return Number.isFinite(value) ? value.toFixed(digits) : String(value)
-}
+// Display formatting: the ONE shared display formatter (D-27 — Inspector, TraceView, ResultsView,
+// RunPanel all render numbers identically); the verbatim served number stays in each cell's title.
 
 export function ResultsView({
   runId,
@@ -84,20 +82,21 @@ export function ResultsView({
         </span>
       </div>
 
-      <SvgLineChart points={record.valuations} onSelectPoint={onSelectSession} />
+      {/* Axis labels through the shared formatter too (D-27) — pure display of the served points. */}
+      <SvgLineChart points={record.valuations} onSelectPoint={onSelectSession} formatValue={fmtValue} />
 
       <dl className="results__stats">
         <div className="results__stat">
           <dt>Total return</dt>
-          <dd>{fmt(record.total_return)}</dd>
+          <dd title={String(record.total_return)}>{fmtValue(record.total_return)}</dd>
         </div>
         <div className="results__stat">
           <dt>Max drawdown</dt>
-          <dd>{fmt(record.max_drawdown)}</dd>
+          <dd title={String(record.max_drawdown)}>{fmtValue(record.max_drawdown)}</dd>
         </div>
         <div className="results__stat">
           <dt>Final cash</dt>
-          <dd>{fmt(record.final_cash, 2)}</dd>
+          <dd title={String(record.final_cash)}>{fmtValue(record.final_cash)}</dd>
         </div>
       </dl>
 
@@ -126,7 +125,7 @@ export function ResultsView({
                     {evaluation.target_weights.length > 0 ? (
                       <ul className="results__cells">
                         {evaluation.target_weights.map(([asset, weight], j) => (
-                          <li key={`${asset}:${j}`}>{`${asset} ${fmt(weight)}`}</li>
+                          <li key={`${asset}:${j}`} title={String(weight)}>{`${asset} ${fmtValue(weight)}`}</li>
                         ))}
                       </ul>
                     ) : (

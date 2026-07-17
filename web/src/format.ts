@@ -8,12 +8,14 @@
 // malformed value stays VISIBLE rather than crashing (the ResultsView guard). A finite number renders
 // at 4 dp, then trailing zeros (and any bare decimal point) are trimmed by STRING manipulation of the
 // toFixed result — never arithmetic on the value — so integer-valued served numbers (ranks, counts)
-// show bare (`126`, not `126.0000`) while `0.025` keeps its digits. Two edge cases are pinned in the
-// tests: a tiny negative that rounds to zero magnitude normalizes to plain `0` (not the confusing `-0`),
-// and a magnitude ≥ 1e21 where `toFixed` itself returns exponent notation (`1e+30`, `1.5e+50`) passes
-// through WHOLE — the trim is gated on the absence of an 'e', because in exponent notation trailing
-// digits are magnitude, not padding (an unconditional trim turns `1e+30` into `1e+3`; a '.'-presence
-// gate is not enough — `1.5e+50` has a mantissa dot and would still lose its exponent's zero).
+// show bare (`126`, not `126.0000`) while `0.025` keeps its digits. Edge cases pinned in the tests:
+// a NONZERO value whose 4-dp render would trim to bare `0` falls back to exponential notation
+// (`2.5e-5`) — a returns-scale signal must never display as zero (D-27) — while exact zero (and a
+// served `-0`) stays plain `0`; and a magnitude ≥ 1e21 where `toFixed` itself returns exponent
+// notation (`1e+30`, `1.5e+50`) passes through WHOLE — the trim is gated on the absence of an 'e',
+// because in exponent notation trailing digits are magnitude, not padding (an unconditional trim
+// turns `1e+30` into `1e+3`; a '.'-presence gate is not enough — `1.5e+50` has a mantissa dot and
+// would still lose its exponent's zero).
 export function fmtValue(value: number | boolean): string {
   if (typeof value === 'boolean') return String(value)
   if (!Number.isFinite(value)) return String(value)
@@ -21,7 +23,12 @@ export function fmtValue(value: number | boolean): string {
   // Trim the fractional tail (trailing zeros, then a dangling point) only in plain notation; a
   // non-exponent toFixed(4) always carries a '.', so the trim can never eat integer digits.
   const trimmed = fixed.includes('e') ? fixed : fixed.replace(/\.?0+$/, '')
-  // A tiny negative rounds to '-0' after trimming; show it as plain '0' (a sign on a zero is noise, not info).
+  if ((trimmed === '0' || trimmed === '-0') && value !== 0) {
+    // Sub-4-dp nonzero: exponential keeps it visibly nonzero; the mantissa's own zero tail trims
+    // ('1.00e-7' → '1e-7') — string manipulation of one number's rendering, never arithmetic.
+    return value.toExponential(2).replace(/\.?0+e/, 'e')
+  }
+  // A tiny -0 (or a served -0) trims to '-0'; show plain '0' (a sign on a zero is noise, not info).
   return trimmed === '-0' ? '0' : trimmed
 }
 

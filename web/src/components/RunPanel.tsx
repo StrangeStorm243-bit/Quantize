@@ -8,6 +8,7 @@ import type { ReactElement } from 'react'
 import type { BacktestRunRequest, ForwardRunRequest } from '@quantize/quantize-api'
 import type { StrategyDocument } from '@quantize/quantize-ir'
 import { errorMessage, listRuns, runBacktest, runForward } from '../api/client'
+import { fmtValue } from '../format'
 import { useFetch } from '../useFetch'
 
 type RunMode = 'backtest' | 'forward'
@@ -223,8 +224,9 @@ export function RunPanel({ doc, datasetId, selectedRunId, onSelectRun }: RunPane
             className={`rpanel__row ${row.run_id === selectedRunId ? 'is-selected' : ''}`}
           >
             <code className="rpanel__row-id">{abbrev(row.run_id)}</code>
-            <span className="rpanel__row-meta">
-              {row.mode} · {row.ok ? 'ok' : 'failed'} · ret {row.total_return}
+            {/* The served return through the shared display formatter (D-27); verbatim in the title. */}
+            <span className="rpanel__row-meta" title={`ret ${String(row.total_return)}`}>
+              {row.mode} · {row.ok ? 'ok' : 'failed'} · ret {fmtValue(row.total_return)}
             </span>
             <button type="button" className="pform__btn" onClick={() => onSelectRun(row.run_id)}>
               View

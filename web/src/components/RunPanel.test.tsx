@@ -154,6 +154,32 @@ describe('RunPanel', () => {
   })
 })
 
+describe('RunPanel run-list display (D-27)', () => {
+  it("renders a run row's return through the shared display formatter, verbatim in the title", async () => {
+    mockListRuns.mockResolvedValue({
+      runs: [
+        {
+          run_id: 'run-1',
+          mode: 'backtest',
+          ok: true,
+          total_return: 0.025015130971708377,
+          first_session: null,
+          last_session: null,
+          saved_at: '2026-07-16T00:00:00Z',
+          strategy_id: 's1',
+          strategy_version: 2,
+        },
+      ],
+    })
+    render(
+      <RunPanel doc={makeDoc()} datasetId={DATASET} selectedRunId={undefined} onSelectRun={vi.fn()} />,
+    )
+    // The 17-digit served float displays trimmed (never raw), with the verbatim number in the title.
+    const meta = await screen.findByText(/ret 0\.025$/)
+    expect(meta).toHaveAttribute('title', 'ret 0.025015130971708377')
+  })
+})
+
 describe('RunPanel execution-mode framing (M13.3)', () => {
   it('shows a persistent simulation-only notice at the run-launch surface', async () => {
     render(
