@@ -446,6 +446,25 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     expect(within(shell).queryByText(/Recomputed on demand/)).not.toBeInTheDocument()
   })
 
+  it('prefixes a refusal with the node display label — a tester never reads only a hash id (FD-6a)', async () => {
+    // The served message stays verbatim (it names the raw id); the client, which already holds the
+    // catalog display name, prefixes it as presentation — data it has, no derivation.
+    asMock().mockRejectedValue(
+      new ApiClientError('value_address_not_found', 'node x does not exist in this run’s strategy', 404),
+    )
+    render(
+      <Inspector
+        doc={docWith('x', 'transform.trailing_return')}
+        selectedNodeId="x"
+        actions={stubActions()}
+        atSession={atSession()}
+      />,
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    const alert = await within(shell).findByRole('alert')
+    expect(alert).toHaveTextContent('Trailing Return — node x does not exist in this run’s strategy')
+  })
+
   it('never fetches a value for a NON-evaluated session (the honest no-eval line renders instead)', () => {
     render(
       <Inspector
