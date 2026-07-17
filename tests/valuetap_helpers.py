@@ -65,6 +65,7 @@ def persist_backtest_run(
     runs.save_run(document, result, input_provenance=recorded_input_provenance(market))
     return runs.load_run(result.run_id)
 
+
 DUAL_COMPONENT_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 OUTER_MOMENTUM_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 MOMENTUM_COMPONENT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"  # component_momentum fixture
