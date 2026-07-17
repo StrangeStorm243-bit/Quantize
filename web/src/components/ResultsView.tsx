@@ -4,7 +4,7 @@
 // record is a valid run to inspect, not an error.
 import type { ReactElement } from 'react'
 import type { RunRecordResponse } from '@quantize/quantize-api'
-import { fmtValue } from '../format'
+import { fmtValue, verbatimTitle } from '../format'
 import { SvgLineChart } from './SvgLineChart'
 
 export interface ResultsViewProps {
@@ -88,15 +88,17 @@ export function ResultsView({
       <dl className="results__stats">
         <div className="results__stat">
           <dt>Total return</dt>
-          <dd title={String(record.total_return)}>{fmtValue(record.total_return)}</dd>
+          <dd {...verbatimTitle(record.total_return)}>{fmtValue(record.total_return)}</dd>
         </div>
         <div className="results__stat">
           <dt>Max drawdown</dt>
-          <dd title={String(record.max_drawdown)}>{fmtValue(record.max_drawdown)}</dd>
+          <dd {...verbatimTitle(record.max_drawdown)}>{fmtValue(record.max_drawdown)}</dd>
         </div>
         <div className="results__stat">
           <dt>Final cash</dt>
-          <dd title={String(record.final_cash)}>{fmtValue(record.final_cash)}</dd>
+          {/* D-27 flattened the old dedicated 2-dp money rendering (fmt(x, 2)) into the ONE shared
+              formatter — integer cash shows bare ('1000000', not '1000000.00'); verbatim in title. */}
+          <dd {...verbatimTitle(record.final_cash)}>{fmtValue(record.final_cash)}</dd>
         </div>
       </dl>
 
@@ -125,7 +127,7 @@ export function ResultsView({
                     {evaluation.target_weights.length > 0 ? (
                       <ul className="results__cells">
                         {evaluation.target_weights.map(([asset, weight], j) => (
-                          <li key={`${asset}:${j}`} title={String(weight)}>{`${asset} ${fmtValue(weight)}`}</li>
+                          <li key={`${asset}:${j}`} {...verbatimTitle(weight)}>{`${asset} ${fmtValue(weight)}`}</li>
                         ))}
                       </ul>
                     ) : (
@@ -181,8 +183,8 @@ export function ResultsView({
                   <td>{sessionCell(fill.session_date)}</td>
                   <td>{fill.side}</td>
                   <td>{fill.asset}</td>
-                  <td title={String(fill.quantity)}>{fmtValue(fill.quantity)}</td>
-                  <td title={String(fill.price)}>{fmtValue(fill.price)}</td>
+                  <td {...verbatimTitle(fill.quantity)}>{fmtValue(fill.quantity)}</td>
+                  <td {...verbatimTitle(fill.price)}>{fmtValue(fill.price)}</td>
                   <td>{fill.scaled ? 'yes' : 'no'}</td>
                 </tr>
               ))}

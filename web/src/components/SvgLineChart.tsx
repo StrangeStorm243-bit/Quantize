@@ -5,6 +5,7 @@
 // `chartPoints` is the extracted, unit-tested mapping; the component only draws its output.
 import { useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
+import { verbatimTitle } from '../format'
 
 /** A pixel coordinate in the chart's viewBox. */
 export interface ChartPoint {
@@ -126,15 +127,15 @@ export function SvgLineChart({
       {/* Readout of the hovered point — the record date and its value through the caller's formatter
           (default `String`, never derived). role="status" announces it to assistive tech as the hover moves. */}
       {interactive && hoverIndex !== null ? (
-        <div className="chart__readout" role="status" title={String(points[hoverIndex][1])}>
+        <div className="chart__readout" role="status" {...verbatimTitle(points[hoverIndex][1])}>
           {points[hoverIndex][0]} · {formatValue(points[hoverIndex][1])}
         </div>
       ) : null}
       <div className="chart__axis chart__axis--y">
-        <span className="chart__label" title={String(maxValue)}>
+        <span className="chart__label" {...verbatimTitle(maxValue)}>
           {formatValue(maxValue)}
         </span>
-        <span className="chart__label" title={String(minValue)}>
+        <span className="chart__label" {...verbatimTitle(minValue)}>
           {formatValue(minValue)}
         </span>
       </div>
