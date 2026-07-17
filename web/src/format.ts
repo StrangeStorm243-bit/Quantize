@@ -1,8 +1,10 @@
-// Display-only formatting helpers (PX-C/PX-E). PRESENTATION ONLY: each function takes a SINGLE
-// already-served value and returns a display string — it never sums, compares, sorts, or otherwise
-// derives across values (CLAUDE.md invariant 5, the ResultsView `fmt` precedent). The verbatim value
-// must stay reachable at the call site (rendered into a `title`), so nothing here is lossy in a way
-// that hides the source number; these helpers only choose how the one served number is shown.
+// Display-only formatting helpers (PX-C/PX-E; D-27: the ONE shared display formatter every panel —
+// Inspector, TraceView, ResultsView, RunPanel — renders numbers through). PRESENTATION ONLY: each
+// function takes a SINGLE already-served value and returns a display string (or a title-props
+// fragment) — it never sums, compares, sorts, or otherwise derives across values (CLAUDE.md
+// invariant 5). The verbatim value must stay reachable at the call site (rendered into a `title`,
+// see `verbatimTitle`), so nothing here is lossy in a way that hides the source number; these
+// helpers only choose how the one served number is shown.
 
 // One served number → its display string. Booleans and non-finite numbers pass through String() so a
 // malformed value stays VISIBLE rather than crashing (the ResultsView guard). A finite number renders
@@ -30,6 +32,14 @@ export function fmtValue(value: number | boolean): string {
   }
   // A tiny -0 (or a served -0) trims to '-0'; show plain '0' (a sign on a zero is noise, not info).
   return trimmed === '-0' ? '0' : trimmed
+}
+
+// The verbatim-title half of the D-27 pairing: a props fragment carrying the raw served number for
+// the element that displays its `fmtValue` rendering, so the exact value is always one hover away.
+// Non-numbers return an empty fragment (they already display verbatim), which spreads to nothing —
+// `<span {...verbatimTitle(v)}>{cell(v)}</span>` is safe for any served cell.
+export function verbatimTitle(value: unknown): { title?: string } {
+  return typeof value === 'number' ? { title: String(value) } : {}
 }
 
 // A long content-addressed id → head…tail for display, with the full id kept in a `title` at the call

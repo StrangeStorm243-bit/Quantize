@@ -14,7 +14,7 @@
 import type { ReactElement } from 'react'
 import type { JsonValue, PersistedNote, TraceEvent, TraceTreeDto, TraceTreeNodeDto } from '@quantize/quantize-api'
 import { noEvaluationLine } from '../document/schedule'
-import { fmtValue } from '../format'
+import { fmtValue, verbatimTitle } from '../format'
 import { NoteLine } from './NoteLine'
 
 export interface TraceViewProps {
@@ -86,12 +86,6 @@ function cell(value: JsonValue | undefined): string {
   return String(value)
 }
 
-// The verbatim `title` for a cell: the raw served number for numerics, nothing otherwise (a string
-// cell already displays verbatim). Returned as a props fragment so `title` is simply absent when
-// there is nothing to preserve.
-function verbatimTitle(value: JsonValue | undefined): { title?: string } {
-  return typeof value === 'number' ? { title: String(value) } : {}
-}
 
 // --- Tailored per-event renderers ----------------------------------------------------------------
 
@@ -133,7 +127,9 @@ function RankAssigned({ payload }: { payload: TraceEvent['payload'] }): ReactEle
           return (
             <li key={i} className="trace-event__row">
               <span className="trace-event__cell">{cell(asset)}</span>
-              <span className="trace-event__cell">{cell(rank)}</span>
+              <span className="trace-event__cell" {...verbatimTitle(rank)}>
+                {cell(rank)}
+              </span>
             </li>
           )
         })}
@@ -147,9 +143,12 @@ function OrdersProposed({ payload }: { payload: TraceEvent['payload'] }): ReactE
   const omitted = asArray(payload.omitted)
   return (
     <div className="trace-event__body">
-      {/* Money fields display through the shared formatter; the verbatim PV survives in the title. */}
-      <span className="trace-event__kv trace-event__kv--muted" {...verbatimTitle(payload.portfolio_value)}>
-        PV {cell(payload.portfolio_value)} · target cash {cell(payload.target_cash)} · projected {cell(payload.projected_cash)}
+      {/* Money fields display through the shared formatter; EACH figure carries ITS OWN verbatim
+          title — one title over three numbers would misattribute whichever the user hovers. */}
+      <span className="trace-event__kv trace-event__kv--muted">
+        PV <span {...verbatimTitle(payload.portfolio_value)}>{cell(payload.portfolio_value)}</span> ·
+        target cash <span {...verbatimTitle(payload.target_cash)}>{cell(payload.target_cash)}</span> ·
+        projected <span {...verbatimTitle(payload.projected_cash)}>{cell(payload.projected_cash)}</span>
       </span>
       {orders.length > 0 ? (
         <ul className="trace-event__rows">
@@ -159,7 +158,9 @@ function OrdersProposed({ payload }: { payload: TraceEvent['payload'] }): ReactE
               <li key={i} className="trace-event__row">
                 <span className="trace-event__token">{cell(side)}</span>
                 <span className="trace-event__cell">{cell(asset)}</span>
-                <span className="trace-event__cell">{cell(qty)}</span>
+                <span className="trace-event__cell" {...verbatimTitle(qty)}>
+                  {cell(qty)}
+                </span>
               </li>
             )
           })}
@@ -177,7 +178,9 @@ function OrdersProposed({ payload }: { payload: TraceEvent['payload'] }): ReactE
                 <li key={i} className="trace-event__row">
                   <span className="trace-event__cell">{cell(asset)}</span>
                   <code className="trace-event__token">{cell(reason)}</code>
-                  <span className="trace-event__cell">{cell(qty)}</span>
+                  <span className="trace-event__cell" {...verbatimTitle(qty)}>
+                    {cell(qty)}
+                  </span>
                 </li>
               )
             })}
@@ -199,7 +202,9 @@ function OrdersFilled({ payload }: { payload: TraceEvent['payload'] }): ReactEle
             <li key={i} className="trace-event__row">
               <span className="trace-event__token">{cell(side)}</span>
               <span className="trace-event__cell">{cell(asset)}</span>
-              <span className="trace-event__cell">{cell(qty)}</span>
+              <span className="trace-event__cell" {...verbatimTitle(qty)}>
+                {cell(qty)}
+              </span>
               <span className="trace-event__cell" {...verbatimTitle(price)}>
                 @ {cell(price)}
               </span>

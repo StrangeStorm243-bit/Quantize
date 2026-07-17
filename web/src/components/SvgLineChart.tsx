@@ -50,9 +50,9 @@ export interface SvgLineChartProps {
    *  per-series consumer (the Inspector value-tap sparkline, M14.2) passes its own asset label. */
   ariaLabel?: string
   /** Display formatting for an axis label (and the hover readout's value) — caller-supplied, still pure
-   *  presentation of one already-plotted value (invariant 5). Defaults to `String` so the ResultsView
-   *  consumer keeps its verbatim rendering; the value-tap sparkline passes `fmtValue` (PX-1) so its
-   *  min/max labels don't leak a 17-digit float. */
+   *  presentation of one already-plotted value (invariant 5). Defaults to `String`; ResultsView and the
+   *  value-tap sparkline both pass `fmtValue` (D-27) so no label leaks a 17-digit float. The verbatim
+   *  value stays reachable regardless: the readout and the y-axis labels carry it in a `title`. */
   formatValue?: (value: number) => string
 }
 
@@ -126,13 +126,17 @@ export function SvgLineChart({
       {/* Readout of the hovered point — the record date and its value through the caller's formatter
           (default `String`, never derived). role="status" announces it to assistive tech as the hover moves. */}
       {interactive && hoverIndex !== null ? (
-        <div className="chart__readout" role="status">
+        <div className="chart__readout" role="status" title={String(points[hoverIndex][1])}>
           {points[hoverIndex][0]} · {formatValue(points[hoverIndex][1])}
         </div>
       ) : null}
       <div className="chart__axis chart__axis--y">
-        <span className="chart__label">{formatValue(maxValue)}</span>
-        <span className="chart__label">{formatValue(minValue)}</span>
+        <span className="chart__label" title={String(maxValue)}>
+          {formatValue(maxValue)}
+        </span>
+        <span className="chart__label" title={String(minValue)}>
+          {formatValue(minValue)}
+        </span>
       </div>
       <div className="chart__axis chart__axis--x">
         <span className="chart__label">{firstDate}</span>

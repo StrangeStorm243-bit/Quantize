@@ -174,9 +174,12 @@ describe('RunPanel run-list display (D-27)', () => {
     render(
       <RunPanel doc={makeDoc()} datasetId={DATASET} selectedRunId={undefined} onSelectRun={vi.fn()} />,
     )
-    // The 17-digit served float displays trimmed (never raw), with the verbatim number in the title.
-    const meta = await screen.findByText(/ret 0\.025$/)
-    expect(meta).toHaveAttribute('title', 'ret 0.025015130971708377')
+    // The 17-digit served float displays trimmed (never raw); the NUMBER's own element carries the
+    // bare verbatim value in its title (the shared verbatim-title shape — no label baked in).
+    const value = await screen.findByText('0.025')
+    expect(value).toHaveAttribute('title', '0.025015130971708377')
+    // The row meta still reads as one line around it.
+    expect(screen.getByText(/backtest · ok · ret/)).toBeInTheDocument()
   })
 })
 

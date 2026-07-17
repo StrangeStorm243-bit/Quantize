@@ -4,6 +4,7 @@
 // that index verbatim — it derives no number (invariant 5).
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fmtValue } from '../format'
 import { SvgLineChart, chartPoints } from './SvgLineChart'
 
 describe('chartPoints', () => {
@@ -97,6 +98,27 @@ describe('SvgLineChart interactivity (M13.7)', () => {
     expect(readout).toHaveTextContent('1050000.5')
     // A crosshair line is drawn while hovering.
     expect(container.querySelector('.chart__crosshair')).not.toBeNull()
+  })
+
+  it('keeps the verbatim value reachable in titles when a display formatter is supplied (D-27)', () => {
+    mockRect(100)
+    const fractional: [string, number][] = [
+      ['2025-07-31', 1_000_000],
+      ['2025-08-29', 1_050_000.500049],
+    ]
+    const { container } = render(
+      <SvgLineChart points={fractional} onSelectPoint={() => {}} formatValue={fmtValue} />,
+    )
+    const svg = container.querySelector('svg')!
+    fireEvent.mouseMove(svg, { clientX: 100 })
+    // The readout displays through the caller's formatter, but the served number survives in the title.
+    const readout = screen.getByRole('status')
+    expect(readout).toHaveTextContent('1050000.5')
+    expect(readout).toHaveAttribute('title', '1050000.500049')
+    // The y-axis min/max labels carry their verbatim values the same way.
+    const yLabels = container.querySelectorAll('.chart__axis--y .chart__label')
+    expect(yLabels[0]).toHaveAttribute('title', '1050000.500049')
+    expect(yLabels[1]).toHaveAttribute('title', '1000000')
   })
 
   it('calls onSelectPoint with the nearest SERVER date on click', () => {

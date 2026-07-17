@@ -209,6 +209,14 @@ describe('ResultsView interactivity (M13.7)', () => {
     expect(screen.getByText('sell QQQ 7')).toBeInTheDocument()
   })
 
+  it('renders fill quantity and price through the shared formatter with verbatim titles (D-27)', () => {
+    const rec = record()
+    rec.fills = [{ ...rec.fills[0], quantity: 7.000500123456789, price: 500.12345678901 }]
+    render(<ResultsView runId="run-1" record={response(rec)} loading={false} error={undefined} />)
+    expect(screen.getByText('500.1235')).toHaveAttribute('title', '500.12345678901')
+    expect(screen.getByText('7.0005')).toHaveAttribute('title', '7.000500123456789')
+  })
+
   it('handles an evaluation with no targets and no orders gracefully (placeholders, no crash)', () => {
     const rec = record()
     rec.evaluations = [{ ...rec.evaluations[0], target_weights: [], orders: [] }]

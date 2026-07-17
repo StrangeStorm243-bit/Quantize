@@ -185,6 +185,48 @@ describe('TraceView', () => {
     expect(screen.queryByText('0.025015130971708377')).not.toBeInTheDocument()
   })
 
+  it('gives each money figure and quantity its own verbatim title in orders_proposed (D-27)', () => {
+    renderTrace({
+      runId: 'run-1',
+      sessions: ['2026-05-15'],
+      sessionCursor: '2026-05-15',
+      trees: [
+        {
+          run_id: 'run-1',
+          instant: '2026-05-15T21:00:00+00:00',
+          roots: [
+            treeNode({
+              node_id: 'engine',
+              origin: 'engine',
+              events: [
+                event({
+                  node_id: 'engine',
+                  event_type: 'engine.orders_proposed',
+                  payload: {
+                    v: 1,
+                    portfolio_value: 100000.123456789,
+                    target_cash: 0.025015130971708377,
+                    projected_cash: 2.5e-13,
+                    orders: [['buy', 'SPY', 7.000500123456789]],
+                    omitted: [],
+                  },
+                }),
+              ],
+            }),
+          ],
+        },
+      ],
+    })
+
+    // Each of the three money figures displays formatted, and hovering ITS element recovers ITS
+    // verbatim value — never a sibling's (one title over three numbers misattributes on hover).
+    expect(screen.getByText('100000.1235')).toHaveAttribute('title', '100000.123456789')
+    expect(screen.getByText('0.025')).toHaveAttribute('title', '0.025015130971708377')
+    expect(screen.getByText('2.5e-13')).toHaveAttribute('title', '2.5e-13')
+    // A fractional (cash-scaled) order quantity keeps its verbatim too.
+    expect(screen.getByText('7.0005')).toHaveAttribute('title', '7.000500123456789')
+  })
+
   it('renders the served nested tree for the cursor session with tailored + generic renderers', () => {
     renderTrace({
       runId: 'run-1',

@@ -3,7 +3,7 @@
 // integer-valued served numbers left un-grown — plus abbrev's head…tail elision for long ids. No
 // arithmetic, no aggregation: the tests below never sum/compare across values.
 import { describe, expect, it } from 'vitest'
-import { abbrev, fmtValue } from './format'
+import { abbrev, fmtValue, verbatimTitle } from './format'
 
 describe('fmtValue', () => {
   it('trims a long fractional to 4 dp without dangling zeros', () => {
@@ -59,6 +59,20 @@ describe('fmtValue', () => {
     expect(fmtValue(Number.NaN)).toBe('NaN')
     expect(fmtValue(Number.POSITIVE_INFINITY)).toBe('Infinity')
     expect(fmtValue(Number.NEGATIVE_INFINITY)).toBe('-Infinity')
+  })
+})
+
+describe('verbatimTitle', () => {
+  it('returns a title-props fragment carrying the raw served number', () => {
+    expect(verbatimTitle(0.025015130971708377)).toEqual({ title: '0.025015130971708377' })
+    expect(verbatimTitle(7.000500123456789)).toEqual({ title: '7.000500123456789' })
+  })
+
+  it('returns an empty fragment for non-numbers (they already display verbatim)', () => {
+    expect(verbatimTitle('SPY')).toEqual({})
+    expect(verbatimTitle(true)).toEqual({})
+    expect(verbatimTitle(undefined)).toEqual({})
+    expect(verbatimTitle(null)).toEqual({})
   })
 })
 

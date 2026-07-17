@@ -103,7 +103,7 @@ export function ResultsView({
       {/* Evaluations are the GRAPH's per-session decisions — the Target Portfolio (target_weights) the
           strategy asked for, and the orders the engine reconciled from it — distinct from the engine's
           fills below, so they get their own section ABOVE the Engine stage. Every weight/order value is
-          a served record field formatted for display (fmt), never a client-side computation
+          a served record field formatted for display (fmtValue), never a client-side computation
           (invariant 5): the story is Target Portfolio → Orders → Fills → Portfolio Evolution. */}
       <section className="results__section">
         <h4 className="results__section-title">Evaluations ({record.evaluations.length})</h4>
@@ -181,8 +181,8 @@ export function ResultsView({
                   <td>{sessionCell(fill.session_date)}</td>
                   <td>{fill.side}</td>
                   <td>{fill.asset}</td>
-                  <td>{fill.quantity}</td>
-                  <td>{fill.price}</td>
+                  <td title={String(fill.quantity)}>{fmtValue(fill.quantity)}</td>
+                  <td title={String(fill.price)}>{fmtValue(fill.price)}</td>
                   <td>{fill.scaled ? 'yes' : 'no'}</td>
                 </tr>
               ))}
