@@ -4,12 +4,14 @@ import type { ComponentDefinition, Graph, StrategyDocument } from '@quantize/qua
 import catalogJson from '../../../tests/goldens/node_catalog.json'
 import {
   componentCacheKey,
+  edgeAddress,
   findComponentRef,
   resolveComponentDef,
   resolveTrailFromPath,
   resolveUniverseTickers,
   toFlow,
 } from './flow'
+import type { ComponentTrailEntry } from './flow'
 
 const catalog = catalogJson as unknown as NodeCatalogResponse
 
@@ -517,5 +519,34 @@ describe('resolveTrailFromPath', () => {
 
   it('returns [] for an empty path', () => {
     expect(resolveTrailFromPath(doc, [], fullMap)).toEqual([])
+  })
+})
+
+// A trail entry helper — only `instanceId` participates in the address; the pinned identity is padding.
+const trailEntry = (instanceId: string): ComponentTrailEntry => ({
+  componentId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  version: '1.0.0',
+  instanceId,
+})
+
+describe('edgeAddress', () => {
+  it('maps a top-level edge to its source-end tap address with an empty component path', () => {
+    expect(edgeAddress({ source: 'px', sourceHandle: 'series' }, [])).toEqual({
+      nodeId: 'px',
+      componentPath: [],
+      outputPort: 'series',
+    })
+  })
+
+  it('projects the trail instance ids (outermost first) as the component path', () => {
+    expect(
+      edgeAddress({ source: 'px', sourceHandle: 'series' }, [trailEntry('mom'), trailEntry('inner')]),
+    ).toEqual({ nodeId: 'px', componentPath: ['mom', 'inner'], outputPort: 'series' })
+  })
+
+  it('returns null when the source handle is missing (null or absent/undefined)', () => {
+    expect(edgeAddress({ source: 'px', sourceHandle: null }, [])).toBeNull()
+    // An absent optional handle is `undefined` at runtime — the same malformed-edge guard applies.
+    expect(edgeAddress({ source: 'px' }, [])).toBeNull()
   })
 })
