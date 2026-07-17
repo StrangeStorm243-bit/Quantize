@@ -36,6 +36,7 @@ from quantize.persistence.closure import load_component_catalog
 from quantize.persistence.database import Database
 from quantize.persistence.datasets import DatasetRepository
 from quantize.persistence.documents import StrategyRepository
+from quantize.persistence.errors import PersistenceError
 from quantize.persistence.provenance import (
     CALENDAR_MISMATCH,
     DATASET_MISMATCH,
@@ -60,6 +61,10 @@ VALUE_ADDRESS_NOT_FOUND = "value_address_not_found"
 AMBIGUOUS_OUTPUT_PORT = "ambiguous_output_port"
 RECOMPUTE_FAILED = "recompute_failed"
 ENGINE_DRIFT = "engine_drift"
+# Not a ValueTapError code (never on the wire): the latency-log outcome for an exception the
+# service did not type — evaluator/database/programming faults that would otherwise bypass the
+# per-attempt instrument entirely.
+UNEXPECTED_FAILURE = "unexpected_failure"
 
 # The HTTP disposition of every code a ``ValueTapError`` can carry (the M14 plan's status table),
 # kept BESIDE the codes so adding a refusal reason is ONE edit site — a code defined here but
@@ -133,12 +138,52 @@ def resolve_node_value(
     ``component_path`` is the ENCLOSING component-instance ids, outermost first (the evaluator's
     ``ValueStore`` and the trace-envelope convention). ``output_port`` may be omitted only for a
     node with exactly one produced output port.
+
+    Every exit — a serve, a typed ``ValueTapError`` refusal, or a ``PersistenceError`` (unknown
+    run) — passes through the latency instrument (``_log_attempt``) before propagating, so the
+    flip-trigger-3 signal (``elapsed_ms``) is emitted once per resolution ATTEMPT, never only on
+    success (M14.9 / D-28).
     """
     # ``datetime`` subclasses ``date`` but ``datetime(...) == date(...)`` is always False, so a
     # datetime session would spuriously miss the recorded-evaluation scan — normalize to its date.
     if isinstance(session_date, datetime):
         session_date = session_date.date()
     started = time.perf_counter()
+    addr = _addr(component_path, node_id)
+    try:
+        resolved = _resolve(
+            db,
+            run_id=run_id,
+            node_id=node_id,
+            session_date=session_date,
+            component_path=component_path,
+            output_port=output_port,
+        )
+    except (ValueTapError, PersistenceError) as error:
+        # A refusal (typed ValueTapError) or an unknown-run PersistenceError still carries a
+        # latency signal — log its outcome code before letting it propagate to the route.
+        _log_attempt(run_id, addr, session_date, started, outcome=error.code)
+        raise
+    except Exception:
+        # An untyped exception (evaluator/database/programming fault) is still a resolution
+        # attempt — log the stable unexpected-failure outcome, then propagate unchanged.
+        _log_attempt(run_id, addr, session_date, started, outcome=UNEXPECTED_FAILURE)
+        raise
+    _log_attempt(run_id, addr, session_date, started, port=resolved.output_port)
+    return resolved
+
+
+def _resolve(
+    db: Database,
+    *,
+    run_id: str,
+    node_id: str,
+    session_date: date,
+    component_path: tuple[str, ...],
+    output_port: str | None,
+) -> ResolvedNodeValue:
+    """The recompute + address resolution proper. ``resolve_node_value`` wraps it with the
+    per-attempt latency instrument; ``session_date`` is already normalized to a ``date`` here."""
     runs = RunRepository(db)
 
     # 1. The run's stored facts. An unknown run surfaces PersistenceError(artifact_not_found)
@@ -226,18 +271,47 @@ def resolve_node_value(
         calendar_fingerprint=calendar_hash,
         captured=False,
     )
-    _LOGGER.info(
-        "value tap run=%s addr=%s port=%s session=%s elapsed_ms=%.1f",
-        run_id,
-        _addr(component_path, node_id),
-        port,
-        session_date.isoformat(),
-        (time.perf_counter() - started) * 1000.0,
-    )
     return resolved
 
 
 # --- helpers ----------------------------------------------------------------------------------
+
+
+def _log_attempt(
+    run_id: str,
+    addr: str,
+    session_date: date,
+    started: float,
+    *,
+    outcome: str | None = None,
+    port: str | None = None,
+) -> None:
+    """Emit exactly one ``value tap … elapsed_ms=`` INFO record for this resolution attempt.
+
+    A serve passes ``port=`` (the success line is unchanged from M14.1a); a refusal passes
+    ``outcome=`` carrying its stable code (``ValueTapError.code`` or ``PersistenceError.code``), so
+    the flip-trigger-3 latency instrument covers every exit and the log distinguishes serve from
+    refusal without a second logger.
+    """
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    if port is not None:
+        _LOGGER.info(
+            "value tap run=%s addr=%s port=%s session=%s elapsed_ms=%.1f",
+            run_id,
+            addr,
+            port,
+            session_date.isoformat(),
+            elapsed_ms,
+        )
+    else:
+        _LOGGER.info(
+            "value tap run=%s addr=%s outcome=%s session=%s elapsed_ms=%.1f",
+            run_id,
+            addr,
+            outcome,
+            session_date.isoformat(),
+            elapsed_ms,
+        )
 
 
 def _addr(component_path: tuple[str, ...], node_id: str) -> str:

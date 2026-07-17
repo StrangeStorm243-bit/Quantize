@@ -1519,3 +1519,113 @@ bytes and reproduced the 985/mypy-185/codegen-clean results.
 earlier on `feat/m13.9-closeout`; O3 (this entry) implemented TDD-first as its own commit. O1
 (save-409 console line) documented as by-design. Node Value Tap and component editing/forking/version-
 upgrade remain future work by design.
+
+---
+
+## M14 — Node Value Tap (recompute-on-demand node values) (2026-07-15)
+
+Context: M13.9's O3 left a deliberate empty slot — inside a component (and everywhere else) you could
+read a node's identity, params, formula, and ports, but not the *number it actually produced*. M14
+fills that slot. Clicking any node with a run selected now shows, in the Inspector's **"At session"**
+section, the value that node's output port produced during that run at the session cursor — including
+read-only component internals — served by a new `GET /v1/runs/{run_id}/values` endpoint. The design
+question that shaped everything was **recompute vs. capture**: where does that number come from?
+
+**Concepts introduced:**
+
+- **Recompute-on-demand vs. capture-at-run — a worked build-vs-defer tradeoff.** The obvious design is
+  to *capture* every node's output into a store as the run executes, then read it back. M14 does the
+  opposite: it stores nothing extra and **recomputes** the value on demand by re-running the run's
+  pinned strategy, at the run's own recorded evaluation instant, over the run's own dataset (resolved
+  by content fingerprint), through **the single existing `evaluate_strategy`** — then projects one
+  entry out of the result. The premise that makes this sound is determinism: v0 ships **no stateful
+  nodes**, every graph node is pure over an availability-gated `DataView`, and the run record pins the
+  strategy version + exact instant + dataset/calendar hashes, so re-supplying the same fingerprinted
+  inputs *reproduces* the run. Recompute was chosen (decisions D-1/D-2) because none of the four
+  documented **flip-triggers** that would force a capture store had fired: (1) a stateful node whose
+  value can't be re-derived from inputs; (2) a value-*over-time* UI requiring many sessions at once;
+  (3) recompute latency approaching ~1 s; (4) mutable/disappearing datasets. The M14 walkthrough
+  *measured* trigger 3 directly — worst observed **130.6 ms** cold, **38–100 ms** warm, refusals 1–2 ms
+  — i.e. ~8–25× under threshold, so capture stays *inadmissible* until a trigger actually fires. This
+  is the scope-discipline pattern from CLAUDE.md made concrete: build the smallest thing that answers
+  the question, and write down the exact signal that would justify building more. *Where:* the whole
+  premise is documented at the top of `quantize/valuetap/service.py`; the recompute is step 7 of
+  `_resolve` (`evaluate_strategy(..., memo=None)`).
+- **The outputs-store projection: addressing a value by `(component_path, node_id).port`.** The
+  evaluator already produces an output store keyed by `((*component_path, node_id), output_port)` —
+  the same `component_path` convention (enclosing ComponentRef *instance* ids, outermost first) the
+  trace envelope and the M13.9 breadcrumb use. The value tap is, at its core, one dictionary lookup
+  into that store: `_resolve` builds `node_path = (*component_path, node_id)`, collects the ports that
+  path produced, picks one (the sole port, or the explicitly requested one, else an
+  `AMBIGUOUS_OUTPUT_PORT` refusal), and reads `outcome.outputs[(node_path, port)]`. The raw
+  `RuntimeValue` is then summarized into wire-safe digests by `quantize/runtime/summarize.py`
+  (`summarize` → a `ScalarSummary` / `AssetSetSummary` / `CrossSectionSummary` / `TimeSeriesSummary` /
+  `PortfolioTargetsSummary`), and `node_value_dto` in `quantize/api/dto/values.py` re-shapes that into
+  the frozen `NodeValueResponse` — **no number is derived at the DTO layer** (invariant 6: no numpy /
+  pandas across the boundary; the numbers are computed in core, the DTO only re-shapes). *Where:*
+  `quantize/valuetap/service.py` (`_resolve` steps 7–8, `_select_output_port`);
+  `quantize/runtime/summarize.py`; `quantize/api/dto/values.py`.
+- **Provenance honesty: `captured: false`, and refusing rather than guessing.** Because the value was
+  recomputed *now* and not read from a run-time artifact, the DTO's `provenance.captured` is **always
+  False** in M14 — the wire never claims a number was captured when it wasn't, and the Inspector
+  renders "Recomputed on demand from the run's pinned inputs `<fingerprint>`" verbatim. The same honesty
+  runs through every refusal: a run whose inputs were never fingerprinted (`PROVENANCE_UNKNOWN`) is
+  refused (`UNKNOWN_PROVENANCE`, 409) rather than best-effort recomputed; the dataset is resolved by
+  matching the run's recorded content fingerprint against the store (a run stores **no** dataset id), so
+  a missing dataset/calendar is a `DATASET_MISMATCH`/`CALENDAR_MISMATCH` 409, not a silent substitution;
+  an address that is definitively absent in the run's strategy is a `VALUE_ADDRESS_NOT_FOUND` 404
+  (`_verify_address`); a no-output terminal (like `tp`) refuses with "produces no output values"; and a
+  non-evaluated session quotes the run's own recorded note ("No evaluation this session — this strategy
+  evaluates monthly."). The subtlest guard is the **engine-drift tripwire** (`_assert_no_drift`): before
+  serving, the service compares the tapped node's *fresh* recompute trace against the run's *persisted*
+  trace — an envelope-level ordered comparison of `(event_type, canonical_json(payload))` with **no**
+  per-event-type semantics — and refuses with `ENGINE_DRIFT` (409) if the current node code no longer
+  reproduces what the run recorded. A drifted implementation must never quietly serve a fresh number;
+  the remedy is a re-run. *Where:* `quantize/valuetap/service.py` (`_resolve` steps 2/5/6,
+  `_assert_no_drift`, `_node_events`, `STATUS_FOR_VALUE_TAP_CODE`).
+
+**Reading path (one navigation, end to end):** start at `quantize/api/routes/runs.py` — the
+`@router.get("/{run_id}/values")` handler `fetch_node_value` (a thin read-only projection that maps
+the service's structured `ValueTapError` codes to HTTP via `STATUS_FOR_VALUE_TAP_CODE`). Then the
+heart: `quantize/valuetap/service.py` — read the module docstring (the recompute premise), then
+`resolve_node_value` (the per-attempt latency instrument `_log_attempt`, which logs `elapsed_ms` on
+*every* exit — serve or refusal), and `_resolve` step by step (the honesty gates 2/5/6, the recompute
+7, the projection 8, the drift check). Next `quantize/runtime/summarize.py` (`summarize` → the typed
+digests). Then `quantize/api/dto/values.py` (`node_value_dto` → `NodeValueResponse` — the wire mirror,
+where `captured` lands on the `ProvenanceDto`). Finally `web/src/components/Inspector.tsx`: `ValueBlock`
+(the fetch + render), noting how the `error` branch renders the server's message **verbatim** under
+`role="alert"` rather than guessing a value, and how the provenance line reads `data.provenance.captured`.
+
+**Exercise (predict, then verify — no code):** pick the demo's v2 run and its evaluated session
+(2025-07-31). Before tapping anything, compute the **Trailing Return** node's value for **one** asset
+by hand: the formula is `r_D = close(D)/close(D−L) − 1` with `L = 126` sessions — read `close(D)` and
+`close(D−126)` for, say, QQQ straight out of the raw fixture and work out `ret`. *Then* tap it and
+compare. The wrinkle that teaches the addressing model: on the v2 run `ret` does **not** live at the
+top level — it is inside the *Momentum Rank* component, so you must **Enter component** via the
+breadcrumb first, and the served address is qualified by the component path
+(`addr=n43c03b4…/ret port=values` in the server log). The walkthrough recorded QQQ's `ret` as **0.2232**
+— check your hand figure against that, and against what the tap serves.
+
+**Verification status (honest, per CLAUDE.md).** Full canonical gate green: **pytest 1060 · ruff check
+clean · ruff format · mypy clean · Node-24 · codegen check (artifacts up to date) · root `tsc` + web
+typecheck clean · web 633 tests / 64 files** (1054 at the closeout PR; +6 from the 2026-07-16
+external-review fix pass — latency-instrument launch-path tests and the untyped-exception log test). Beyond the gate, M14 was **driven live in the real
+browser** (Playwright MCP, API + Vite dev servers up) against the ETF Momentum Rotation demo — the
+walkthrough (`docs/reviews/2026-07-15-m14-closeout.md`) records every tap's *observed* Inspector text
+and the `elapsed_ms` server lines, run against a **throwaway copy** of the demo DB (proven isolated by
+a file-size delta while the real `quantize-demo.db` stayed byte-for-byte unchanged). Two honesty notes
+worth carrying forward: (1) the **screenshot re-capture episode** — the first capture pass framed the
+"At session" value block *below the fold* (only the node header was in frame), so those shots did not
+actually show the values they were named for; they were **re-captured** with a tall-viewport Inspector
+crop and the five stale root-level M14.2 smoke shots deleted rather than adopted — evidence honesty in
+practice, not just in principle. (2) A **StrictMode double-fetch** observation: every UI-driven tap
+emits *two* `elapsed_ms` lines in the Vite dev server (React 18 StrictMode double-invoking effects),
+while the single `curl` setup tap emitted one — an expected dev-mode artifact, harmless because the tap
+is an idempotent pure projection, recorded rather than hidden.
+
+**Status:** M14 (Node Value Tap) shipped across slices M14.1 (recompute service + endpoint + DTO/
+codegen), M14.2 (Inspector "At session" wiring incl. read-only component internals), and the M14.9
+closeout (this entry). Deferred by design, each behind a written trigger: **capture-at-run** (until a
+flip-trigger fires), **value-over-time** UI (future decision), batch/caching (measured-need gated), and
+engine-boundary values (never served via the tap — the graph terminates at `PortfolioTargets`, the
+engine owns reconciliation).

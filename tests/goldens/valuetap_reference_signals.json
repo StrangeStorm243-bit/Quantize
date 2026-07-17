@@ -1,0 +1,87 @@
+{
+  "golden_format": 1,
+  "strategy_a_ret": {
+    "domain": [
+      "EFA",
+      "GLD",
+      "IWM",
+      "QQQ",
+      "SPY",
+      "TLT"
+    ],
+    "dtype": "Number",
+    "missing": [],
+    "port": "values",
+    "present": [
+      "EFA",
+      "GLD",
+      "IWM",
+      "QQQ",
+      "SPY",
+      "TLT"
+    ],
+    "session": "2026-05-29",
+    "values": {
+      "EFA": 0.05168109075474714,
+      "GLD": 0.02551762009306424,
+      "IWM": 0.10601083707348602,
+      "QQQ": 0.22316148961364912,
+      "SPY": 0.16312384164017568,
+      "TLT": -0.049160578247197995
+    }
+  },
+  "strategy_a_rk": {
+    "domain": [
+      "EFA",
+      "GLD",
+      "IWM",
+      "QQQ",
+      "SPY",
+      "TLT"
+    ],
+    "dtype": "Number",
+    "missing": [],
+    "port": "values",
+    "present": [
+      "EFA",
+      "GLD",
+      "IWM",
+      "QQQ",
+      "SPY",
+      "TLT"
+    ],
+    "session": "2026-05-29",
+    "values": {
+      "EFA": 4.0,
+      "GLD": 5.0,
+      "IWM": 3.0,
+      "QQQ": 1.0,
+      "SPY": 2.0,
+      "TLT": 6.0
+    }
+  },
+  "strategy_b_gt": {
+    "domain": [
+      "AGG",
+      "EFA",
+      "SPY",
+      "VNQ"
+    ],
+    "dtype": "Boolean",
+    "missing": [],
+    "port": "values",
+    "present": [
+      "AGG",
+      "EFA",
+      "SPY",
+      "VNQ"
+    ],
+    "session": "2026-06-26",
+    "values": {
+      "AGG": true,
+      "EFA": true,
+      "SPY": true,
+      "VNQ": false
+    }
+  }
+}
