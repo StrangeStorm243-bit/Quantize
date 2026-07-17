@@ -425,7 +425,7 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     expect(asMock().mock.calls[1][1].outputPort).toBe('b')
   })
 
-  it('renders a served error verbatim under role=alert, keeping the sole port label as context', async () => {
+  it('renders the served error message under role=alert (label-prefixed), keeping the sole port label as context', async () => {
     asMock().mockRejectedValue(
       new ApiClientError('engine_drift', 'engine drift — recomputation disagrees with the run', 409),
     )
@@ -439,11 +439,70 @@ describe('Inspector — Node Value Tap "At session" values (M14.2a)', () => {
     )
     const shell = screen.getByRole('region', { name: 'at session' })
     const alert = await within(shell).findByRole('alert')
+    // The SERVED message appears unaltered within the line; the node's display label prefixes it
+    // (FD-6a) — so the full rendering is `<label> — <served message>`, never a rewritten message.
     expect(alert).toHaveTextContent('engine drift — recomputation disagrees with the run')
+    expect(alert).toHaveTextContent('Trailing Return —')
     // The SOLE listed port stays visible as static context beside the refusal (review P3): the reader
     // must still see WHICH port the refused request addressed. No value content renders, of course.
     expect(within(shell).getByText('out values')).toBeInTheDocument()
     expect(within(shell).queryByText(/Recomputed on demand/)).not.toBeInTheDocument()
+  })
+
+  it('falls back to the type id as the refusal label when the catalog has no entry (unknown type)', async () => {
+    // The extensible-block seam: M1 accepts a structurally valid doc referencing a future type_id.
+    // The header shows the raw type id for such a node — the refusal label must match it, not vanish.
+    asMock().mockRejectedValue(
+      new ApiClientError('value_address_not_found', 'node x does not exist in this run’s strategy', 404),
+    )
+    render(
+      <Inspector
+        doc={docWith('x', 'future.mystery')}
+        selectedNodeId="x"
+        actions={stubActions()}
+        atSession={atSession()}
+      />,
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    const alert = await within(shell).findByRole('alert')
+    expect(alert).toHaveTextContent('future.mystery — node x does not exist in this run’s strategy')
+  })
+
+  it('omits the label prefix for an empty display label — never a dangling leading dash', async () => {
+    state.def = makeDef({ name: '' })
+    asMock().mockRejectedValue(
+      new ApiClientError('engine_drift', 'engine drift — recomputation disagrees with the run', 409),
+    )
+    render(
+      <Inspector
+        doc={componentDoc()}
+        selectedNodeId="mom"
+        actions={stubActions()}
+        atSession={atSession()}
+      />,
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    const alert = await within(shell).findByRole('alert')
+    expect(alert.textContent).toBe('engine drift — recomputation disagrees with the run')
+  })
+
+  it('prefixes a refusal with the node display label — a tester never reads only a hash id (FD-6a)', async () => {
+    // The served message stays verbatim (it names the raw id); the client, which already holds the
+    // catalog display name, prefixes it as presentation — data it has, no derivation.
+    asMock().mockRejectedValue(
+      new ApiClientError('value_address_not_found', 'node x does not exist in this run’s strategy', 404),
+    )
+    render(
+      <Inspector
+        doc={docWith('x', 'transform.trailing_return')}
+        selectedNodeId="x"
+        actions={stubActions()}
+        atSession={atSession()}
+      />,
+    )
+    const shell = screen.getByRole('region', { name: 'at session' })
+    const alert = await within(shell).findByRole('alert')
+    expect(alert).toHaveTextContent('Trailing Return — node x does not exist in this run’s strategy')
   })
 
   it('never fetches a value for a NON-evaluated session (the honest no-eval line renders instead)', () => {

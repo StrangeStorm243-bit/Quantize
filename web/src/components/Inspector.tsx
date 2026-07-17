@@ -304,12 +304,17 @@ function ValueBlock({
   nodeId,
   componentPath,
   ports,
+  nodeLabel,
 }: {
   runId: string
   sessionDate: string
   nodeId: string
   componentPath: readonly string[]
   ports: readonly string[]
+  /** The node's human display label (catalog display_name / component name), when the client holds
+   * one — prefixed onto a refusal so the reader never sees only a raw id (FD-6a, presentation only).
+   * `| undefined` so call sites pass plainly under exactOptionalPropertyTypes (the house shape). */
+  nodeLabel?: string | undefined
 }): ReactElement {
   const [port, setPort] = useState<string | undefined>(ports[0])
   const { data, loading, error } = useFetch(
@@ -359,9 +364,11 @@ function ValueBlock({
       <>
         {portContext}
         {/* The served message verbatim (engine_drift, dataset_mismatch, ambiguous_output_port, …) — the
-            honest-refusal pattern: render what the server said rather than guessing a value. */}
+            honest-refusal pattern: render what the server said rather than guessing a value. The node's
+            display label (already client-held) prefixes it so the refusal never reads as only a raw id;
+            a truthiness guard so an EMPTY label never leaves a dangling leading dash. */}
         <p className="inspector__at-error" role="alert">
-          {error}
+          {nodeLabel ? `${nodeLabel} — ${error}` : error}
         </p>
       </>
     )
@@ -403,6 +410,7 @@ function AtSessionSection({
   componentCategory,
   componentPath,
   valuePorts,
+  nodeLabel,
   valuesOnly = false,
 }: {
   atSession: AtSessionProps | undefined
@@ -412,6 +420,9 @@ function AtSessionSection({
   componentPath: readonly string[]
   /** The node's LISTED output-port names (catalog outputs / exposed_outputs); empty = unknown. */
   valuePorts: readonly string[]
+  /** Human display label for the node, when known — threads to the value block's refusal (FD-6a).
+   * `| undefined` so call sites pass plainly under exactOptionalPropertyTypes (the house shape). */
+  nodeLabel?: string | undefined
   /** M14.2b, decision D-f: inside a read-only component view the section is VALUES-ONLY — the value
    * block is the whole story, with NO node-events part and NO engine subsection. The section container,
    * title, cursor date, empty note, and no-eval phrasing stay SHARED (never duplicated). Defaults false
@@ -520,6 +531,7 @@ function AtSessionSection({
           nodeId={nodeId}
           componentPath={componentPath}
           ports={valuePorts}
+          nodeLabel={nodeLabel}
         />
       </div>
     ) : null
@@ -647,6 +659,7 @@ function ComponentNodeInspector({
           // pinned def's exposed_outputs (cache miss → [] → the response's own output_port labels the value).
           componentPath={componentPath}
           valuePorts={def?.exposed_outputs.map((o) => o.name) ?? []}
+          nodeLabel={def?.name}
           valuesOnly
         />
         <ReadOnlyParamsSection params={node.params} />
@@ -672,7 +685,10 @@ function ComponentNodeInspector({
         componentPath={componentPath}
         // The inner node taps at the trail; ports are its catalog outputs (unknown type → [] → the
         // response's own output_port labels the value).
+        // The same label the header resolves — falls back to the raw type id for an unknown type
+        // (the extensible-block seam), so the refusal is never orientation-free.
         valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
+        nodeLabel={nodeType?.display_name ?? node.type_id}
         valuesOnly
       />
       {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
@@ -816,6 +832,7 @@ export function Inspector({
           // A ComponentRef instance taps as (instance id, empty path); its ports are the def's exposed
           // outputs — the evaluator stores those under the instance path, so no special-casing.
           valuePorts={def.exposed_outputs.map((o) => o.name)}
+          nodeLabel={def.name}
         />
         {def.exposed_params.length === 0 ? (
           <p className="pform__empty">No exposed parameters.</p>
@@ -851,7 +868,10 @@ export function Inspector({
         componentCategory={nodeType?.category}
         componentPath={[]}
         // Unknown node type → no listed ports; the response's own output_port still labels the value.
+        // The label mirrors the header's resolution (display_name, else the raw type id) so the
+        // refusal orients the reader even for a catalog-unknown type (the extensible-block seam).
         valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
+        nodeLabel={nodeType?.display_name ?? node.type_id}
       />
       {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
       {nodeType === undefined || catalog === undefined ? (

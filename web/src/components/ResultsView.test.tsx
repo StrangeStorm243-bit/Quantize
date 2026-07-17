@@ -72,9 +72,12 @@ describe('ResultsView', () => {
   it('renders stats, a fills row, an evaluations row, and the replay badge from the record', () => {
     render(<ResultsView runId="run-1" record={response(record())} loading={false} error={undefined} />)
 
-    // Stats are the raw record fields (formatted for display with toFixed, never derived).
-    expect(screen.getByText('0.0500')).toBeInTheDocument() // total_return
-    expect(screen.getByText('-0.0200')).toBeInTheDocument() // max_drawdown
+    // Stats are the raw record fields, rendered through the ONE shared display formatter (D-27:
+    // trailing zeros trimmed, no padding) with the verbatim served number kept in the title.
+    const totalReturn = screen.getByText('0.05') // total_return
+    expect(totalReturn).toBeInTheDocument()
+    expect(totalReturn).toHaveAttribute('title', '0.05')
+    expect(screen.getByText('-0.02')).toBeInTheDocument() // max_drawdown
     // A fills row (asset SPY appears in both the fills and evaluations tables).
     expect(screen.getAllByText('SPY').length).toBeGreaterThan(0)
     expect(screen.getByText('500')).toBeInTheDocument() // fill price, verbatim
@@ -97,7 +100,7 @@ describe('ResultsView', () => {
 
     // The failed run still renders its stats — ok:false is a run FACT, not an HTTP error.
     expect(screen.getByText(/failed|not ok|ok: no/i)).toBeInTheDocument()
-    expect(screen.getByText('0.0500')).toBeInTheDocument()
+    expect(screen.getByText('0.05')).toBeInTheDocument()
   })
 
   it('shows the loading state while the App fetches the record', () => {
@@ -178,8 +181,11 @@ describe('ResultsView interactivity (M13.7)', () => {
 
   it("renders each evaluation's served target weights (the Target Portfolio)", () => {
     render(<ResultsView runId="run-1" record={response(record())} loading={false} error={undefined} />)
-    // target_weights [['SPY', 1.0]] → the served asset + its weight formatted for display (no derivation).
-    expect(screen.getByText('SPY 1.0000')).toBeInTheDocument()
+    // target_weights [['SPY', 1.0]] → the served asset + its weight through the shared display
+    // formatter (D-27: trimmed, verbatim in title — no derivation).
+    const weight = screen.getByText('SPY 1')
+    expect(weight).toBeInTheDocument()
+    expect(weight).toHaveAttribute('title', '1')
   })
 
   it("renders each evaluation's served orders (side / asset / quantity)", () => {
@@ -199,8 +205,16 @@ describe('ResultsView interactivity (M13.7)', () => {
       },
     ]
     render(<ResultsView runId="run-1" record={response(rec)} loading={false} error={undefined} />)
-    expect(screen.getByText('QQQ 0.2500')).toBeInTheDocument()
+    expect(screen.getByText('QQQ 0.25')).toBeInTheDocument()
     expect(screen.getByText('sell QQQ 7')).toBeInTheDocument()
+  })
+
+  it('renders fill quantity and price through the shared formatter with verbatim titles (D-27)', () => {
+    const rec = record()
+    rec.fills = [{ ...rec.fills[0], quantity: 7.000500123456789, price: 500.12345678901 }]
+    render(<ResultsView runId="run-1" record={response(rec)} loading={false} error={undefined} />)
+    expect(screen.getByText('500.1235')).toHaveAttribute('title', '500.12345678901')
+    expect(screen.getByText('7.0005')).toHaveAttribute('title', '7.000500123456789')
   })
 
   it('handles an evaluation with no targets and no orders gracefully (placeholders, no crash)', () => {

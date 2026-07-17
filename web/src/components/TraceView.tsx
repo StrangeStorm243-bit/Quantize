@@ -14,6 +14,7 @@
 import type { ReactElement } from 'react'
 import type { JsonValue, PersistedNote, TraceEvent, TraceTreeDto, TraceTreeNodeDto } from '@quantize/quantize-api'
 import { noEvaluationLine } from '../document/schedule'
+import { fmtValue, verbatimTitle } from '../format'
 import { NoteLine } from './NoteLine'
 
 export interface TraceViewProps {
@@ -68,17 +69,23 @@ function asStrings(value: JsonValue | undefined): string[] {
   return asArray(value).filter((v): v is string => typeof v === 'string')
 }
 
-// A single cell rendered verbatim (display formatting, not derivation): primitives stringified,
-// null/undefined as an em dash, nested structures shown as compact JSON so nothing is hidden.
+// A single cell rendered for display (formatting, not derivation): numbers through the ONE shared
+// display formatter (D-27 — the same rendering the Inspector/Results/Runs panels use), other
+// primitives stringified, null/undefined as an em dash, nested structures shown as compact JSON so
+// nothing is hidden. Call sites carrying a served float keep the verbatim number in a `title`.
 function cell(value: JsonValue | undefined): string {
   if (value === null || value === undefined) {
     return '—'
+  }
+  if (typeof value === 'number') {
+    return fmtValue(value)
   }
   if (typeof value === 'object') {
     return JSON.stringify(value)
   }
   return String(value)
 }
+
 
 // --- Tailored per-event renderers ----------------------------------------------------------------
 
@@ -120,7 +127,9 @@ function RankAssigned({ payload }: { payload: TraceEvent['payload'] }): ReactEle
           return (
             <li key={i} className="trace-event__row">
               <span className="trace-event__cell">{cell(asset)}</span>
-              <span className="trace-event__cell">{cell(rank)}</span>
+              <span className="trace-event__cell" {...verbatimTitle(rank)}>
+                {cell(rank)}
+              </span>
             </li>
           )
         })}
@@ -134,8 +143,12 @@ function OrdersProposed({ payload }: { payload: TraceEvent['payload'] }): ReactE
   const omitted = asArray(payload.omitted)
   return (
     <div className="trace-event__body">
+      {/* Money fields display through the shared formatter; EACH figure carries ITS OWN verbatim
+          title — one title over three numbers would misattribute whichever the user hovers. */}
       <span className="trace-event__kv trace-event__kv--muted">
-        PV {cell(payload.portfolio_value)} · target cash {cell(payload.target_cash)} · projected {cell(payload.projected_cash)}
+        PV <span {...verbatimTitle(payload.portfolio_value)}>{cell(payload.portfolio_value)}</span> ·
+        target cash <span {...verbatimTitle(payload.target_cash)}>{cell(payload.target_cash)}</span> ·
+        projected <span {...verbatimTitle(payload.projected_cash)}>{cell(payload.projected_cash)}</span>
       </span>
       {orders.length > 0 ? (
         <ul className="trace-event__rows">
@@ -145,7 +158,9 @@ function OrdersProposed({ payload }: { payload: TraceEvent['payload'] }): ReactE
               <li key={i} className="trace-event__row">
                 <span className="trace-event__token">{cell(side)}</span>
                 <span className="trace-event__cell">{cell(asset)}</span>
-                <span className="trace-event__cell">{cell(qty)}</span>
+                <span className="trace-event__cell" {...verbatimTitle(qty)}>
+                  {cell(qty)}
+                </span>
               </li>
             )
           })}
@@ -163,7 +178,9 @@ function OrdersProposed({ payload }: { payload: TraceEvent['payload'] }): ReactE
                 <li key={i} className="trace-event__row">
                   <span className="trace-event__cell">{cell(asset)}</span>
                   <code className="trace-event__token">{cell(reason)}</code>
-                  <span className="trace-event__cell">{cell(qty)}</span>
+                  <span className="trace-event__cell" {...verbatimTitle(qty)}>
+                    {cell(qty)}
+                  </span>
                 </li>
               )
             })}
@@ -185,8 +202,12 @@ function OrdersFilled({ payload }: { payload: TraceEvent['payload'] }): ReactEle
             <li key={i} className="trace-event__row">
               <span className="trace-event__token">{cell(side)}</span>
               <span className="trace-event__cell">{cell(asset)}</span>
-              <span className="trace-event__cell">{cell(qty)}</span>
-              <span className="trace-event__cell">@ {cell(price)}</span>
+              <span className="trace-event__cell" {...verbatimTitle(qty)}>
+                {cell(qty)}
+              </span>
+              <span className="trace-event__cell" {...verbatimTitle(price)}>
+                @ {cell(price)}
+              </span>
               {cell(scaled) === 'true' ? <code className="trace-event__token">scaled</code> : null}
             </li>
           )
@@ -216,7 +237,9 @@ function GenericPayload({ payload }: { payload: TraceEvent['payload'] }): ReactE
       {entries.map(([key, value]) => (
         <li key={key} className="trace-event__row">
           <span className="trace-event__cell trace-event__cell--key">{key}</span>
-          <span className="trace-event__cell">{cell(value)}</span>
+          <span className="trace-event__cell" {...verbatimTitle(value)}>
+            {cell(value)}
+          </span>
         </li>
       ))}
     </ul>

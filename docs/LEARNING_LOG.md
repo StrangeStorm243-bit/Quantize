@@ -1595,6 +1595,8 @@ digests). Then `quantize/api/dto/values.py` (`node_value_dto` → `NodeValueResp
 where `captured` lands on the `ProvenanceDto`). Finally `web/src/components/Inspector.tsx`: `ValueBlock`
 (the fetch + render), noting how the `error` branch renders the server's message **verbatim** under
 `role="alert"` rather than guessing a value, and how the provenance line reads `data.provenance.captured`.
+*(FD-6a, 2026-07-16: the served message is now prefixed with the node's client-held display label —
+`Momentum Rank — node n43c0… does not exist…` — the message itself still renders unaltered.)*
 
 **Exercise (predict, then verify — no code):** pick the demo's v2 run and its evaluated session
 (2025-07-31). Before tapping anything, compute the **Trailing Return** node's value for **one** asset

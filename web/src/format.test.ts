@@ -3,7 +3,7 @@
 // integer-valued served numbers left un-grown — plus abbrev's head…tail elision for long ids. No
 // arithmetic, no aggregation: the tests below never sum/compare across values.
 import { describe, expect, it } from 'vitest'
-import { abbrev, fmtValue } from './format'
+import { abbrev, fmtValue, verbatimTitle } from './format'
 
 describe('fmtValue', () => {
   it('trims a long fractional to 4 dp without dangling zeros', () => {
@@ -25,8 +25,17 @@ describe('fmtValue', () => {
     expect(fmtValue(0.025)).toBe('0.025')
   })
 
-  it('normalizes a tiny negative that rounds to zero magnitude to plain 0 (no -0)', () => {
-    expect(fmtValue(-0.00001)).toBe('0')
+  it('never displays a nonzero served value as a bare 0 — falls back to exponential (D-27)', () => {
+    // A returns-scale signal below the 4-dp floor must stay visibly nonzero: 0.0000 would tell the
+    // user the signal is zero when it is not. The fallback is still per-number display formatting.
+    expect(fmtValue(0.000025015)).toBe('2.5e-5')
+    expect(fmtValue(-0.00001)).toBe('-1e-5')
+    expect(fmtValue(1e-7)).toBe('1e-7')
+  })
+
+  it('keeps exact zero (and served -0) as plain 0 — the fallback is for nonzero only', () => {
+    expect(fmtValue(0)).toBe('0')
+    expect(fmtValue(-0)).toBe('0')
   })
 
   it('passes an exponent-notation toFixed result through (documented, accepted)', () => {
@@ -50,6 +59,20 @@ describe('fmtValue', () => {
     expect(fmtValue(Number.NaN)).toBe('NaN')
     expect(fmtValue(Number.POSITIVE_INFINITY)).toBe('Infinity')
     expect(fmtValue(Number.NEGATIVE_INFINITY)).toBe('-Infinity')
+  })
+})
+
+describe('verbatimTitle', () => {
+  it('returns a title-props fragment carrying the raw served number', () => {
+    expect(verbatimTitle(0.025015130971708377)).toEqual({ title: '0.025015130971708377' })
+    expect(verbatimTitle(7.000500123456789)).toEqual({ title: '7.000500123456789' })
+  })
+
+  it('returns an empty fragment for non-numbers (they already display verbatim)', () => {
+    expect(verbatimTitle('SPY')).toEqual({})
+    expect(verbatimTitle(true)).toEqual({})
+    expect(verbatimTitle(undefined)).toEqual({})
+    expect(verbatimTitle(null)).toEqual({})
   })
 })
 
