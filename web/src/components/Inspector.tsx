@@ -31,7 +31,7 @@ import type {
 } from '@quantize/quantize-api'
 import type { ComponentDefinition, JsonValue, StrategyDocument } from '@quantize/quantize-ir'
 import { getNodeValue } from '../api/client'
-import { abbrev, fmtValue } from '../format'
+import { abbrev, fmtValue, verbatimTitle } from '../format'
 import { useFetch } from '../useFetch'
 import { labelOf, nodeTypeById, useCatalog } from '../catalog'
 import { portColor } from '../catalog/colors'
@@ -107,6 +107,30 @@ function PortsSection({ nodeType, catalog }: { nodeType: NodeTypeDto; catalog: N
  */
 export type AtSessionProps = AtSessionState
 
+// The {valuePorts, nodeLabel} pair every AtSessionSection placement derives from its source object —
+// ONE derivation per source kind (catalog node type / component definition), spread at each call
+// site, so the ports/label policy (incl. the unknown-type fallback to the raw type id and the
+// header-matching display name) can never drift between the Inspector's surfaces.
+function typeTapProps(
+  nodeType: NodeTypeDto | undefined,
+  typeId: string,
+): { valuePorts: string[]; nodeLabel: string | undefined } {
+  return {
+    valuePorts: nodeType?.outputs.map((o) => o.name) ?? [],
+    nodeLabel: nodeType?.display_name ?? typeId,
+  }
+}
+
+function defTapProps(def: ComponentDefinition | undefined): {
+  valuePorts: string[]
+  nodeLabel: string | undefined
+} {
+  return {
+    valuePorts: def?.exposed_outputs.map((o) => o.name) ?? [],
+    nodeLabel: def?.name,
+  }
+}
+
 // --- Node Value Tap addressing (design W4) --------------------------------------------------------
 // The section renders SERVED facts addressed by (node_id, component_path); the cursor supplies the
 // session_date. These are pure lookups/filters over the served trees — NOTHING is computed here
@@ -161,8 +185,9 @@ function AssetValuesTable({ rows }: { rows: readonly AssetValueDto[] }): ReactEl
         {rows.map((row, i) => (
           <tr key={`${row.asset}:${i}`}>
             <td>{row.asset}</td>
-            {/* Display-formatted served cell; the verbatim value stays reachable in `title` (PX-C). */}
-            <td title={String(row.value)}>{fmtValue(row.value)}</td>
+            {/* Display-formatted served cell; the verbatim number stays reachable via the shared
+                verbatimTitle (PX-C / D-27 — booleans display verbatim already, so no title). */}
+            <td {...verbatimTitle(row.value)}>{fmtValue(row.value)}</td>
           </tr>
         ))}
       </tbody>
@@ -179,7 +204,7 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
     case 'scalar':
       // Display-formatted value; the row's `title` keeps the verbatim served number reachable (PX-C).
       return (
-        <div className="inspector__value-row" title={String(summary.value)}>
+        <div className="inspector__value-row" {...verbatimTitle(summary.value)}>
           {`${summary.dtype}: ${fmtValue(summary.value)}`}
         </div>
       )
@@ -203,12 +228,12 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
           {summary.dtype === 'Number' ? (
             <>
               {summary.min != null ? (
-                <div className="inspector__value-row" title={String(summary.min)}>
+                <div className="inspector__value-row" {...verbatimTitle(summary.min)}>
                   Min: {fmtValue(summary.min)}
                 </div>
               ) : null}
               {summary.max != null ? (
-                <div className="inspector__value-row" title={String(summary.max)}>
+                <div className="inspector__value-row" {...verbatimTitle(summary.max)}>
                   Max: {fmtValue(summary.max)}
                 </div>
               ) : null}
@@ -265,7 +290,7 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
                     {series.points.map(([date, val], i) => (
                       <div key={i} className="inspector__value-row">
                         <span className="inspector__value-label">{date}</span>
-                        <span title={String(val)}>{fmtValue(val)}</span>
+                        <span {...verbatimTitle(val)}>{fmtValue(val)}</span>
                       </div>
                     ))}
                   </details>
@@ -283,10 +308,10 @@ function ValueSummary({ data }: { data: NodeValueResponse }): ReactElement {
           <AssetValuesTable rows={assetRows} />
           {/* Served aggregates, DISPLAY-formatted — the client renders the numbers the server sent (each
               verbatim in `title`); it never re-sums the weights above (invariant 5 / PX-C). */}
-          <div className="inspector__value-row" title={String(summary.weight_sum)}>
+          <div className="inspector__value-row" {...verbatimTitle(summary.weight_sum)}>
             Weight sum: {fmtValue(summary.weight_sum)}
           </div>
-          <div className="inspector__value-row" title={String(summary.cash)}>
+          <div className="inspector__value-row" {...verbatimTitle(summary.cash)}>
             Cash: {fmtValue(summary.cash)}
           </div>
         </>
@@ -658,8 +683,7 @@ function ComponentNodeInspector({
           // the evaluator stores a component's exposed outputs under `(*trail, instanceId)`. Ports are the
           // pinned def's exposed_outputs (cache miss → [] → the response's own output_port labels the value).
           componentPath={componentPath}
-          valuePorts={def?.exposed_outputs.map((o) => o.name) ?? []}
-          nodeLabel={def?.name}
+          {...defTapProps(def)}
           valuesOnly
         />
         <ReadOnlyParamsSection params={node.params} />
@@ -683,12 +707,9 @@ function ComponentNodeInspector({
         nodeId={node.id}
         componentCategory={undefined}
         componentPath={componentPath}
-        // The inner node taps at the trail; ports are its catalog outputs (unknown type → [] → the
-        // response's own output_port labels the value).
-        // The same label the header resolves — falls back to the raw type id for an unknown type
-        // (the extensible-block seam), so the refusal is never orientation-free.
-        valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
-        nodeLabel={nodeType?.display_name ?? node.type_id}
+        // The inner node taps at the trail; ports/label from the ONE shared derivation (unknown
+        // type → no listed ports, label falls back to the raw type id — the extensible-block seam).
+        {...typeTapProps(nodeType, node.type_id)}
         valuesOnly
       />
       {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
@@ -831,8 +852,7 @@ export function Inspector({
           componentPath={[]}
           // A ComponentRef instance taps as (instance id, empty path); its ports are the def's exposed
           // outputs — the evaluator stores those under the instance path, so no special-casing.
-          valuePorts={def.exposed_outputs.map((o) => o.name)}
-          nodeLabel={def.name}
+          {...defTapProps(def)}
         />
         {def.exposed_params.length === 0 ? (
           <p className="pform__empty">No exposed parameters.</p>
@@ -867,11 +887,9 @@ export function Inspector({
         nodeId={node.id}
         componentCategory={nodeType?.category}
         componentPath={[]}
-        // Unknown node type → no listed ports; the response's own output_port still labels the value.
-        // The label mirrors the header's resolution (display_name, else the raw type id) so the
-        // refusal orients the reader even for a catalog-unknown type (the extensible-block seam).
-        valuePorts={nodeType?.outputs.map((o) => o.name) ?? []}
-        nodeLabel={nodeType?.display_name ?? node.type_id}
+        // Ports/label from the ONE shared derivation — unknown type → no listed ports (the
+        // response's own output_port labels the value) and the label falls back to the raw type id.
+        {...typeTapProps(nodeType, node.type_id)}
       />
       {/* catalog clause narrows the type for PortsSection (non-optional catalog); not redundant. */}
       {nodeType === undefined || catalog === undefined ? (

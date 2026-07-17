@@ -86,6 +86,28 @@ function cell(value: JsonValue | undefined): string {
   return String(value)
 }
 
+// One value cell: the shared display rendering PLUS its verbatim title in a single element — the
+// D-27 pairing as a mechanism rather than a per-site convention, so a new renderer cannot pair
+// cell() without the title by accident. `prefix` covers composite cells like the fill price's '@'.
+// Deliberate exception: a structural integer echoed INSIDE PROSE (SelectSelected's `selected N:`)
+// stays plain `cell()` — counts are lossless under fmtValue and wrapping prose fragments in spans
+// only fragments the sentence for readers and text matchers.
+function NumCell({
+  value,
+  className = 'trace-event__cell',
+  prefix = '',
+}: {
+  value: JsonValue | undefined
+  className?: string
+  prefix?: string
+}): ReactElement {
+  return (
+    <span className={className} {...verbatimTitle(value)}>
+      {prefix}
+      {cell(value)}
+    </span>
+  )
+}
 
 // --- Tailored per-event renderers ----------------------------------------------------------------
 
@@ -127,9 +149,7 @@ function RankAssigned({ payload }: { payload: TraceEvent['payload'] }): ReactEle
           return (
             <li key={i} className="trace-event__row">
               <span className="trace-event__cell">{cell(asset)}</span>
-              <span className="trace-event__cell" {...verbatimTitle(rank)}>
-                {cell(rank)}
-              </span>
+              <NumCell value={rank} />
             </li>
           )
         })}
@@ -146,9 +166,9 @@ function OrdersProposed({ payload }: { payload: TraceEvent['payload'] }): ReactE
       {/* Money fields display through the shared formatter; EACH figure carries ITS OWN verbatim
           title — one title over three numbers would misattribute whichever the user hovers. */}
       <span className="trace-event__kv trace-event__kv--muted">
-        PV <span {...verbatimTitle(payload.portfolio_value)}>{cell(payload.portfolio_value)}</span> ·
-        target cash <span {...verbatimTitle(payload.target_cash)}>{cell(payload.target_cash)}</span> ·
-        projected <span {...verbatimTitle(payload.projected_cash)}>{cell(payload.projected_cash)}</span>
+        PV <NumCell value={payload.portfolio_value} className="" /> · target cash{' '}
+        <NumCell value={payload.target_cash} className="" /> · projected{' '}
+        <NumCell value={payload.projected_cash} className="" />
       </span>
       {orders.length > 0 ? (
         <ul className="trace-event__rows">
@@ -158,9 +178,7 @@ function OrdersProposed({ payload }: { payload: TraceEvent['payload'] }): ReactE
               <li key={i} className="trace-event__row">
                 <span className="trace-event__token">{cell(side)}</span>
                 <span className="trace-event__cell">{cell(asset)}</span>
-                <span className="trace-event__cell" {...verbatimTitle(qty)}>
-                  {cell(qty)}
-                </span>
+                <NumCell value={qty} />
               </li>
             )
           })}
@@ -178,9 +196,7 @@ function OrdersProposed({ payload }: { payload: TraceEvent['payload'] }): ReactE
                 <li key={i} className="trace-event__row">
                   <span className="trace-event__cell">{cell(asset)}</span>
                   <code className="trace-event__token">{cell(reason)}</code>
-                  <span className="trace-event__cell" {...verbatimTitle(qty)}>
-                    {cell(qty)}
-                  </span>
+                  <NumCell value={qty} />
                 </li>
               )
             })}
@@ -202,12 +218,8 @@ function OrdersFilled({ payload }: { payload: TraceEvent['payload'] }): ReactEle
             <li key={i} className="trace-event__row">
               <span className="trace-event__token">{cell(side)}</span>
               <span className="trace-event__cell">{cell(asset)}</span>
-              <span className="trace-event__cell" {...verbatimTitle(qty)}>
-                {cell(qty)}
-              </span>
-              <span className="trace-event__cell" {...verbatimTitle(price)}>
-                @ {cell(price)}
-              </span>
+              <NumCell value={qty} />
+              <NumCell value={price} prefix="@ " />
               {cell(scaled) === 'true' ? <code className="trace-event__token">scaled</code> : null}
             </li>
           )
@@ -237,9 +249,7 @@ function GenericPayload({ payload }: { payload: TraceEvent['payload'] }): ReactE
       {entries.map(([key, value]) => (
         <li key={key} className="trace-event__row">
           <span className="trace-event__cell trace-event__cell--key">{key}</span>
-          <span className="trace-event__cell" {...verbatimTitle(value)}>
-            {cell(value)}
-          </span>
+          <NumCell value={value} />
         </li>
       ))}
     </ul>

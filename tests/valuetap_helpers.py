@@ -11,10 +11,60 @@ import copy
 from datetime import date
 from typing import Any
 
+from quantize.components.resolve import ComponentCatalog
+from quantize.engine.backtest import run_backtest
 from quantize.engine.records import BacktestResult
+from quantize.engine.state import PortfolioState
+from quantize.market.data import MarketDataSet
+from quantize.nodes import build_core_catalog
+from quantize.persistence.database import Database
+from quantize.persistence.datasets import DatasetRepository
+from quantize.persistence.provenance import recorded_input_provenance
+from quantize.persistence.records import PersistedRunRecord
+from quantize.persistence.runs import RunRepository
 from quantize.schema.components import ComponentDefinition
 from quantize.schema.document import StrategyDocument
 from tests.helpers import load_fixture
+
+PINNED_CASH = 1_000_000.0
+
+
+def run_pinned_backtest(
+    document: StrategyDocument,
+    market: MarketDataSet,
+    *,
+    run_id: str,
+    components: ComponentCatalog | None = None,
+) -> BacktestResult:
+    """The ONE backtest invocation shape all value-tap suites seed with: the core catalog, the
+    pinned ``PINNED_CASH`` initial state, and an explicit ``run_id`` — so the goldens, service,
+    and endpoint suites can never drift onto different run shapes."""
+    return run_backtest(
+        document,
+        catalog=build_core_catalog(),
+        market_data=market,
+        run_id=run_id,
+        initial_state=PortfolioState.of(cash=PINNED_CASH),
+        components=components,
+    )
+
+
+def persist_backtest_run(
+    db: Database,
+    document: StrategyDocument,
+    result: BacktestResult,
+    market: MarketDataSet,
+    *,
+    save_dataset: bool = True,
+) -> PersistedRunRecord:
+    """Persist a precomputed backtest (and, by default, its dataset) with RECORDED provenance —
+    the persistence shape the tap resolves against in production. Returns the loaded record."""
+    if save_dataset:
+        DatasetRepository(db).save(market)
+    runs = RunRepository(db)
+    runs.save_run(document, result, input_provenance=recorded_input_provenance(market))
+    return runs.load_run(result.run_id)
+
 
 DUAL_COMPONENT_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 OUTER_MOMENTUM_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd"

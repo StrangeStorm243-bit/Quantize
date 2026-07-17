@@ -19,28 +19,28 @@ from fastapi.testclient import TestClient
 
 from quantize.api.settings import ApiSettings
 from quantize.components.resolve import ComponentCatalog
-from quantize.engine.backtest import run_backtest
 from quantize.engine.records import BacktestResult
-from quantize.engine.state import PortfolioState
 from quantize.market.data import MarketDataSet
-from quantize.nodes import build_core_catalog
 from quantize.persistence.database import Database
-from quantize.persistence.datasets import DatasetRepository
 from quantize.persistence.documents import ComponentRepository
-from quantize.persistence.provenance import recorded_input_provenance, unknown_input_provenance
+from quantize.persistence.provenance import unknown_input_provenance
 from quantize.persistence.records import (
     PersistedRunRecord,
     record_from_result,
 )
-from quantize.persistence.runs import RunRepository
 from quantize.persistence.serialize import artifact_bytes, content_hash
 from quantize.schema.document import StrategyDocument
 from tests.helpers import load_fixture
-from tests.valuetap_helpers import dual_component, dual_strategy, tamper_trace
+from tests.valuetap_helpers import (
+    dual_component,
+    dual_strategy,
+    persist_backtest_run,
+    run_pinned_backtest,
+    tamper_trace,
+)
 
 RUN_ID = "99999999-9999-9999-9999-999999999999"
 UNKNOWN_RUN_ID = "88888888-8888-8888-8888-888888888888"
-CASH = 1_000_000.0
 
 _ERROR_KEYS = {"code", "message"}
 
@@ -51,28 +51,15 @@ _ERROR_KEYS = {"code", "message"}
 @pytest.fixture(scope="module")
 def strategy_a_result(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]:
     document = StrategyDocument.model_validate(load_fixture("strategy_a"))
-    result = run_backtest(
-        document,
-        catalog=build_core_catalog(),
-        market_data=market,
-        run_id=RUN_ID,
-        initial_state=PortfolioState.of(cash=CASH),
-    )
-    return document, result
+    return document, run_pinned_backtest(document, market, run_id=RUN_ID)
 
 
 @pytest.fixture(scope="module")
 def dual_result(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]:
     document = dual_strategy()
-    result = run_backtest(
-        document,
-        catalog=build_core_catalog(),
-        market_data=market,
-        run_id=RUN_ID,
-        initial_state=PortfolioState.of(cash=CASH),
-        components=ComponentCatalog([dual_component()]),
+    return document, run_pinned_backtest(
+        document, market, run_id=RUN_ID, components=ComponentCatalog([dual_component()])
     )
-    return document, result
 
 
 # --- seeding helpers (write into the fixture app's per-test DB) ---------------------------------
@@ -86,12 +73,9 @@ def _seed(
     *,
     save_dataset: bool = True,
 ) -> PersistedRunRecord:
+    """Open the app's DB and persist via the SHARED seeding helper."""
     with Database(db_path) as db:
-        if save_dataset:
-            DatasetRepository(db).save(market)
-        runs = RunRepository(db)
-        runs.save_run(document, result, input_provenance=recorded_input_provenance(market))
-        return runs.load_run(RUN_ID)
+        return persist_backtest_run(db, document, result, market, save_dataset=save_dataset)
 
 
 def _seed_dual(

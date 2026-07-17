@@ -11,7 +11,6 @@ Handlers are synchronous ``def`` (threadpool) and own their ``Database`` handle 
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -21,6 +20,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from quantize.api.dto.common import ApiError, MetaResponse
 from quantize.api.errors import PAYLOAD_TOO_LARGE, install_error_handlers
+from quantize.api.instrumentation import ensure_instrument
 from quantize.api.routes import catalog, components, datasets, runs, strategies, validate
 from quantize.api.settings import ApiSettings, get_settings
 from quantize.api.version import API_VERSION
@@ -109,39 +109,13 @@ class _BodySizeLimitMiddleware:
         await response(scope, _empty_receive, send)
 
 
-def _ensure_valuetap_instrument(logger: logging.Logger | None = None) -> None:
-    """Make the flip-trigger-3 latency instrument visible under the documented launch.
-
-    The documented run command is plain ``uvicorn quantize.api.app:create_app --factory``, and
-    Uvicorn's default logging config configures only the ``uvicorn.*`` loggers — the root logger
-    stays unconfigured, so ``quantize.valuetap`` INFO records (``value tap … elapsed_ms=``) would
-    be both level-dropped and handler-less. Enable INFO on the instrument logger, and attach a
-    stderr handler ONLY when nothing up the ancestor chain would emit the record — an operator's
-    own configuration (e.g. ``logging.basicConfig``) wins, and propagation must never double-emit.
-    Idempotent: a handler this function attached satisfies the chain check on the next call.
-    *logger* exists for tests (a hand-built chain); production always uses the real instrument.
-    """
-    if logger is None:
-        logger = logging.getLogger("quantize.valuetap")
-    if logger.getEffectiveLevel() > logging.INFO:
-        logger.setLevel(logging.INFO)
-    current: logging.Logger | None = logger
-    while current is not None:
-        if current.handlers:
-            return
-        if not current.propagate:
-            break
-        current = current.parent
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s %(message)s"))
-    logger.addHandler(handler)
-
-
 def create_app(settings: ApiSettings | None = None) -> FastAPI:
     """Build the API app. *settings* (defaulting to the environment) drive the body cap and the
     startup warm-up; handlers resolve settings via ``get_settings`` (overridden in tests)."""
     resolved = settings or get_settings()
-    _ensure_valuetap_instrument()
+    # The flip-trigger-3 latency instrument must be visible under the documented plain-uvicorn
+    # launch; any pre-existing logging configuration wins outright (see instrumentation.py).
+    ensure_instrument("quantize.valuetap")
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:

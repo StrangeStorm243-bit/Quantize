@@ -29,39 +29,27 @@ from typing import Any
 
 import pytest
 
-from quantize.engine.backtest import run_backtest
 from quantize.engine.records import BacktestResult
-from quantize.engine.state import PortfolioState
 from quantize.market.data import MarketDataSet
-from quantize.nodes import build_core_catalog
 from quantize.persistence.database import Database
 from quantize.persistence.datasets import DatasetRepository
-from quantize.persistence.provenance import recorded_input_provenance
-from quantize.persistence.runs import RunRepository
 from quantize.runtime.values import CrossSectionValue, PortfolioTargetsValue
 from quantize.schema.document import StrategyDocument
 from quantize.valuetap import ResolvedNodeValue, resolve_node_value
 from tests.golden_utils import assert_summary_matches_golden
 from tests.helpers import load_fixture
 from tests.market_fixture import fixture_close
+from tests.valuetap_helpers import persist_backtest_run, run_pinned_backtest
 
 RUN_A = "99999999-9999-9999-9999-999999999999"
 RUN_B = "77777777-7777-7777-7777-777777777777"
-CASH = 1_000_000.0
 LOOKBACK = 126  # strategy_a's trailing-return window
 _GOLDENS = Path(__file__).parent / "goldens"
 
 
 def _run(name: str, market: MarketDataSet, run_id: str) -> tuple[StrategyDocument, BacktestResult]:
     document = StrategyDocument.model_validate(load_fixture(name))
-    result = run_backtest(
-        document,
-        catalog=build_core_catalog(),
-        market_data=market,
-        run_id=run_id,
-        initial_state=PortfolioState.of(cash=CASH),
-    )
-    return document, result
+    return document, run_pinned_backtest(document, market, run_id=run_id)
 
 
 @pytest.fixture(scope="module")
@@ -77,7 +65,9 @@ def strategy_b(market: MarketDataSet) -> tuple[StrategyDocument, BacktestResult]
 def _save_run(
     db: Database, document: StrategyDocument, result: BacktestResult, market: MarketDataSet
 ) -> None:
-    RunRepository(db).save_run(document, result, input_provenance=recorded_input_provenance(market))
+    """Persist via the SHARED seeding helper (each test saves the dataset itself, once, because
+    the A/B runs share one content-addressed fixture dataset)."""
+    persist_backtest_run(db, document, result, market, save_dataset=False)
 
 
 def _golden_targets(name: str, session: date) -> dict[str, float]:

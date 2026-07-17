@@ -209,6 +209,15 @@ describe('ResultsView interactivity (M13.7)', () => {
     expect(screen.getByText('sell QQQ 7')).toBeInTheDocument()
   })
 
+  it('renders final cash through the shared formatter — the old 2-dp money shape is gone (D-27)', () => {
+    // PINS the deliberate D-27 flattening: fmt(final_cash, 2) previously rendered '12345.68'; the
+    // one shared formatter renders '12345.6789' (4-dp trimmed), verbatim in the title.
+    render(<ResultsView runId="run-1" record={response(record())} loading={false} error={undefined} />)
+    const cash = screen.getByText('12345.67') // fixture final_cash 12_345.67 — trimmed, not '12345.6700'
+    expect(cash).toBeInTheDocument()
+    expect(cash).toHaveAttribute('title', '12345.67')
+  })
+
   it('renders fill quantity and price through the shared formatter with verbatim titles (D-27)', () => {
     const rec = record()
     rec.fills = [{ ...rec.fills[0], quantity: 7.000500123456789, price: 500.12345678901 }]
