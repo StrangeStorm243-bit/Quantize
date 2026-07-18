@@ -12,7 +12,12 @@
 // under a per-view `key` so React remounts on every transition and RF's store never latches a mode's
 // props (draggable/handlers/deleteKeyCode) into the other mode.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
+import type {
+  DragEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactElement,
+} from 'react'
 import {
   Background,
   Controls,
@@ -53,11 +58,14 @@ import type { EdgeSpec, StrategyDocumentActions } from '../document/store'
 import {
   componentCacheKey,
   componentPorts,
+  edgeAddress,
   findComponentRef,
   resolveComponentDef,
   toFlow,
 } from '../document/flow'
 import type { ComponentTrailEntry, NodeValidity, StrategyFlowNode } from '../document/flow'
+import { FlowReadout } from './FlowReadout'
+import type { FlowAddress, FlowProbe } from './FlowReadout'
 import { useComponentDefs } from '../components-cache'
 import { CategoryIcon } from '../icons/categories'
 import { Breadcrumb } from './Breadcrumb'
@@ -312,6 +320,35 @@ export function decideConnection(
   }
 }
 
+/**
+ * A captured edge hover or pin (M14.3): the value-tap {@link FlowAddress} the edge carries, plus the
+ * `trailKey` of the VIEW it was taken in (`componentTrail` instance ids joined). The key is what makes
+ * {@link effectiveAddress} able to reject a stale entry after a same-definition instance switch.
+ */
+interface FlowEntry {
+  address: FlowAddress
+  trailKey: string
+}
+
+/**
+ * The render-phase trail gate (M14.3 Fact 9). A hover/pin {@link FlowEntry} carries the `trailKey` of
+ * the view it was captured in; this pure derivation returns its address ONLY while that key still
+ * matches the view being rendered NOW, else null. Running it in RENDER (not an effect) is the whole
+ * point: a same-definition instance switch leaves `viewKey` unchanged, so the inner `<ReactFlow>` does
+ * NOT remount and no reset fires — yet the address of the OLD instance must not show for even one
+ * commit. Gating the displayed address through this function guarantees exactly that; a lazy effect may
+ * later GC the mismatched entry, but this gate — not the GC — is load-bearing for the one-frame promise.
+ */
+export function effectiveAddress(
+  entry: { address: FlowAddress; trailKey: string } | null,
+  currentTrailKey: string,
+): FlowAddress | null {
+  if (entry === null || entry.trailKey !== currentTrailKey) {
+    return null
+  }
+  return entry.address
+}
+
 /** Props: the canonical document and the store dispatchers (the canvas owns no document state). */
 export interface CanvasProps {
   doc: StrategyDocument
@@ -396,6 +433,13 @@ export interface CanvasProps {
    * double-click still enters a nested ComponentRef ({@link onEnterComponent}).
    */
   onComponentNodeClick?: (nodeId: string) => void
+  /**
+   * The run/cursor half of the edge-hover value readout (M14.3). Present ⇒ hovering or keyboard-pinning
+   * an edge shows the served value flowing across it at the cursor session; ABSENT ⇒ the whole feature
+   * is dormant: no edge handlers are wired, no readout Panel renders, and not a single fetch fires. The
+   * App memoizes it from `atSession` (Task 5); the Canvas stays pure presentation over it.
+   */
+  valueProbe?: FlowProbe | undefined
 }
 
 export function Canvas({
@@ -418,6 +462,7 @@ export function Canvas({
   onNavigateToDepth,
   componentSelectedNodeId,
   onComponentNodeClick,
+  valueProbe,
 }: CanvasProps): ReactElement {
   const { catalog, loading, error } = useCatalog()
   const { defs: componentDefs, ensure: ensureComponent } = useComponentDefs()
@@ -427,6 +472,12 @@ export function Canvas({
   // (immutable) definition — `undefined` while it is still being fetched, the only "loading" degradation.
   const trail = componentTrail ?? []
   const readOnly = trail.length > 0
+  // The edge-hover value readout (M14.3) is entirely gated on a probe: no probe ⇒ nothing wired, no
+  // Panel, zero fetches. `currentTrailKey` identifies the view a hover/pin was captured in — the
+  // outermost-first ComponentRef instance ids, exactly the value tap's `component_path` (envelope
+  // convention) — so {@link effectiveAddress} can reject an entry after a same-definition instance switch.
+  const probeActive = valueProbe !== undefined
+  const currentTrailKey = trail.map((e) => e.instanceId).join('/')
   const tip = readOnly ? trail[trail.length - 1] : undefined
   const tipDef =
     tip === undefined ? undefined : componentDefs.get(componentCacheKey(tip.componentId, tip.version))
@@ -462,6 +513,11 @@ export function Canvas({
   const [stageHighlight, setStageHighlight] = useState<ReadonlySet<string> | null>(null)
   // The double-click quick-add menu: its screen anchor while open, or null when closed.
   const [quickAdd, setQuickAdd] = useState<{ x: number; y: number } | null>(null)
+  // Edge-hover value readout state (M14.3), on the OUTER Canvas so it SURVIVES the inner `<ReactFlow key=
+  // {viewKey}>` remounts. Each entry carries the `trailKey` of the view it was captured in (Fact 9). A
+  // pin OUTRANKS a hover; both are render-gated through `effectiveAddress` below.
+  const [hovered, setHovered] = useState<FlowEntry | null>(null)
+  const [pinnedAddr, setPinnedAddr] = useState<FlowEntry | null>(null)
 
   // Fill the component-definition cache for every pinned ref in the document so a loaded componentized
   // strategy renders NAMED component nodes (`toFlow` degrades to a bare node until each arrives). `ensure`
@@ -513,7 +569,11 @@ export function Canvas({
           type: STRATEGY_NODE_TYPE,
           selected: n.id === componentSelectedNodeId,
         })),
-        edges: flow.edges,
+        // A read-only component view sets `elementsSelectable={false}`, which ALSO strips edge
+        // focusability — so keyboard Tab can't reach an edge to pin it. When a probe is present, restore
+        // ONLY edge focusability per-element (D-39: element-level overrides the global); node
+        // interactivity and `elementsSelectable` stay untouched. Dormant without a probe.
+        edges: probeActive ? flow.edges.map((e) => ({ ...e, focusable: true })) : flow.edges,
       }
     }
     const flow = toFlow(doc, catalog, componentDefs)
@@ -546,6 +606,7 @@ export function Canvas({
     readOnly,
     tipDef,
     componentSelectedNodeId,
+    probeActive,
   ])
 
   // React Flow owns LOCAL node/edge state so it can move nodes and draw edges interactively; the
@@ -598,15 +659,18 @@ export function Canvas({
     }
   }, [showFlow])
 
-  // Escape pops one component-navigation level (M13.8). A window listener — active ONLY while a trail
-  // is open — so a keypress anywhere in the workspace returns, mirroring the drawer's Escape-to-close.
-  // `trail.length - 1` keeps the first (length-1) entries: one level up (0 → the strategy view).
+  // Escape (M13.8 breadcrumb pop + M14.3 Fact 10 pin release): ONE window listener, mounted when a
+  // component view is open OR a value readout is pinned. The body order is load-bearing:
+  //   (1) NEVER hijack Escape from an editable control (an Inspector param field cancelling an edit) —
+  //       this guard stays FIRST and unchanged.
+  //   (2) A pinned readout releases first and CONSUMES the key (so a component-view Esc unpins before it
+  //       would pop a level — two Escapes: release, then pop).
+  //   (3) Otherwise, in a component view only, pop one navigation level. `trail.length - 1` keeps the
+  //       first (length-1) entries: one level up (0 → the strategy view).
   useEffect(() => {
-    if (!readOnly) return
+    if (!readOnly && pinnedAddr === null) return
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
-      // Don't hijack Escape from an editable control (e.g. an Inspector param field cancelling an edit):
-      // only a "bare" Escape in the workspace pops the component-navigation level.
       const target = event.target as HTMLElement | null
       if (
         target !== null &&
@@ -617,11 +681,17 @@ export function Canvas({
       ) {
         return
       }
-      onNavigateToDepth?.(trail.length - 1)
+      if (pinnedAddr !== null) {
+        setPinnedAddr(null)
+        return
+      }
+      if (readOnly) {
+        onNavigateToDepth?.(trail.length - 1)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [readOnly, trail.length, onNavigateToDepth])
+  }, [readOnly, pinnedAddr, trail.length, onNavigateToDepth])
 
   const nodeTypes = useMemo(() => ({ [STRATEGY_NODE_TYPE]: StrategyNode }), [])
 
@@ -727,6 +797,116 @@ export function Canvas({
       onMarqueeSelection(ids)
     }
   }, [rfInstance, onMarqueeSelection])
+
+  // ── Edge-hover value readout wiring (M14.3) ───────────────────────────────────────────────────────
+  // Build the value-tap address an edge carries, enriched with the SOURCE node's display label. The
+  // label is read off the already-projected `rfNodes` (`displayName ?? typeId` — the exact string the
+  // card header shows) rather than re-derived from the catalog, so there is one label source. Null when
+  // the edge lacks a source handle (edgeAddress's own guard — a malformed edge never builds a request).
+  const addressOfEdge = useCallback(
+    (edge: Pick<FlowEdge, 'source' | 'sourceHandle'>): FlowAddress | null => {
+      const base = edgeAddress(edge, trail)
+      if (base === null) {
+        return null
+      }
+      const node = rfNodes.find((n) => n.id === base.nodeId)
+      return { ...base, sourceLabel: node?.data.displayName ?? node?.data.typeId ?? base.nodeId }
+    },
+    [trail, rfNodes],
+  )
+
+  // Hover: a 200 ms dwell before the readout fetches lives in FlowReadout; the Canvas only tracks WHICH
+  // edge the pointer is over. Each hover records the current view's `trailKey` so a mid-hover view switch
+  // render-gates the stale address away (Fact 9). Leaving an edge clears the hover.
+  const onEdgeMouseEnter = useCallback(
+    (_event: unknown, edge: FlowEdge) => {
+      const address = addressOfEdge(edge)
+      setHovered(address === null ? null : { address, trailKey: currentTrailKey })
+    },
+    [addressOfEdge, currentTrailKey],
+  )
+  const onEdgeMouseLeave = useCallback(() => setHovered(null), [])
+
+  // Pin path 1 (mouse): a click on an edge pins its address so the readout survives mouse-leave. RF
+  // selection is NEVER consulted (Fact 8): pinning is a distinct intent from selecting, and a validation
+  // highlight already seeds `selected: true` on an edge — reading selection here would conflate the two.
+  const onEdgeClick = useCallback(
+    (_event: unknown, edge: FlowEdge) => {
+      const address = addressOfEdge(edge)
+      if (address !== null) {
+        setPinnedAddr({ address, trailKey: currentTrailKey })
+      }
+    },
+    [addressOfEdge, currentTrailKey],
+  )
+
+  // A pane click (empty canvas) releases a pin — the "click away to dismiss" convention.
+  const onPaneClick = useCallback(() => setPinnedAddr(null), [])
+
+  // Pin path 2 (keyboard, Fact 8): Enter/Space over a FOCUSED edge pins it. This is a CAPTURE-phase
+  // handler on the canvas wrapper, and both facts below are load-bearing:
+  //  • RF selection is not consulted — we read the focused edge's id straight from the rendered DOM
+  //    (`.react-flow__edge[data-id]`, the EdgeWrapper contract at @xyflow/react dist/esm/index.mjs:2897)
+  //    and act only when it resolves to a CURRENT edge.
+  //  • On an edge hit we `preventDefault()` AND `stopPropagation()`. RF's pan-activation listener sits on
+  //    `window` (dist/esm/index.mjs) and still receives a bubbling event whose default was prevented —
+  //    so preventDefault alone would let Space ALSO pan. A capture-phase element handler runs before the
+  //    window bubble listener, so stopping propagation HERE keeps Space-to-pin from panning. On a MISS
+  //    (no edge under focus) the handler does nothing at all — no preventDefault, no stopPropagation —
+  //    leaving RF's own Space/pan behavior untouched (we never blanket-suppress RF's keyboard handling).
+  // `' '` is the browser's actual KeyboardEvent.key for Space, matching RF's `elementSelectionKeys`.
+  const onWrapperKeyDownCapture = useCallback(
+    (event: ReactKeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return
+      }
+      const target = event.target as Element | null
+      const edgeId = target?.closest('.react-flow__edge')?.getAttribute('data-id')
+      if (edgeId == null) {
+        return
+      }
+      const edge = rfEdges.find((e) => e.id === edgeId)
+      if (edge === undefined) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      const address = addressOfEdge(edge)
+      if (address !== null) {
+        setPinnedAddr({ address, trailKey: currentTrailKey })
+      }
+    },
+    [rfEdges, addressOfEdge, currentTrailKey],
+  )
+
+  // Lazy GC of trail-stale entries (Fact 9). `effectiveAddress` already prevents a mismatched entry from
+  // rendering, so this post-commit effect is NOT load-bearing for the one-frame guarantee — it only
+  // tidies state after a view change so `pinnedAddr !== null` (which drives the "Esc to release" hint and
+  // the Escape listener's mount) stays honest once the stale entry can no longer apply.
+  useEffect(() => {
+    if (hovered !== null && hovered.trailKey !== currentTrailKey) {
+      setHovered(null)
+    }
+    if (pinnedAddr !== null && pinnedAddr.trailKey !== currentTrailKey) {
+      setPinnedAddr(null)
+    }
+  }, [currentTrailKey, hovered, pinnedAddr])
+
+  // Probe loss (D-34): when the run/cursor probe goes away, the readout can't render and no handler is
+  // wired — drop any hover/pin so a probe that later returns never resurrects a stale one.
+  useEffect(() => {
+    if (valueProbe === undefined) {
+      setHovered(null)
+      setPinnedAddr(null)
+    }
+  }, [valueProbe])
+
+  // The address handed to the readout: a pin outranks a hover, each render-gated through the trail check.
+  // `pinnedAddr !== null` is the pin STATE (drives the hint + Escape mount) independent of whether the
+  // current trail matches — a trail-stale pin shows nothing (effective is null) yet Escape still releases
+  // it until the GC effect clears it.
+  const effectiveAddr =
+    effectiveAddress(pinnedAddr, currentTrailKey) ?? effectiveAddress(hovered, currentTrailKey)
 
   // Enter a ComponentRef card's internals on double-click (M13.8): resolve the double-clicked instance's
   // pinned `(componentId, version)` in the CURRENT view's scope — the strategy doc, or the tip
@@ -868,6 +1048,10 @@ export function Canvas({
         onDragOver={onDragOver}
         onDrop={onDrop}
         onDoubleClickCapture={onCanvasDoubleClick}
+        // Capture-phase keyboard PIN (M14.3 Fact 8): reads the focused edge off the DOM and, on an edge
+        // hit, stops the event before RF's window-level pan listener sees it. Wired ONLY with a probe —
+        // absent, the feature is dormant and RF's own keyboard behavior is entirely untouched.
+        onKeyDownCapture={probeActive ? onWrapperKeyDownCapture : undefined}
       >
         {/* The strip slot: in a component view the Breadcrumb REPLACES the stage strip (M13.8); in the
             strategy view the pipeline stage strip is the "you are looking at a strategy machine" device
@@ -960,6 +1144,12 @@ export function Canvas({
             // Double-click ENTERS a ComponentRef card — passed in both views (it mutates nothing, only
             // pushes onto the App-owned trail).
             onNodeDoubleClick={onNodeDoubleClickHandler}
+            // Edge-hover value readout handlers (M14.3), wired in BOTH views but ONLY with a probe:
+            // hover drives the dwell fetch, click pins, a pane click releases the pin. Absent probe ⇒
+            // omitted entirely (RF receives no edge-hover/pane handlers) so the feature stays dormant.
+            {...(probeActive
+              ? { onEdgeMouseEnter, onEdgeMouseLeave, onEdgeClick, onPaneClick }
+              : {})}
             zoomOnDoubleClick={false}
             fitView
           >
@@ -974,6 +1164,19 @@ export function Canvas({
             <Panel position="top-right">
               <Legend catalog={catalog} />
             </Panel>
+            {/* The edge-hover value readout (M14.3): a fixed bottom-center Panel (Legend precedent),
+                rendered ONLY with a probe. `effectiveAddr` is the render-gated pin-over-hover address;
+                `pinnedAddr !== null` is the pin state (drives the "Esc to release" hint). FlowReadout
+                owns the dwell/fetch/lifetime; the Canvas only supplies probe + address + pinned. */}
+            {valueProbe !== undefined ? (
+              <Panel position="bottom-center">
+                <FlowReadout
+                  probe={valueProbe}
+                  address={effectiveAddr}
+                  pinned={pinnedAddr !== null}
+                />
+              </Panel>
+            ) : null}
           </ReactFlow>
         )}
 
