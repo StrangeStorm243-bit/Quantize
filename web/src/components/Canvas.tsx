@@ -89,11 +89,20 @@ interface CanvasChrome {
   datasetId: string | undefined
   datasetMeta: DatasetStored | undefined
   resolvable: boolean
+  /**
+   * Output-port-row hover channel (M14.3, D-36). The card publishes ONLY what it knows — its node id +
+   * the row's output port name — and the Canvas composes the full {@link FlowAddress} (trail-derived
+   * `component_path` + the card's display label) and feeds the SAME `hovered` state the edge-hover path
+   * uses (one readout, one mechanism). `null` clears. Present ONLY with a value probe; ABSENT ⇒ the
+   * feature is dormant and the card's output rows wire no hover handlers (DOM-identical to pre-feature).
+   */
+  onPortHover?: ((address: { nodeId: string; outputPort: string } | null) => void) | undefined
 }
-const CanvasChromeContext = createContext<CanvasChrome>({
+export const CanvasChromeContext = createContext<CanvasChrome>({
   datasetId: undefined,
   datasetMeta: undefined,
   resolvable: true,
+  onPortHover: undefined,
 })
 
 /**
@@ -103,7 +112,7 @@ const CanvasChromeContext = createContext<CanvasChrome>({
  * composition variant with a version chip. Handles stay on the sides — `id` = PORT NAME (matching
  * `toFlow`) — and are colored by the port type they carry. The card judges nothing (invariant 5).
  */
-function StrategyNode({ data, selected }: NodeProps<StrategyFlowNode>): ReactElement {
+export function StrategyNode({ id, data, selected }: NodeProps<StrategyFlowNode>): ReactElement {
   const chrome = useContext(CanvasChromeContext)
   // The served catalog resolves each port's human type LABEL for its hover tooltip (PX-3) — the same
   // `labelOf` the Legend and rejection banners use, never a hardcoded string (invariant 5). Absent
@@ -190,6 +199,17 @@ function StrategyNode({ data, selected }: NodeProps<StrategyFlowNode>): ReactEle
               key={port.name}
               className="snode__port snode__port--out"
               title={portTitle(port.name, port.port_type)}
+              // Output-port-row hover (M14.3, D-36): publish the value-tap the row carries — the card
+              // knows only its node id + this port's name; the Canvas composes the full FlowAddress and
+              // feeds the SAME edge-hover readout. Wired ONLY with a probe (onPortHover present); dormant
+              // otherwise, so the row renders exactly as before. INPUT rows stay inert (the value belongs
+              // to the SOURCE end — an input row would misattribute).
+              onMouseEnter={
+                chrome.onPortHover
+                  ? () => chrome.onPortHover?.({ nodeId: id, outputPort: port.name })
+                  : undefined
+              }
+              onMouseLeave={chrome.onPortHover ? () => chrome.onPortHover?.(null) : undefined}
             >
               <span className="snode__portlabel">{port.name}</span>
               <Handle
@@ -843,6 +863,23 @@ export function Canvas({
   // A pane click (empty canvas) releases a pin — the "click away to dismiss" convention.
   const onPaneClick = useCallback(() => setPinnedAddr(null), [])
 
+  // Output-port-row hover (M14.3, D-36): a node card publishes only the `{nodeId, outputPort}` it knows;
+  // here we compose the SAME FlowAddress the edge path builds — trail-derived `component_path` + the
+  // card's display label, both via `addressOfEdge` (an output port IS an edge's source end) — and feed
+  // the SAME `hovered` state (one readout, one mechanism). `null` clears. Handed to the card through the
+  // chrome context ONLY with a probe (see the provider), so the feature is dormant without one.
+  const onPortHover = useCallback(
+    (port: { nodeId: string; outputPort: string } | null) => {
+      if (port === null) {
+        setHovered(null)
+        return
+      }
+      const address = addressOfEdge({ source: port.nodeId, sourceHandle: port.outputPort })
+      setHovered(address === null ? null : { address, trailKey: currentTrailKey })
+    },
+    [addressOfEdge, currentTrailKey],
+  )
+
   // Pin path 2 (keyboard, Fact 8): Enter/Space over a FOCUSED edge pins it. This is a CAPTURE-phase
   // handler on the canvas wrapper, and both facts below are load-bearing:
   //  • RF selection is not consulted — we read the focused edge's id straight from the rendered DOM
@@ -1040,7 +1077,16 @@ export function Canvas({
   }
 
   return (
-    <CanvasChromeContext.Provider value={{ datasetId, datasetMeta, resolvable: !readOnly }}>
+    <CanvasChromeContext.Provider
+      value={{
+        datasetId,
+        datasetMeta,
+        resolvable: !readOnly,
+        // The output-port-row hover channel (D-36) is live ONLY with a probe — dormant otherwise, so the
+        // cards wire no hover handlers and render exactly as before.
+        onPortHover: probeActive ? onPortHover : undefined,
+      }}
+    >
       {/* Capture-phase double-click so it fires BEFORE React Flow's own pane dblclick (which zooms and
           stops propagation); RF's zoom-on-double-click is disabled below so the two never fight. */}
       <div

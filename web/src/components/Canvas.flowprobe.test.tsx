@@ -16,14 +16,14 @@ import { StrictMode } from 'react'
 import type { ReactNode } from 'react'
 import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Edge as FlowEdge } from '@xyflow/react'
+import type { Edge as FlowEdge, NodeProps } from '@xyflow/react'
 import type { ComponentDefinition, StrategyDocument } from '@quantize/quantize-ir'
 import { newStrategyDocument } from '../document/store'
 import type { StrategyDocumentActions } from '../document/store'
 import { componentCacheKey } from '../document/flow'
-import type { ComponentTrailEntry } from '../document/flow'
+import type { ComponentTrailEntry, FlowNodeData, StrategyFlowNode } from '../document/flow'
 import { CatalogProvider } from '../catalog'
-import { Canvas, effectiveAddress } from './Canvas'
+import { Canvas, CanvasChromeContext, StrategyNode, effectiveAddress } from './Canvas'
 import type { FlowAddress, FlowProbe } from './FlowReadout'
 
 const CID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
@@ -67,6 +67,15 @@ vi.mock('@xyflow/react', async () => {
     ReactFlow: (props: Record<string, unknown>) => {
       box.props = props
       const edges = (props.edges as Array<{ id: string }> | undefined) ?? []
+      // Render each node through the passed `nodeTypes` so the REAL StrategyNode card mounts INSIDE the
+      // Canvas's CanvasChromeContext provider (Task 6): the port-row hover integration then drives the
+      // genuine card→context→Canvas path via jsdom mouse events. Each card is wrapped in a stable
+      // `rf-node-<id>` testid so a test can target one card's output row.
+      const nodes = (props.nodes as StrategyFlowNode[] | undefined) ?? []
+      const nodeTypes = (props.nodeTypes ?? {}) as Record<
+        string,
+        ((p: NodeProps<StrategyFlowNode>) => ReactNode) | undefined
+      >
       return (
         <div data-testid="rf-mock">
           {/* Mirrors @xyflow/react dist/esm/index.mjs:2897 (EdgeWrapper). */}
@@ -75,6 +84,18 @@ vi.mock('@xyflow/react', async () => {
               <g key={e.id} className="react-flow__edge" data-id={e.id} tabIndex={0} role="group" />
             ))}
           </svg>
+          <div data-testid="rf-nodes">
+            {nodes.map((n) => {
+              const NodeComp = n.type === undefined ? undefined : nodeTypes[n.type]
+              return NodeComp === undefined ? null : (
+                <div key={n.id} data-testid={`rf-node-${n.id}`}>
+                  <NodeComp
+                    {...({ id: n.id, data: n.data, selected: n.selected } as NodeProps<StrategyFlowNode>)}
+                  />
+                </div>
+              )
+            })}
+          </div>
           {props.children as ReactNode}
         </div>
       )
@@ -555,5 +576,157 @@ describe('Canvas edge-hover — Escape priority', () => {
     await edgesSeeded()
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onNavigateToDepth).toHaveBeenCalledWith(0)
+  })
+})
+
+// ── Task 6 — output-port-row hover on node cards (plan D-36) ──────────────────────────────────────────
+//
+// A card's OUTPUT-port row publishes the SAME value-tap address the edge-hover path uses; the card knows
+// only its `{nodeId, outputPort}` and the Canvas composes the full FlowAddress (trail + display label).
+// INPUT rows are inert (the value belongs to the SOURCE end). React 18 synthesizes onMouseEnter/Leave from
+// native mouseover/mouseout delegation, so the tests fire `mouseOver`/`mouseOut` (a raw `mouseenter` would
+// not reach React's enter/leave plugin).
+
+// A trailing-return card's projected data (one input "series", one output "values") — enough to render both
+// a `.snode__port--in` and a `.snode__port--out` row. `port_type` labels degrade to the port name while the
+// catalog is still loading, which is irrelevant to the hover wiring under test.
+function cardData(): FlowNodeData {
+  return {
+    typeId: 'transform.trailing_return',
+    displayName: 'Trailing Return',
+    category: 'transform',
+    inputs: [{ name: 'series', port_type: { kind: 'TimeSeries', dtype: 'Number' }, required: true }],
+    outputs: [{ name: 'values', port_type: { kind: 'CrossSection', dtype: 'Number' } }],
+  } as FlowNodeData
+}
+
+type PortHover = ((address: { nodeId: string; outputPort: string } | null) => void) | undefined
+
+function renderCard(
+  data: FlowNodeData,
+  onPortHover: PortHover,
+  id = 'ret',
+): ReturnType<typeof render> {
+  return renderCanvas(
+    <CanvasChromeContext.Provider
+      value={{ datasetId: undefined, datasetMeta: undefined, resolvable: true, onPortHover }}
+    >
+      <StrategyNode {...({ id, data, selected: false } as NodeProps<StrategyFlowNode>)} />
+    </CanvasChromeContext.Provider>,
+  )
+}
+
+// ── Cycle 1: the card publishes {nodeId, outputPort} on OUTPUT-row hover; INPUT rows are inert ─────────
+describe('StrategyNode output-port-row hover', () => {
+  it('mouseEnter on an OUTPUT row calls onPortHover with {nodeId, outputPort}; mouseLeave calls null', async () => {
+    const onPortHover = vi.fn()
+    const { container } = renderCard(cardData(), onPortHover)
+    const outRow = container.querySelector('.snode__port--out') as Element
+    fireEvent.mouseOver(outRow)
+    expect(onPortHover).toHaveBeenCalledWith({ nodeId: 'ret', outputPort: 'values' })
+    fireEvent.mouseOut(outRow)
+    expect(onPortHover).toHaveBeenLastCalledWith(null)
+    await act(async () => {}) // flush the CatalogProvider fetch (irrelevant to the wiring under test)
+  })
+
+  it('INPUT rows never call onPortHover (the value belongs to the source end)', async () => {
+    const onPortHover = vi.fn()
+    const { container } = renderCard(cardData(), onPortHover)
+    const inRow = container.querySelector('.snode__port--in') as Element
+    fireEvent.mouseOver(inRow)
+    fireEvent.mouseOut(inRow)
+    expect(onPortHover).not.toHaveBeenCalled()
+    await act(async () => {})
+  })
+})
+
+// ── Cycle 2: dormancy — no onPortHover ⇒ port rows render EXACTLY as today, and fire nothing ───────────
+describe('StrategyNode output-port-row hover — dormant', () => {
+  it('renders the ports section DOM-identically with and without the feature (handlers never serialize)', async () => {
+    const data = cardData()
+    const enabled = renderCard(data, vi.fn())
+    const enabledOut = enabled.container.querySelector('.snode__col--out')?.innerHTML
+    const enabledIn = enabled.container.querySelector('.snode__col--in')?.innerHTML
+    const dormant = renderCard(data, undefined)
+    const dormantOut = dormant.container.querySelector('.snode__col--out')?.innerHTML
+    const dormantIn = dormant.container.querySelector('.snode__col--in')?.innerHTML
+    expect(dormantOut).toBe(enabledOut)
+    expect(dormantIn).toBe(enabledIn)
+    await act(async () => {})
+  })
+
+  it('a dormant output row (no onPortHover in context) does nothing and never crashes on hover', async () => {
+    const { container } = renderCard(cardData(), undefined)
+    const outRow = container.querySelector('.snode__port--out') as Element
+    expect(() => {
+      fireEvent.mouseOver(outRow)
+      fireEvent.mouseOut(outRow)
+    }).not.toThrow()
+    await act(async () => {})
+  })
+})
+
+// ── Cycle 3 & 4: Canvas integration — the port hover feeds the SAME `hovered` state as the edge path ───
+describe('Canvas port-row hover — feeds the flow readout', () => {
+  it('with a probe, an OUTPUT-row hover hands the Canvas-composed FlowAddress to FlowReadout; leave clears', async () => {
+    const { getByTestId } = renderCanvas(
+      <Canvas doc={edgeDoc()} actions={stubActions()} valueProbe={probe()} />,
+    )
+    await edgesSeeded()
+    const outRow = getByTestId('rf-node-ret').querySelector('.snode__port--out') as Element
+    fireEvent.mouseOver(outRow)
+    expect(rec.renders.at(-1)?.address).toEqual({
+      nodeId: 'ret',
+      componentPath: [],
+      outputPort: 'values',
+      sourceLabel: 'Trailing Return',
+    })
+    fireEvent.mouseOut(outRow)
+    expect(rec.renders.at(-1)?.address).toBeNull()
+  })
+
+  it('a component-view internal-node output row taps (innerId, trail component_path, port)', async () => {
+    cache.defs.set(componentCacheKey(CID, '1.0.0'), makeDef())
+    const { getByTestId } = renderCanvas(
+      <Canvas
+        doc={shellDoc()}
+        actions={stubActions()}
+        valueProbe={probe()}
+        componentTrail={[trailEntry('mom')]}
+      />,
+    )
+    await edgesSeeded()
+    const outRow = getByTestId('rf-node-inner_ret').querySelector('.snode__port--out') as Element
+    fireEvent.mouseOver(outRow)
+    expect(rec.renders.at(-1)?.address).toMatchObject({
+      nodeId: 'inner_ret',
+      componentPath: ['mom'],
+      outputPort: 'values',
+    })
+  })
+
+  it('without a probe the context carries no onPortHover — an output-row hover publishes nothing', async () => {
+    const { getByTestId } = renderCanvas(<Canvas doc={edgeDoc()} actions={stubActions()} />)
+    await edgesSeeded()
+    const outRow = getByTestId('rf-node-ret').querySelector('.snode__port--out') as Element
+    fireEvent.mouseOver(outRow)
+    fireEvent.mouseOut(outRow)
+    expect(rec.renders).toHaveLength(0)
+  })
+
+  it('a PINNED edge address outranks a subsequent port hover (same `hovered` mechanism, pin precedence)', async () => {
+    const { getByTestId } = renderCanvas(
+      <Canvas doc={edgeDoc()} actions={stubActions()} valueProbe={probe()} />,
+    )
+    await edgesSeeded()
+    // Pin the ret→rank edge: its address is (ret, values).
+    callProp('onEdgeClick', {}, firstEdge())
+    expect(rec.renders.at(-1)?.pinned).toBe(true)
+    expect(rec.renders.at(-1)?.address).toMatchObject({ nodeId: 'ret', outputPort: 'values' })
+    // Hover a DIFFERENT card's output row (rank/values). It feeds `hovered`, but the pin still wins.
+    const rankOut = getByTestId('rf-node-rank').querySelector('.snode__port--out') as Element
+    fireEvent.mouseOver(rankOut)
+    expect(rec.renders.at(-1)?.address).toMatchObject({ nodeId: 'ret', outputPort: 'values' })
+    expect(rec.renders.at(-1)?.pinned).toBe(true)
   })
 })
