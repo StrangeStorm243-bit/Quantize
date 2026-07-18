@@ -23,6 +23,7 @@ import {
 import { CatalogProvider } from './catalog'
 import { ComponentsProvider, useComponentDefs } from './components-cache'
 import { Canvas } from './components/Canvas'
+import type { FlowProbe } from './components/FlowReadout'
 import { DatasetPanel, LAST_DATASET_KEY } from './components/DatasetPanel'
 import { Dock } from './components/Dock'
 import type { DockPanel } from './components/Dock'
@@ -160,6 +161,27 @@ function AppShell(): ReactElement {
     atSession,
     runScheduleKind,
   } = useDebugLoopState(selectedRunId)
+  // The run/cursor half of the edge-hover value readout (M14.3, Task 5). It is exactly the four
+  // ADDRESSING scalars `atSession` already carries — the Canvas stays pure presentation over it. We
+  // memoize on those four fields rather than on `atSession`'s object IDENTITY, which churns on every
+  // trace refetch (its own useMemo folds in traceTrees/loading/error): keying on the scalars keeps the
+  // probe reference STABLE across those refetches, so the Canvas's hover/pin surface never resets mid-
+  // hover. The optional-chained deps ARE the dependency signal (re-memo iff a field changes) even though
+  // the body reads the non-optional fields inside the `undefined` guard — exhaustive-deps can't see that
+  // equivalence, so it is disabled here with this reason.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const valueProbe = useMemo<FlowProbe | undefined>(
+    () =>
+      atSession === undefined
+        ? undefined
+        : {
+            runId: atSession.runId,
+            cursor: atSession.cursor,
+            evaluated: atSession.evaluated,
+            scheduleKind: atSession.scheduleKind,
+          },
+    [atSession?.runId, atSession?.cursor, atSession?.evaluated, atSession?.scheduleKind],
+  )
   // The strategy bar's Validate verb bumps this to trigger a validation in the Problems panel.
   const [validateNonce, setValidateNonce] = useState(0)
   // The document's semantic identity (ui.* excluded) — badges key on THIS, not the whole doc object,
@@ -759,6 +781,7 @@ function AppShell(): ReactElement {
                 onEnterComponent={enterComponentNested}
                 onNavigateToDepth={onNavigateToDepth}
                 onComponentNodeClick={(id) => setComponentSelectedNodeId(id)}
+                valueProbe={valueProbe}
               />
               {extractDialogOpen ? (
                 <ExtractDialog
