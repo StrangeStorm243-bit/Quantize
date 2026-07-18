@@ -207,6 +207,11 @@ export function FlowReadout({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the generation IS the activation key: it
     // changes iff any fetched-address field (runId, cursor, componentPath, nodeId, outputPort) changes,
     // so re-running on `tracker.gen` alone re-arms the dwell exactly when the request must change.
+    // COUPLING (spec review, Task 3): `probe.evaluated` is deliberately NOT in the key, so an
+    // evaluated flip under a byte-identical (runId, cursor) would neither re-arm nor cancel this
+    // effect. That transition is unreachable today because useDebugLoopState routes the cursor
+    // through null on every run change and commits record + default cursor together — a wiring that
+    // refetches a record IN PLACE under a fixed (runId, cursor) would reintroduce the gap here.
   }, [tracker.gen])
 
   // Nothing hovered → render nothing at all (and, above, never fetch).
