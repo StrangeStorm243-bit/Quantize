@@ -144,7 +144,7 @@ strategy. **M14.3** put the same values on the canvas itself: hover (or keyboard
 node card's output port and a flow readout shows the served value summary crossing that connection
 at the session cursor — including component-internal edges via the breadcrumb trail — dwell-gated
 and deliberately uncached (every readout is a fresh recompute). The latest gate is green with
-**1062 Python tests** (`pytest`) and **712 web tests across 67 files** (`vitest`), on Python
+**1062 Python tests** (`pytest`) and **713 web tests across 67 files** (`vitest`), on Python
 3.13/3.14 and Windows/Linux, with byte-stable golden and backtest↔forward consistency coverage.
 
 For the full milestone breakdown (M1 IR + structural validation through the M13 IDE reorientation),
