@@ -616,12 +616,25 @@ function renderCard(
   )
 }
 
+
+// Await a port row inside a rendered element: the card renders its rows only after the async
+// catalog fetch resolves, so an immediate querySelector can race it under load (the gate runs the
+// suite alongside heavy processes -- a raw query here made the gate flaky where standalone runs
+// stayed green). waitFor pins the precondition the tests were already assuming.
+async function awaitRow(getRoot: () => Element | null, selector: string): Promise<Element> {
+  return waitFor(() => {
+    const row = getRoot()?.querySelector(selector)
+    expect(row).not.toBeNull()
+    return row as Element
+  })
+}
+
 // ── Cycle 1: the card publishes {nodeId, outputPort} on OUTPUT-row hover; INPUT rows are inert ─────────
 describe('StrategyNode output-port-row hover', () => {
   it('mouseEnter on an OUTPUT row calls onPortHover with {nodeId, outputPort}; mouseLeave calls null', async () => {
     const onPortHover = vi.fn()
     const { container } = renderCard(cardData(), onPortHover)
-    const outRow = container.querySelector('.snode__port--out') as Element
+    const outRow = await awaitRow(() => container, '.snode__port--out')
     fireEvent.mouseOver(outRow)
     expect(onPortHover).toHaveBeenCalledWith({ nodeId: 'ret', outputPort: 'values' })
     fireEvent.mouseOut(outRow)
@@ -632,7 +645,7 @@ describe('StrategyNode output-port-row hover', () => {
   it('INPUT rows never call onPortHover (the value belongs to the source end)', async () => {
     const onPortHover = vi.fn()
     const { container } = renderCard(cardData(), onPortHover)
-    const inRow = container.querySelector('.snode__port--in') as Element
+    const inRow = await awaitRow(() => container, '.snode__port--in')
     fireEvent.mouseOver(inRow)
     fireEvent.mouseOut(inRow)
     expect(onPortHover).not.toHaveBeenCalled()
@@ -645,11 +658,11 @@ describe('StrategyNode output-port-row hover — dormant', () => {
   it('renders the ports section DOM-identically with and without the feature (handlers never serialize)', async () => {
     const data = cardData()
     const enabled = renderCard(data, vi.fn())
-    const enabledOut = enabled.container.querySelector('.snode__col--out')?.innerHTML
-    const enabledIn = enabled.container.querySelector('.snode__col--in')?.innerHTML
+    const enabledOut = (await awaitRow(() => enabled.container, '.snode__col--out')).innerHTML
+    const enabledIn = (await awaitRow(() => enabled.container, '.snode__col--in')).innerHTML
     const dormant = renderCard(data, undefined)
-    const dormantOut = dormant.container.querySelector('.snode__col--out')?.innerHTML
-    const dormantIn = dormant.container.querySelector('.snode__col--in')?.innerHTML
+    const dormantOut = (await awaitRow(() => dormant.container, '.snode__col--out')).innerHTML
+    const dormantIn = (await awaitRow(() => dormant.container, '.snode__col--in')).innerHTML
     expect(dormantOut).toBe(enabledOut)
     expect(dormantIn).toBe(enabledIn)
     await act(async () => {})
@@ -657,7 +670,7 @@ describe('StrategyNode output-port-row hover — dormant', () => {
 
   it('a dormant output row (no onPortHover in context) does nothing and never crashes on hover', async () => {
     const { container } = renderCard(cardData(), undefined)
-    const outRow = container.querySelector('.snode__port--out') as Element
+    const outRow = await awaitRow(() => container, '.snode__port--out')
     expect(() => {
       fireEvent.mouseOver(outRow)
       fireEvent.mouseOut(outRow)
@@ -673,7 +686,7 @@ describe('Canvas port-row hover — feeds the flow readout', () => {
       <Canvas doc={edgeDoc()} actions={stubActions()} valueProbe={probe()} />,
     )
     await edgesSeeded()
-    const outRow = getByTestId('rf-node-ret').querySelector('.snode__port--out') as Element
+    const outRow = await awaitRow(() => getByTestId('rf-node-ret'), '.snode__port--out')
     fireEvent.mouseOver(outRow)
     expect(rec.renders.at(-1)?.address).toEqual({
       nodeId: 'ret',
@@ -696,7 +709,7 @@ describe('Canvas port-row hover — feeds the flow readout', () => {
       />,
     )
     await edgesSeeded()
-    const outRow = getByTestId('rf-node-inner_ret').querySelector('.snode__port--out') as Element
+    const outRow = await awaitRow(() => getByTestId('rf-node-inner_ret'), '.snode__port--out')
     fireEvent.mouseOver(outRow)
     expect(rec.renders.at(-1)?.address).toMatchObject({
       nodeId: 'inner_ret',
@@ -708,7 +721,7 @@ describe('Canvas port-row hover — feeds the flow readout', () => {
   it('without a probe the context carries no onPortHover — an output-row hover publishes nothing', async () => {
     const { getByTestId } = renderCanvas(<Canvas doc={edgeDoc()} actions={stubActions()} />)
     await edgesSeeded()
-    const outRow = getByTestId('rf-node-ret').querySelector('.snode__port--out') as Element
+    const outRow = await awaitRow(() => getByTestId('rf-node-ret'), '.snode__port--out')
     fireEvent.mouseOver(outRow)
     fireEvent.mouseOut(outRow)
     expect(rec.renders).toHaveLength(0)
@@ -724,7 +737,7 @@ describe('Canvas port-row hover — feeds the flow readout', () => {
     expect(rec.renders.at(-1)?.pinned).toBe(true)
     expect(rec.renders.at(-1)?.address).toMatchObject({ nodeId: 'ret', outputPort: 'values' })
     // Hover a DIFFERENT card's output row (rank/values). It feeds `hovered`, but the pin still wins.
-    const rankOut = getByTestId('rf-node-rank').querySelector('.snode__port--out') as Element
+    const rankOut = await awaitRow(() => getByTestId('rf-node-rank'), '.snode__port--out')
     fireEvent.mouseOver(rankOut)
     expect(rec.renders.at(-1)?.address).toMatchObject({ nodeId: 'ret', outputPort: 'values' })
     expect(rec.renders.at(-1)?.pinned).toBe(true)
