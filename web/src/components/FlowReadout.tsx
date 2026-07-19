@@ -218,13 +218,15 @@ export function FlowReadout({
   if (address === null) return null
 
   // The pin hint is pure presentation (Esc handling lives with the caller). Rendered alongside every
-  // non-null-address body.
+  // non-null-address body. The root modifier carries the pinned state for the CSS accent-border
+  // convention (the `.rpanel__row.is-selected` precedent).
   const hint = pinned ? <span className="flow-readout__hint">Esc to release</span> : null
+  const rootClass = pinned ? 'flow-readout flow-readout--pinned' : 'flow-readout'
 
   // A non-evaluated session has no served value — the honest shared no-eval line stands in its place.
   if (!probe.evaluated) {
     return (
-      <div className="flow-readout">
+      <div className={rootClass}>
         <p className="flow-readout__no-eval">{noEvaluationLine(probe.scheduleKind)}</p>
         {hint}
       </div>
@@ -281,7 +283,7 @@ export function FlowReadout({
   }
 
   return (
-    <div className="flow-readout">
+    <div className={rootClass}>
       {body}
       {hint}
     </div>

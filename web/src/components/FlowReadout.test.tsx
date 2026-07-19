@@ -612,8 +612,11 @@ describe('FlowReadout — rendering', () => {
       await vi.advanceTimersByTimeAsync(HOVER_DWELL_MS)
     })
     expect(screen.getByText('Esc to release')).toBeInTheDocument()
-    // Un-pinning (same address → no new generation) keeps the digest but drops the hint.
+    // The root carries the pinned modifier — the CSS accent-border convention keys off it (Task 7).
+    expect(document.querySelector('.flow-readout--pinned')).not.toBeNull()
+    // Un-pinning (same address → no new generation) keeps the digest but drops the hint + modifier.
     rerender(<FlowReadout probe={probeOf()} address={addressOf()} pinned={false} />)
     expect(screen.queryByText('Esc to release')).not.toBeInTheDocument()
+    expect(document.querySelector('.flow-readout--pinned')).toBeNull()
   })
 })

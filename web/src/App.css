@@ -2575,3 +2575,63 @@ button.trace-node__head--clickable:hover .trace-node__id {
 .journey__step[data-done='true'] .journey__mark {
   color: var(--success);
 }
+
+/* --- M14.3: the canvas flow readout (edge/port hover + pin) ------------------------------------ */
+/* A fixed RF Panel at bottom-center (the Legend precedent, opposite corner). Token-only, both
+   themes by construction. Compact by design: the Inspector remains the full value rendering. */
+
+.flow-readout {
+  max-width: 34rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* Pinned = the selection accent, the `.rpanel__row.is-selected` convention. */
+.flow-readout--pinned {
+  border-color: var(--accent);
+  background: var(--accent-tint-bg);
+}
+
+.flow-readout__head {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.flow-readout__digest {
+  margin-top: 2px;
+}
+
+.flow-readout__provenance {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+
+.flow-readout__provenance code {
+  font-family: var(--font-mono);
+}
+
+.flow-readout__error {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--danger);
+}
+
+.flow-readout__no-eval,
+.flow-readout__loading {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.flow-readout__hint {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
