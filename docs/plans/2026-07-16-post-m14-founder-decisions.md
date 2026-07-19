@@ -20,6 +20,24 @@
 | FD-7 | Standing gates | **Reaffirmed, no action**: capture-at-run stays flip-trigger-gated (none fired; worst measured tap 130.6 ms vs ~1 s); value-over-time waits for its trigger; engine-boundary values never via the tap; the M14.2 deferred web cleanups stay in the closeout register | ✅ Reaffirmed |
 | FD-8 | Pinned-edge on-canvas anchor (M14.3 product review M-2) | **Deferred, §13-gated**: a pinned flow readout names its source but nothing marks the pinned edge on the graph. Likely fix: a presentation-only pinned-edge CSS mark, NO React Flow selection semantics. Implement only if §13 shows confusion (or a live smoke shows it broken — the 2026-07-19 smoke did not). Related intentional non-decisions: L-2 canvas discoverability hint stays the §13 probe H2; L-3 readout/minimap narrow-width collision is deferred polish | ⏳ Deferred (§13-gated) |
 
+## Recorded cleanup — 2026-07-19 final M14.3 review (founder: "record 5-6")
+
+The final pre-§13 code review of the merged M14.3 range fixed four defects (PR #31: index-free pin
+origins, origin-dead pin GC, dataset-picker mount focus, visible typed-edge selection) and recorded
+two cleanups as **record-only, no behavior change** by founder decision:
+
+- **C-1 — single `viewGraph` derivation.** The view's source graph (strategy doc vs. component tip
+  definition) is now derived in three places in `Canvas.tsx`: `project()`, the `FlowPresence` memo,
+  and the enter-component scope resolver. Nothing ties them together, so a future view mode that
+  updates one but not the others would gate readouts against the wrong graph. Cleanup shape: one
+  shared `viewGraph` memo consumed by all three. Do it opportunistically in whichever milestone next
+  touches the Canvas view model.
+- **C-2 — `chromeValue` identity across drag frames.** The chrome context memo is stable across
+  hover renders (its goal) but re-mints on every node-drag pointer-move via the dep chain
+  `onPortHover ← addressOfEdge ← rfNodes`, re-rendering every node card during drags — even with no
+  probe active. Cleanup shape: read `rfNodes` through a ref inside `addressOfEdge` (all its callers
+  run in event handlers, not render). Perf-only; no observed jank at demo scale.
+
 ## Boundaries this record pins
 
 - **No M14.3, M15, or M16 work** starts before §13 evidence reaches the founder (FD-2/FD-4/FD-5).

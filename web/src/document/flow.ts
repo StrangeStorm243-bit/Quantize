@@ -5,6 +5,7 @@
 // pure reducers in `store.ts`. Node display metadata (display_name, typed ports) comes from the
 // M10 catalog and is added in M11.4; `toFlow` already accepts an optional `catalog` so that
 // enrichment lands WITHOUT a signature change.
+import type { CSSProperties } from 'react'
 import type { Edge as FlowEdge, Node as FlowNode } from '@xyflow/react'
 import type {
   CatalogInputPortDto,
@@ -367,13 +368,15 @@ export function toFlow(
       targetHandle,
     }
     // Color by carried port type when it resolves. The class suffix is DERIVED from the token name
-    // (`--port-cross-section-number` → `cross-section-number`) so class and color stay in lockstep,
-    // and the inline stroke actually paints the wire without a per-type CSS rule.
+    // (`--port-cross-section-number` → `cross-section-number`) so class and color stay in lockstep.
+    // The color rides a CUSTOM PROPERTY (post-#30 review): an inline `stroke` on the path outranks
+    // every stylesheet rule, which made RF's `.selected`/`:focus` treatment invisible on typed
+    // edges — the `.sedge` rules in App.css paint stroke (and the selection weight) from the var.
     const portType = outputPortType(source, sourceHandle)
     if (portType !== undefined) {
       const tokenVar = portColorVar(portType)
       flowEdge.className = `sedge sedge--${tokenVar.replace('--port-', '')}`
-      flowEdge.style = { stroke: `var(${tokenVar})` }
+      flowEdge.style = { '--sedge-stroke': `var(${tokenVar})` } as CSSProperties
     }
     return flowEdge
   })
@@ -381,16 +384,38 @@ export function toFlow(
   return { nodes, edges }
 }
 
-/** The ONE formula for a projected edge's RF id, shared by `toFlow` and any render-phase
- *  existence check that must derive ids from the DOCUMENT (post-merge review F1: the projection
- *  state reseeds in an effect, so a doc-derived presence set is the only zero-frame source). */
+/** A doc edge's stable, index-free identity: its endpoint signature. Parallel duplicate edges
+ *  share one signature — harmless for pin identity, because duplicates carry the identical tap
+ *  address. `disconnect`/`removeNode` FILTER `doc.edges`, shifting every later index, so anything
+ *  persisted across doc mutations (the readout pin origin, the presence set it is checked
+ *  against) must key on this signature, never on the index-suffixed RF id (post-#30 review). */
+export function edgeSignatureOf(edge: {
+  from: readonly [string, string]
+  to: readonly [string, string]
+}): string {
+  const [source, sourceHandle] = edge.from
+  const [target, targetHandle] = edge.to
+  return `${source}:${sourceHandle}->${target}:${targetHandle}`
+}
+
+/** The SAME signature derived from a projected RF edge — from the structured fields, which are
+ *  authoritative (never parsed out of the id). Null when a handle is missing: a malformed
+ *  projection must never key a pin, mirroring `edgeAddress`'s guard. */
+export function flowEdgeSignature(
+  edge: Pick<FlowEdge, 'source' | 'sourceHandle' | 'target' | 'targetHandle'>,
+): string | null {
+  if (edge.sourceHandle == null || edge.targetHandle == null) return null
+  return `${edge.source}:${edge.sourceHandle}->${edge.target}:${edge.targetHandle}`
+}
+
+/** The ONE formula for a projected edge's RF id: the signature plus the array index (RF requires
+ *  unique ids, and parallel duplicate edges would otherwise collide). Valid only within a single
+ *  projection lifetime — see {@link edgeSignatureOf} for the identity that survives mutations. */
 export function edgeIdOf(
   edge: { from: readonly [string, string]; to: readonly [string, string] },
   index: number,
 ): string {
-  const [source, sourceHandle] = edge.from
-  const [target, targetHandle] = edge.to
-  return `${source}:${sourceHandle}->${target}:${targetHandle}#${index}`
+  return `${edgeSignatureOf(edge)}#${index}`
 }
 
 /** The value-tap address an edge's SOURCE end carries (M14.3, design §9): the structured fields

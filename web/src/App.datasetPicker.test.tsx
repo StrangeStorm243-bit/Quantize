@@ -83,4 +83,23 @@ describe('App dataset picker (M13.9 O4)', () => {
       expect(screen.queryByRole('dialog', { name: 'choose dataset' })).not.toBeInTheDocument(),
     )
   })
+
+  it('focuses the dialog on open, so Escape reaches its handler from the default flow (post-#30 review)', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByText('home-new'))
+
+    // Open via the strategy-bar chip: focus starts OUTSIDE the dialog subtree. Without a mount
+    // focus, the dialog's React onKeyDown can never fire — Escape would leave the modal open and
+    // fall through to the Canvas window listener (releasing a pinned readout behind it).
+    fireEvent.click(await screen.findByRole('button', { name: 'active dataset' }))
+    const dialog = await screen.findByRole('dialog', { name: 'choose dataset' })
+    await waitFor(() => expect(dialog).toHaveFocus())
+
+    // Escape on the focused element (the real event path): the picker closes and CONSUMES the key
+    // (fireEvent returns false when preventDefault was called).
+    expect(fireEvent.keyDown(dialog, { key: 'Escape' })).toBe(false)
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'choose dataset' })).not.toBeInTheDocument(),
+    )
+  })
 })

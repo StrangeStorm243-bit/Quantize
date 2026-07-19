@@ -5,7 +5,10 @@ import catalogJson from '../../../tests/goldens/node_catalog.json'
 import {
   componentCacheKey,
   edgeAddress,
+  edgeIdOf,
+  edgeSignatureOf,
   findComponentRef,
+  flowEdgeSignature,
   resolveComponentDef,
   resolveTrailFromPath,
   resolveUniverseTickers,
@@ -323,18 +326,49 @@ describe('toFlow M13.4 enrichment', () => {
     expect(px?.data.universeTickers).toBeNull()
   })
 
-  it('colors an edge by the port type it carries (className + stroke), given a catalog', () => {
+  it('colors an edge by the port type it carries (className + CSS custom property), given a catalog', () => {
     // ret(out values: CrossSection[Number]) → rk(in values): the edge carries CrossSection[Number].
+    // The color rides a CUSTOM PROPERTY, never an inline `stroke` (post-#30 review): an inline
+    // stroke on the path outranks every stylesheet rule, so RF's `.selected`/`:focus` treatment
+    // would be invisible on typed edges. The `.sedge` stylesheet rules paint stroke from the var.
     const { edges } = toFlow(makeDoc(), catalog)
     const e = edges[0]
     expect(e.className).toContain('sedge--cross-section-number')
-    expect((e.style as { stroke?: string } | undefined)?.stroke).toBe('var(--port-cross-section-number)')
+    const style = e.style as Record<string, string> | undefined
+    expect(style?.['--sedge-stroke']).toBe('var(--port-cross-section-number)')
+    expect(style?.stroke).toBeUndefined()
   })
 
   it('leaves edges uncolored without a catalog (M11.3 posture preserved)', () => {
     const { edges } = toFlow(makeDoc())
     expect(edges[0].className).toBeUndefined()
     expect(edges[0].style).toBeUndefined()
+  })
+})
+
+// Post-#30 review: a pin's edge identity must survive doc reindexing. `edgeIdOf` embeds the array
+// index (RF needs unique ids for parallel duplicate edges), but `disconnect`/`removeNode` FILTER
+// `doc.edges` — every edge after the removed entry shifts index, so anything that persists an
+// index-suffixed id across doc mutations (the pin origin did) falsely dies on unrelated edits.
+// The SIGNATURE (endpoints only, index-free) is the stable identity: parallel duplicates share it,
+// which is harmless for pins because duplicates carry the identical tap address.
+describe('edge signatures', () => {
+  const docEdge = { from: ['ret', 'values'] as const, to: ['rk', 'values'] as const }
+
+  it('edgeSignatureOf is index-free; edgeIdOf appends only the index to it', () => {
+    expect(edgeSignatureOf(docEdge)).toBe('ret:values->rk:values')
+    expect(edgeIdOf(docEdge, 3)).toBe('ret:values->rk:values#3')
+    expect(edgeIdOf(docEdge, 0)).toBe(`${edgeSignatureOf(docEdge)}#0`)
+  })
+
+  it('a projected RF edge yields the SAME signature as its doc edge', () => {
+    const { edges } = toFlow(makeDoc(), catalog)
+    expect(flowEdgeSignature(edges[0])).toBe(edgeSignatureOf(docEdge))
+  })
+
+  it('flowEdgeSignature is null when either handle is missing (malformed projection)', () => {
+    expect(flowEdgeSignature({ source: 'a', sourceHandle: null, target: 'b', targetHandle: 'i' })).toBeNull()
+    expect(flowEdgeSignature({ source: 'a', sourceHandle: 'o', target: 'b' })).toBeNull()
   })
 })
 

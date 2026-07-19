@@ -395,10 +395,25 @@ body {
   font-weight: var(--weight-bold);
 }
 
-/* Typed edges (M13.4): the carried port-type color is set inline via `stroke`; the class is the
-   testable hook + a slightly heavier wire so the flow reads at a glance. */
+/* Typed edges (M13.4): the carried port-type color rides the `--sedge-stroke` custom property set
+   inline by `toFlow` (post-#30 review — an inline `stroke` outranked every stylesheet rule, hiding
+   the selected/focused state entirely); the class is the testable hook + a slightly heavier wire
+   so the flow reads at a glance. */
 .sedge path.react-flow__edge-path {
+  stroke: var(--sedge-stroke);
   stroke-width: 1.6;
+}
+
+/* A selected or keyboard-focused typed edge stays type-colored but visibly heavier. Specificity
+   (0,3,1) deliberately beats RF's own `.react-flow__edge.selected .react-flow__edge-path` (0,3,0),
+   which would repaint the wire in the library's neutral selected color and lose the type. Without
+   a visible state, RF's Backspace-deletes-selection was a trap: an edge selected via Tab + Enter
+   (or a plain click) looked identical to an unselected one. */
+.react-flow__edge.sedge.selected path.react-flow__edge-path,
+.react-flow__edge.sedge.selectable:focus path.react-flow__edge-path,
+.react-flow__edge.sedge.selectable:focus-visible path.react-flow__edge-path {
+  stroke: var(--sedge-stroke);
+  stroke-width: 3.2;
 }
 
 /* --- Data Source card (M13.4) ----------------------------------------------------------------- */
