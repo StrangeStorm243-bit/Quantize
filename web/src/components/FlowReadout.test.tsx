@@ -30,18 +30,22 @@ import { ApiClientError, getNodeValue } from '../api/client'
 // eslint-disable-next-line import/first
 import { FlowReadout, flowDigest, HOVER_DWELL_MS, type FlowAddress, type FlowProbe } from './FlowReadout'
 
-// The ` · `-joined visible line, mirroring how the (later) component renders the token texts.
+// The visible digest line, mirroring the component's PAIRING join (M14.3 product review L-1):
+// a value-bearing token glues to its preceding label with a plain space (`min -0.0492`); every
+// other boundary keeps the ` · ` separator. Pure text mirror of the renderer — same rule, one test
+// oracle. (Nuance: a Boolean scalar's `true` carries no `value`, so it keeps the separator —
+// `Boolean · true` — the value-glue keys on lossiness, not on being second.)
 function line(summary: Parameters<typeof flowDigest>[0]): string {
   return flowDigest(summary)
-    .map((t) => t.text)
-    .join(' · ')
+    .map((t, i) => (i === 0 ? t.text : ('value' in t ? ' ' : ' · ') + t.text))
+    .join('')
 }
 
 describe('flowDigest — scalar', () => {
   it('Number: dtype token + a lossy value token carrying the raw served float', () => {
     const summary: ScalarSummaryDto = { kind: 'scalar', dtype: 'Number', value: 0.5 }
     expect(flowDigest(summary)).toEqual([{ text: 'Number' }, { text: '0.5', value: 0.5 }])
-    expect(line(summary)).toBe('Number · 0.5')
+    expect(line(summary)).toBe('Number 0.5')
   })
 
   it('Number: a 17-digit float displays through fmtValue while the value token keeps the raw number', () => {
@@ -55,7 +59,7 @@ describe('flowDigest — scalar', () => {
   it('Integer: the count-valued scalar is still a served number → its value token carries it', () => {
     const summary: ScalarSummaryDto = { kind: 'scalar', dtype: 'Integer', value: 126 }
     expect(flowDigest(summary)).toEqual([{ text: 'Integer' }, { text: '126', value: 126 }])
-    expect(line(summary)).toBe('Integer · 126')
+    expect(line(summary)).toBe('Integer 126')
   })
 
   it('Boolean: value displays verbatim (true/false) with NO value key — a boolean is never lossy', () => {
@@ -111,7 +115,7 @@ describe('flowDigest — cross_section', () => {
       { text: 'max' },
       { text: '0.2232', value: 0.22315234567890123 },
     ])
-    expect(line(summary)).toBe('5 of 6 assets · min · -0.0492 · max · 0.2232')
+    expect(line(summary)).toBe('5 of 6 assets · min -0.0492 · max 0.2232')
   })
 
   it('Number: null min/max → those label+value tokens are absent (present/domain still renders)', () => {
@@ -190,7 +194,7 @@ describe('flowDigest — portfolio_targets', () => {
       { text: '0', value: 0 },
     ])
     expect(tokens[0]!.text).toContain(String(summary.count))
-    expect(line(summary)).toBe('3 targets · weights · 1 · cash · 0')
+    expect(line(summary)).toBe('3 targets · weights 1 · cash 0')
   })
 })
 
@@ -552,6 +556,28 @@ describe('FlowReadout — staleness never renders', () => {
 })
 
 describe('FlowReadout — rendering', () => {
+  // L-1 (product review): the RENDERED digest line pairs each value token to its label with a plain
+  // space and keeps ` · ` everywhere else — `min -0.0492 · max 0.2232`, never `min · -0.0492`. The
+  // token/value contract is untouched; only the join rule is presentation.
+  it('renders label/value pairs glued with a space and · between facts (L-1)', async () => {
+    vi.useFakeTimers()
+    asMock().mockResolvedValue(
+      response({
+        value_summary: {
+          kind: 'cross_section', dtype: 'Number', domain_count: 6, present_count: 5,
+          missing: ['GLD'], min: -0.04916057824719877, max: 0.22315234567890123,
+          true_count: null, false_count: null,
+        },
+      }),
+    )
+    render(<FlowReadout probe={probeOf()} address={addressOf()} pinned={false} />)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(HOVER_DWELL_MS)
+    })
+    const digest = document.querySelector('.flow-readout__digest')
+    expect(digest?.textContent).toBe('5 of 6 assets · min -0.0492 · max 0.2232')
+  })
+
   // Cycle 11 — the success render: label + SERVED port, the digest with lossy-token titles and
   // title-free integer counts, and the recompute-provenance footer with the abbreviated fingerprint.
   it('renders label+served port, lossy-token titles, title-free counts, and the provenance abbrev', async () => {

@@ -262,9 +262,13 @@ export function FlowReadout({
           {/* Line 2: the digest tokens, ` · `-separated. Each lossy value token pairs with `verbatimTitle`
               so the raw served float is one hover away; a lossless prose/count token gets NO title. */}
           <div className="flow-readout__digest">
+            {/* Join rule (L-1, presentation only — the token/value contract is untouched): a
+                value-bearing token GLUES to its preceding label with a plain space (`min -0.0492`);
+                every other boundary keeps the ` · ` fact separator. A Boolean scalar's `true`
+                carries no value, so it keeps the separator — the glue keys on lossiness. */}
             {flowDigest(response.value_summary).map((token, i) => (
               <Fragment key={i}>
-                {i > 0 ? ' · ' : null}
+                {i > 0 ? ('value' in token ? ' ' : ' · ') : null}
                 <span {...verbatimTitle(token.value)}>{token.text}</span>
               </Fragment>
             ))}

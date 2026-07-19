@@ -1610,7 +1610,7 @@ breadcrumb first, and the served address is qualified by the component path
 
 **Verification status (honest, per CLAUDE.md).** Full canonical gate green: **pytest 1062 · ruff check
 clean · ruff format · mypy clean · Node-24 · codegen check (artifacts up to date) · root `tsc` + web
-typecheck clean · web 713 tests / 67 files** (history: 1054/633-64 at the closeout PR; +6 py from the
+typecheck clean · web 714 tests / 67 files** (history: 1054/633-64 at the closeout PR; +6 py from the
 2026-07-16 external-review fix pass; +12 web from PR #27; +2 py from PR #28; +67 web across 3 new
 files from M14.3 — the current figures are the M14.3 final gate, 2026-07-18). Beyond the gate, M14 was **driven live in the real
 browser** (Playwright MCP, API + Vite dev servers up) against the ETF Momentum Rotation demo — the

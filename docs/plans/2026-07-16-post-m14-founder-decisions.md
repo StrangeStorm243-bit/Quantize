@@ -1,4 +1,4 @@
-# Post-M14 Founder Decisions (FD-1…FD-7) — ratified 2026-07-16
+# Post-M14 Founder Decisions (FD-1…FD-8) — ratified 2026-07-16 (FD-8 added 2026-07-19)
 
 > Decision record, not a plan. The M14 product/architecture review (2026-07-16, in-session)
 > converted its findings into seven founder decisions; the founder ratified the recommended
@@ -18,6 +18,7 @@
 | FD-6a | Refusal copy humanization | **Approved** — the value-tap refusal is prefixed with the node's display label (client-held data; served message stays verbatim) | ✅ Landed in the FD-3/FD-6a polish slice (this branch) |
 | FD-6b | Stage-strip zeros on componentized strategies | **Record only, build nothing**: extracting nodes into a component empties their stage-strip counts (v2 shows `Transforms 0 · Signals 0` — internals are excluded by design, M13). A deliberate design answer belongs to whichever milestone next touches the strip | ✅ Recorded here |
 | FD-7 | Standing gates | **Reaffirmed, no action**: capture-at-run stays flip-trigger-gated (none fired; worst measured tap 130.6 ms vs ~1 s); value-over-time waits for its trigger; engine-boundary values never via the tap; the M14.2 deferred web cleanups stay in the closeout register | ✅ Reaffirmed |
+| FD-8 | Pinned-edge on-canvas anchor (M14.3 product review M-2) | **Deferred, §13-gated**: a pinned flow readout names its source but nothing marks the pinned edge on the graph. Likely fix: a presentation-only pinned-edge CSS mark, NO React Flow selection semantics. Implement only if §13 shows confusion (or a live smoke shows it broken — the 2026-07-19 smoke did not). Related intentional non-decisions: L-2 canvas discoverability hint stays the §13 probe H2; L-3 readout/minimap narrow-width collision is deferred polish | ⏳ Deferred (§13-gated) |
 
 ## Boundaries this record pins
 
