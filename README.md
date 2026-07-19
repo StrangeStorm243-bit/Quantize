@@ -140,9 +140,12 @@ the session cursor — including read-only component internals — served by a n
 /v1/runs/{run_id}/values` endpoint that **recomputes on demand from the run's pinned inputs over the
 one evaluator** (no separate value store; `provenance.captured: false`), with honest structured
 refusals for non-evaluated sessions, no-output nodes, and addresses that do not exist in a run's
-strategy. The latest M14 closeout gate is green with **1060 Python tests** (`pytest`) and **633 web
-tests across 64 files** (`vitest`), on Python 3.13/3.14 and Windows/Linux, with byte-stable golden
-and backtest↔forward consistency coverage.
+strategy. **M14.3** put the same values on the canvas itself: hover (or keyboard-pin) any edge or a
+node card's output port and a flow readout shows the served value summary crossing that connection
+at the session cursor — including component-internal edges via the breadcrumb trail — dwell-gated
+and deliberately uncached (every readout is a fresh recompute). The latest gate is green with
+**1062 Python tests** (`pytest`) and **712 web tests across 67 files** (`vitest`), on Python
+3.13/3.14 and Windows/Linux, with byte-stable golden and backtest↔forward consistency coverage.
 
 For the full milestone breakdown (M1 IR + structural validation through the M13 IDE reorientation),
 see [`docs/MVP_PLAN.md`](docs/MVP_PLAN.md).
