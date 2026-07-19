@@ -398,4 +398,15 @@ describe('ExtractDialog clobber guards + polish (M12.5b)', () => {
     renderDialog(strategyA(), MOMENTUM)
     expect(await screen.findByLabelText('component name')).toHaveFocus()
   })
+
+  it('Escape cancels AND consumes the key (preventDefault) so window-level Escape consumers defer (F3)', async () => {
+    const { onCancel } = renderDialog(strategyA(), MOMENTUM)
+    const dialog = await screen.findByRole('dialog', { name: 'create component' })
+    // fireEvent returns false when preventDefault was called — the Canvas pin-release / breadcrumb
+    // listener checks `defaultPrevented`, so a consumed Escape can never also release a pinned
+    // flow readout in the same keystroke.
+    const notPrevented = fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    expect(notPrevented).toBe(false)
+  })
 })

@@ -335,7 +335,11 @@ export function ExtractDialog({
       tabIndex={-1}
       onKeyDown={(e) => {
         // Escape aborts — but NOT while a commit is in flight (a late `ok:true` must not clobber).
+        // preventDefault marks the key CONSUMED (post-merge review F3): the Canvas window listener
+        // (pin release / breadcrumb pop) defers to `defaultPrevented`, so closing this dialog can
+        // never also release a pinned flow readout in the same keystroke.
         if (e.key === 'Escape' && !busy) {
+          e.preventDefault()
           onCancel()
         }
       }}

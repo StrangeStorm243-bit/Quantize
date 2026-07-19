@@ -28,23 +28,21 @@ vi.mock('../api/client', async (importOriginal) => {
 // eslint-disable-next-line import/first
 import { ApiClientError, getNodeValue } from '../api/client'
 // eslint-disable-next-line import/first
-import { FlowReadout, flowDigest, HOVER_DWELL_MS, type FlowAddress, type FlowProbe } from './FlowReadout'
+import { FlowReadout, flowDigest, digestSeparator, HOVER_DWELL_MS, type FlowAddress, type FlowProbe } from './FlowReadout'
 
-// The visible digest line, mirroring the component's PAIRING join (M14.3 product review L-1):
-// a value-bearing token glues to its preceding label with a plain space (`min -0.0492`); every
-// other boundary keeps the ` · ` separator. Pure text mirror of the renderer — same rule, one test
-// oracle. (Nuance: a Boolean scalar's `true` carries no `value`, so it keeps the separator —
-// `Boolean · true` — the value-glue keys on lossiness, not on being second.)
+// The visible digest line, built through the component's OWN exported separator (post-merge review
+// F8: a hand-copied mirror would keep passing after the renderer's rule changed). One rule, one
+// oracle: `digestSeparator` is exactly what the JSX join uses.
 function line(summary: Parameters<typeof flowDigest>[0]): string {
   return flowDigest(summary)
-    .map((t, i) => (i === 0 ? t.text : ('value' in t ? ' ' : ' · ') + t.text))
+    .map((t, i) => (i === 0 ? t.text : digestSeparator(t) + t.text))
     .join('')
 }
 
 describe('flowDigest — scalar', () => {
   it('Number: dtype token + a lossy value token carrying the raw served float', () => {
     const summary: ScalarSummaryDto = { kind: 'scalar', dtype: 'Number', value: 0.5 }
-    expect(flowDigest(summary)).toEqual([{ text: 'Number' }, { text: '0.5', value: 0.5 }])
+    expect(flowDigest(summary)).toEqual([{ text: 'Number' }, { text: '0.5', value: 0.5, pairsWithPrev: true }])
     expect(line(summary)).toBe('Number 0.5')
   })
 
@@ -52,22 +50,25 @@ describe('flowDigest — scalar', () => {
     const summary: ScalarSummaryDto = { kind: 'scalar', dtype: 'Number', value: 0.025015130971708377 }
     expect(flowDigest(summary)).toEqual([
       { text: 'Number' },
-      { text: '0.025', value: 0.025015130971708377 },
+      { text: '0.025', value: 0.025015130971708377, pairsWithPrev: true },
     ])
   })
 
   it('Integer: the count-valued scalar is still a served number → its value token carries it', () => {
     const summary: ScalarSummaryDto = { kind: 'scalar', dtype: 'Integer', value: 126 }
-    expect(flowDigest(summary)).toEqual([{ text: 'Integer' }, { text: '126', value: 126 }])
+    expect(flowDigest(summary)).toEqual([{ text: 'Integer' }, { text: '126', value: 126, pairsWithPrev: true }])
     expect(line(summary)).toBe('Integer 126')
   })
 
-  it('Boolean: value displays verbatim (true/false) with NO value key — a boolean is never lossy', () => {
+  it('Boolean: value displays verbatim with NO value key, but PAIRS with its dtype label (F5)', () => {
     const summary: ScalarSummaryDto = { kind: 'scalar', dtype: 'Boolean', value: true }
     const tokens = flowDigest(summary)
-    expect(tokens).toEqual([{ text: 'Boolean' }, { text: 'true' }])
+    // Pairing is now EXPLICIT (`pairsWithPrev`) — orthogonal to lossiness (`value`). All three scalar
+    // dtypes render consistently: 'Number 0.5', 'Integer 126', 'Boolean true'.
+    expect(tokens).toEqual([{ text: 'Boolean' }, { text: 'true', pairsWithPrev: true }])
     // Pin the ABSENCE of the value key explicitly (not merely `value === undefined`).
     expect('value' in tokens[1]!).toBe(false)
+    expect(line(summary)).toBe('Boolean true')
   })
 })
 
@@ -111,9 +112,9 @@ describe('flowDigest — cross_section', () => {
     expect(flowDigest(summary)).toEqual([
       { text: '5 of 6 assets' },
       { text: 'min' },
-      { text: '-0.0492', value: -0.04916057824719877 },
+      { text: '-0.0492', value: -0.04916057824719877, pairsWithPrev: true },
       { text: 'max' },
-      { text: '0.2232', value: 0.22315234567890123 },
+      { text: '0.2232', value: 0.22315234567890123, pairsWithPrev: true },
     ])
     expect(line(summary)).toBe('5 of 6 assets · min -0.0492 · max 0.2232')
   })
@@ -189,9 +190,9 @@ describe('flowDigest — portfolio_targets', () => {
     expect(tokens).toEqual([
       { text: '3 targets' },
       { text: 'weights' },
-      { text: '1', value: 1 },
+      { text: '1', value: 1, pairsWithPrev: true },
       { text: 'cash' },
-      { text: '0', value: 0 },
+      { text: '0', value: 0, pairsWithPrev: true },
     ])
     expect(tokens[0]!.text).toContain(String(summary.count))
     expect(line(summary)).toBe('3 targets · weights 1 · cash 0')

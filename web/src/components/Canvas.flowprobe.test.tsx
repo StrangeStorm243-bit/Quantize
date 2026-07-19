@@ -254,21 +254,34 @@ function renderCanvas(ui: ReactNode, strict = false): ReturnType<typeof render> 
   return render(strict ? <StrictMode>{tree}</StrictMode> : tree)
 }
 
-// ── effectiveAddress: the pure render-phase trail gate (Fact 9) ──────────────────────────────────────
+// ── effectiveAddress: the pure render-phase gate (Fact 9 trail + F1 origin existence) ────────────────
 describe('effectiveAddress', () => {
   const addr: FlowAddress = { nodeId: 'ret', componentPath: [], outputPort: 'values', sourceLabel: 'Trailing Return' }
+  const edgeEntry = { address: addr, trailKey: 'mom', origin: { kind: 'edge', edgeId: 'e1' } as const }
+  const portEntry = { address: addr, trailKey: 'mom', origin: { kind: 'port', nodeId: 'ret' } as const }
+  const present = { edgeIds: new Set(['e1']), nodeIds: new Set(['ret']) }
+  const nothing = { edgeIds: new Set<string>(), nodeIds: new Set<string>() }
 
-  it('returns the address when the trail key matches', () => {
-    expect(effectiveAddress({ address: addr, trailKey: 'mom' }, 'mom')).toBe(addr)
-    expect(effectiveAddress({ address: addr, trailKey: '' }, '')).toBe(addr)
+  it('returns the address when the trail key matches AND the origin still exists', () => {
+    expect(effectiveAddress(edgeEntry, 'mom', present)).toBe(addr)
+    expect(effectiveAddress(portEntry, 'mom', present)).toBe(addr)
+    expect(effectiveAddress({ ...edgeEntry, trailKey: '' }, '', present)).toBe(addr)
   })
 
   it('returns null when the trail key differs (a same-definition instance switch)', () => {
-    expect(effectiveAddress({ address: addr, trailKey: 'momA' }, 'momB')).toBeNull()
+    expect(effectiveAddress({ ...edgeEntry, trailKey: 'momA' }, 'momB', present)).toBeNull()
+  })
+
+  it('returns null when the originating edge no longer exists in the projection (F1)', () => {
+    expect(effectiveAddress(edgeEntry, 'mom', nothing)).toBeNull()
+  })
+
+  it('returns null when the originating node no longer exists in the projection (F1)', () => {
+    expect(effectiveAddress(portEntry, 'mom', nothing)).toBeNull()
   })
 
   it('returns null for a null entry', () => {
-    expect(effectiveAddress(null, 'mom')).toBeNull()
+    expect(effectiveAddress(null, 'mom', present)).toBeNull()
   })
 })
 
@@ -357,6 +370,62 @@ describe('Canvas edge-hover — address scope', () => {
       componentPath: ['mom'],
       outputPort: 'values',
     })
+  })
+})
+
+// ── F1 (post-merge review): pin/hover invalidation keyed to origin EXISTENCE ─────────────────────────
+describe('Canvas edge-hover — a readout never outlives its origin (F1)', () => {
+  it('a pinned edge readout clears when that edge leaves the document (click-pin → Backspace-delete)', async () => {
+    const doc = edgeDoc()
+    const actions = stubActions()
+    const { rerender } = renderCanvas(<Canvas doc={doc} actions={actions} valueProbe={probe()} />)
+    await edgesSeeded()
+    callProp('onEdgeClick', {}, firstEdge())
+    expect(rec.renders.at(-1)?.address).toMatchObject({ nodeId: 'ret', outputPort: 'values' })
+    const changeIdx = rec.renders.length
+    // The user deletes the pinned edge (click already RF-selected it; Backspace removes it from the
+    // doc). Reseed with the edge gone — the readout must clear, render-gated: NO render at or after
+    // the change may carry the dead edge's address.
+    const docWithout = { ...doc, edges: [] }
+    rerender(
+      <CatalogProvider>
+        <Canvas doc={docWithout} actions={actions} valueProbe={probe()} />
+      </CatalogProvider>,
+    )
+    await act(async () => {})
+    expect(rec.renders.length).toBeGreaterThan(changeIdx)
+    for (const r of rec.renders.slice(changeIdx)) {
+      expect(r.address).toBeNull()
+    }
+  })
+
+  it('a port-row hover readout clears when its node leaves the document', async () => {
+    const doc = edgeDoc()
+    const actions = stubActions()
+    const { rerender, getByTestId } = renderCanvas(
+      <Canvas doc={doc} actions={actions} valueProbe={probe()} />,
+    )
+    await edgesSeeded()
+    // Hover the real card's output row (the established card→context→Canvas path). A deleted node's
+    // element never fires mouseleave, so only existence-gating can clear this state.
+    const outRow = await awaitRow(() => getByTestId('rf-node-ret'), '.snode__port--out')
+    fireEvent.mouseOver(outRow)
+    expect(rec.renders.at(-1)?.address).toMatchObject({ nodeId: 'ret' })
+    const changeIdx = rec.renders.length
+    const docWithoutNode = {
+      ...doc,
+      nodes: doc.nodes.filter((n) => n.id !== 'ret'),
+      edges: [],
+    }
+    rerender(
+      <CatalogProvider>
+        <Canvas doc={docWithoutNode} actions={actions} valueProbe={probe()} />
+      </CatalogProvider>,
+    )
+    await act(async () => {})
+    for (const r of rec.renders.slice(changeIdx)) {
+      expect(r.address).toBeNull()
+    }
   })
 })
 
@@ -455,22 +524,32 @@ describe.each([['Enter'], [' ']])('Canvas edge-hover — keyboard pin (key=%j)',
     expect(rec.renders.at(-1)?.pinned).toBe(true)
   })
 
-  it('an edge-hit key press stops propagation AND prevents default; a miss does neither and does not pin', async () => {
+  it('propagation contract per key (F2): Space is fully suppressed on a hit; Enter pins AND propagates so RF selection (→ Backspace delete) still works; a miss touches nothing', async () => {
     const { container } = renderCanvas(<Canvas doc={edgeDoc()} actions={stubActions()} valueProbe={probe()} />)
     await edgesSeeded()
     const winSpy = vi.fn()
     window.addEventListener('keydown', winSpy)
     try {
-      // HIT: the window bubble listener never receives the event (stopPropagation), and dispatchEvent
-      // returns false (preventDefault was called).
       const el = container.querySelector('.react-flow__edge') as Element
       const notPreventedOnHit = fireEvent.keyDown(el, { key })
-      expect(winSpy).not.toHaveBeenCalled()
-      expect(notPreventedOnHit).toBe(false)
+      expect(rec.renders.at(-1)?.pinned).toBe(true)
+      if (key === ' ') {
+        // SPACE: suppressed — its propagation IS RF's window pan activation, and its default scrolls.
+        expect(winSpy).not.toHaveBeenCalled()
+        expect(notPreventedOnHit).toBe(false)
+      } else {
+        // ENTER (post-merge review F2): pinned AND propagated/unprevented — RF's own EdgeWrapper
+        // keydown must still run so Tab → Enter (select) → Backspace (delete) keeps working. The
+        // prior blanket stopPropagation silently broke keyboard edge deletion whenever a run was
+        // selected.
+        expect(winSpy).toHaveBeenCalledTimes(1)
+        expect(notPreventedOnHit).toBe(true)
+      }
 
       // MISS: a key press with focus OUTSIDE any edge (the wrapper itself) — the handler does nothing:
       // the window listener receives it and we did not prevent default (RF's own behavior is mocked away
       // and never asserted against). And nothing was pinned by the miss.
+      winSpy.mockClear()
       rec.renders = []
       const wrapper = container.querySelector('.canvas') as Element
       const notPreventedOnMiss = fireEvent.keyDown(wrapper, { key })
@@ -617,10 +696,15 @@ function renderCard(
 }
 
 
-// Await a port row inside a rendered element: the card renders its rows only after the async
-// catalog fetch resolves, so an immediate querySelector can race it under load (the gate runs the
-// suite alongside heavy processes -- a raw query here made the gate flaky where standalone runs
-// stayed green). waitFor pins the precondition the tests were already assuming.
+// Await a port row inside a rendered element. HONEST MECHANISM NOTE (post-merge review F10 — the
+// original comment misdiagnosed this): the card renders its rows SYNCHRONOUSLY from node data (the
+// async catalog only upgrades hover titles), so "rows arrive after the catalog fetch" was wrong for
+// the renderCard-based tests. The plausible real race (one gate-under-load failure at the old line
+// 677; standalone runs never failed) is that `edgesSeeded()` polls `box.props` — captured during the
+// mocked ReactFlow's RENDER phase, including StrictMode's discarded render — so it can resolve
+// BEFORE the corresponding DOM commit, leaving an immediate querySelector null. Either way, awaitRow
+// pins the precondition (the row is committed) instead of trusting any upstream signal; do NOT
+// replace it with a raw querySelector after `edgesSeeded()`.
 async function awaitRow(getRoot: () => Element | null, selector: string): Promise<Element> {
   return waitFor(() => {
     const row = getRoot()?.querySelector(selector)

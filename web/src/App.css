@@ -188,10 +188,10 @@ body {
 
 .canvas {
   position: relative;
-  width: 100%;
   /* Fill the REMAINING height of the flex-column center region (never 100% of it — the extraction
      toolbar is a sibling above; see .app-region--center). min-height: 0 lets the inner React Flow
-     surface actually shrink to fit. */
+     surface actually shrink to fit. Width comes from the flex cross-axis stretch default — an
+     explicit width: 100% here would be dead weight (post-merge review R-4). */
   flex: 1 1 auto;
   min-height: 0;
   display: flex;

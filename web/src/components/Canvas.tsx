@@ -59,6 +59,7 @@ import {
   componentCacheKey,
   componentPorts,
   edgeAddress,
+  edgeIdOf,
   findComponentRef,
   resolveComponentDef,
   toFlow,
@@ -341,32 +342,47 @@ export function decideConnection(
 }
 
 /**
- * A captured edge hover or pin (M14.3): the value-tap {@link FlowAddress} the edge carries, plus the
- * `trailKey` of the VIEW it was taken in (`componentTrail` instance ids joined). The key is what makes
- * {@link effectiveAddress} able to reject a stale entry after a same-definition instance switch.
+ * A captured edge hover or pin (M14.3): the value-tap {@link FlowAddress} the edge carries, the
+ * `trailKey` of the VIEW it was taken in (`componentTrail` instance ids joined), and the ORIGIN it was
+ * derived from (post-merge review F1) — the concrete edge id or node+port whose continued existence the
+ * readout's honesty depends on. The key + origin are what let {@link effectiveAddress} reject a stale
+ * entry after a same-definition instance switch OR after the origin is edited out of the document.
  */
 interface FlowEntry {
   address: FlowAddress
   trailKey: string
+  origin: { kind: 'edge'; edgeId: string } | { kind: 'port'; nodeId: string }
+}
+
+/** The projection-existence context {@link effectiveAddress} validates an entry's origin against. */
+export interface FlowPresence {
+  edgeIds: ReadonlySet<string>
+  nodeIds: ReadonlySet<string>
 }
 
 /**
- * The render-phase trail gate (M14.3 Fact 9). A hover/pin {@link FlowEntry} carries the `trailKey` of
- * the view it was captured in; this pure derivation returns its address ONLY while that key still
- * matches the view being rendered NOW, else null. Running it in RENDER (not an effect) is the whole
- * point: a same-definition instance switch leaves `viewKey` unchanged, so the inner `<ReactFlow>` does
- * NOT remount and no reset fires — yet the address of the OLD instance must not show for even one
- * commit. Gating the displayed address through this function guarantees exactly that; a lazy effect may
- * later GC the mismatched entry, but this gate — not the GC — is load-bearing for the one-frame promise.
+ * The render-phase gate (M14.3 Fact 9 + post-merge review F1). A hover/pin {@link FlowEntry} renders
+ * ONLY while (a) its `trailKey` still matches the view being rendered NOW, and (b) its ORIGIN still
+ * exists in the current projection — a deleted edge (click-pin → Backspace) or a deleted node must
+ * never leave a readout describing a connection that is no longer on the canvas, and a NEW edge drawn
+ * nearby must never inherit a stale pinned value's apparent meaning. Running this in RENDER (not an
+ * effect) is the whole point: neither an instance switch (viewKey unchanged, no remount) nor a doc
+ * re-seed fires any reset, yet the stale address must not show for even one commit. A lazy effect may
+ * GC mismatched entries, but this gate — not the GC — is load-bearing for the one-frame promise.
  */
 export function effectiveAddress(
-  entry: { address: FlowAddress; trailKey: string } | null,
+  entry: FlowEntry | null,
   currentTrailKey: string,
+  present: FlowPresence,
 ): FlowAddress | null {
   if (entry === null || entry.trailKey !== currentTrailKey) {
     return null
   }
-  return entry.address
+  const originExists =
+    entry.origin.kind === 'edge'
+      ? present.edgeIds.has(entry.origin.edgeId)
+      : present.nodeIds.has(entry.origin.nodeId)
+  return originExists ? entry.address : null
 }
 
 /** Props: the canonical document and the store dispatchers (the canvas owns no document state). */
@@ -841,7 +857,11 @@ export function Canvas({
   const onEdgeMouseEnter = useCallback(
     (_event: unknown, edge: FlowEdge) => {
       const address = addressOfEdge(edge)
-      setHovered(address === null ? null : { address, trailKey: currentTrailKey })
+      setHovered(
+        address === null
+          ? null
+          : { address, trailKey: currentTrailKey, origin: { kind: 'edge', edgeId: edge.id } },
+      )
     },
     [addressOfEdge, currentTrailKey],
   )
@@ -854,7 +874,7 @@ export function Canvas({
     (_event: unknown, edge: FlowEdge) => {
       const address = addressOfEdge(edge)
       if (address !== null) {
-        setPinnedAddr({ address, trailKey: currentTrailKey })
+        setPinnedAddr({ address, trailKey: currentTrailKey, origin: { kind: 'edge', edgeId: edge.id } })
       }
     },
     [addressOfEdge, currentTrailKey],
@@ -875,22 +895,32 @@ export function Canvas({
         return
       }
       const address = addressOfEdge({ source: port.nodeId, sourceHandle: port.outputPort })
-      setHovered(address === null ? null : { address, trailKey: currentTrailKey })
+      setHovered(
+        address === null
+          ? null
+          : // Origin = the NODE (F1): a port exists as long as its node does — a deleted node's row
+            // never fires mouseleave, so existence-gating is the only thing that can clear this.
+            { address, trailKey: currentTrailKey, origin: { kind: 'port', nodeId: port.nodeId } },
+      )
     },
     [addressOfEdge, currentTrailKey],
   )
 
-  // Pin path 2 (keyboard, Fact 8): Enter/Space over a FOCUSED edge pins it. This is a CAPTURE-phase
-  // handler on the canvas wrapper, and both facts below are load-bearing:
-  //  • RF selection is not consulted — we read the focused edge's id straight from the rendered DOM
+  // Pin path 2 (keyboard, Fact 8 + post-merge review F2): Enter/Space over a FOCUSED edge pins it.
+  // A CAPTURE-phase handler on the canvas wrapper; the facts below are load-bearing:
+  //  • RF selection is never CONSULTED — we read the focused edge's id straight from the rendered DOM
   //    (`.react-flow__edge[data-id]`, the EdgeWrapper contract at @xyflow/react dist/esm/index.mjs:2897)
   //    and act only when it resolves to a CURRENT edge.
-  //  • On an edge hit we `preventDefault()` AND `stopPropagation()`. RF's pan-activation listener sits on
-  //    `window` (dist/esm/index.mjs) and still receives a bubbling event whose default was prevented —
-  //    so preventDefault alone would let Space ALSO pan. A capture-phase element handler runs before the
-  //    window bubble listener, so stopping propagation HERE keeps Space-to-pin from panning. On a MISS
-  //    (no edge under focus) the handler does nothing at all — no preventDefault, no stopPropagation —
-  //    leaving RF's own Space/pan behavior untouched (we never blanket-suppress RF's keyboard handling).
+  //  • SPACE is fully suppressed on a hit (`preventDefault` stops page scroll; `stopPropagation` stops
+  //    RF's window-level pan-activation listener, which still receives bubbling default-prevented
+  //    events — a capture-phase element handler runs first, so stopping HERE is sufficient).
+  //  • ENTER is pinned AND propagated (F2): RF's own EdgeWrapper keydown then selects the edge too,
+  //    preserving the pre-existing keyboard editing flow Tab → Enter (select) → Backspace (delete)
+  //    that a blanket stopPropagation had silently broken whenever a run was selected. Coexisting
+  //    with selection is not consulting it. (Space cannot get the same treatment — its propagation
+  //    IS the pan activation — so Space pins without selecting; Enter is the full-fidelity path.)
+  //  • On a MISS (no edge under focus) the handler does nothing at all — RF's own keyboard behavior
+  //    (including its intentional Space preventDefault for panning) proceeds untouched.
   // `' '` is the browser's actual KeyboardEvent.key for Space, matching RF's `elementSelectionKeys`.
   const onWrapperKeyDownCapture = useCallback(
     (event: ReactKeyboardEvent) => {
@@ -906,11 +936,19 @@ export function Canvas({
       if (edge === undefined) {
         return
       }
-      event.preventDefault()
-      event.stopPropagation()
+      // Space must be fully suppressed (preventDefault: page scroll; stopPropagation: RF's
+      // window-level pan-activation listener still receives bubbling default-prevented events).
+      // Enter is deliberately let through (post-merge review F2): RF's own EdgeWrapper handler
+      // then ALSO selects the edge, preserving the pre-existing keyboard flow
+      // Tab → Enter (select) → Backspace (delete) that a blanket stopPropagation had broken.
+      // Pinning still never READS selection — coexisting with it is not consulting it (Fact 8).
+      if (event.key === ' ') {
+        event.preventDefault()
+        event.stopPropagation()
+      }
       const address = addressOfEdge(edge)
       if (address !== null) {
-        setPinnedAddr({ address, trailKey: currentTrailKey })
+        setPinnedAddr({ address, trailKey: currentTrailKey, origin: { kind: 'edge', edgeId: edge.id } })
       }
     },
     [rfEdges, addressOfEdge, currentTrailKey],
@@ -938,12 +976,43 @@ export function Canvas({
     }
   }, [valueProbe])
 
-  // The address handed to the readout: a pin outranks a hover, each render-gated through the trail check.
-  // `pinnedAddr !== null` is the pin STATE (drives the hint + Escape mount) independent of whether the
-  // current trail matches — a trail-stale pin shows nothing (effective is null) yet Escape still releases
-  // it until the GC effect clears it.
+  // The address handed to the readout: a pin outranks a hover, each render-gated through the trail
+  // check AND the origin-existence check (F1) — an entry whose edge/node was edited out of the
+  // document renders nothing from the very commit the DOC changed. Presence derives from the doc
+  // (or the tip definition's graph in a component view), NOT from rfNodes/rfEdges: the projection
+  // state reseeds in a post-commit effect, so gating on it would leak the stale address for one
+  // commit — the exact effect-timing class the trail gate (Fact 9) exists to prevent. `edgeIdOf`
+  // keeps the id formula single-sourced with `toFlow`. `pinnedAddr !== null` remains the pin STATE
+  // (drives the hint + Escape mount) independent of whether the current entry renders.
+  const present: FlowPresence = useMemo(() => {
+    const graph =
+      readOnly && tipDef !== undefined && tipDef.implementation.kind === 'graph'
+        ? tipDef.implementation.graph
+        : readOnly
+          ? { nodes: [], edges: [] }
+          : doc
+    return {
+      edgeIds: new Set(graph.edges.map((e, i) => edgeIdOf(e, i))),
+      nodeIds: new Set(graph.nodes.map((n) => n.id)),
+    }
+  }, [doc, readOnly, tipDef])
   const effectiveAddr =
-    effectiveAddress(pinnedAddr, currentTrailKey) ?? effectiveAddress(hovered, currentTrailKey)
+    effectiveAddress(pinnedAddr, currentTrailKey, present) ??
+    effectiveAddress(hovered, currentTrailKey, present)
+
+  // The chrome the node cards consume, memoized on its actual inputs (see the provider note — F4).
+  // `onPortHover` is a stable useCallback, so hover-driven Canvas renders reuse this identity.
+  const chromeValue = useMemo(
+    () => ({
+      datasetId,
+      datasetMeta,
+      resolvable: !readOnly,
+      // The output-port-row hover channel (D-36) is live ONLY with a probe — dormant otherwise, so
+      // the cards wire no hover handlers and render exactly as before.
+      onPortHover: probeActive ? onPortHover : undefined,
+    }),
+    [datasetId, datasetMeta, readOnly, probeActive, onPortHover],
+  )
 
   // Enter a ComponentRef card's internals on double-click (M13.8): resolve the double-clicked instance's
   // pinned `(componentId, version)` in the CURRENT view's scope — the strategy doc, or the tip
@@ -1078,14 +1147,12 @@ export function Canvas({
 
   return (
     <CanvasChromeContext.Provider
-      value={{
-        datasetId,
-        datasetMeta,
-        resolvable: !readOnly,
-        // The output-port-row hover channel (D-36) is live ONLY with a probe — dormant otherwise, so the
-        // cards wire no hover handlers and render exactly as before.
-        onPortHover: probeActive ? onPortHover : undefined,
-      }}
+      // MEMOIZED (post-merge review F4): the Canvas re-renders on every hover transition
+      // (`setHovered` in the edge/port handlers), and an inline value literal would mint a new
+      // context identity each time — re-rendering EVERY node card per pointer enter/leave, linearly
+      // with node count, on the mousemove hot path. Hover/pin state is deliberately NOT part of the
+      // context, so this value is stable across hover renders and the cards bail out.
+      value={chromeValue}
     >
       {/* Capture-phase double-click so it fires BEFORE React Flow's own pane dblclick (which zooms and
           stops propagation); RF's zoom-on-double-click is disabled below so the two never fight. */}

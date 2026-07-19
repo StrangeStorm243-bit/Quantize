@@ -11,13 +11,27 @@ import { errorMessage, getNodeValue } from '../api/client'
 import { noEvaluationLine } from '../document/schedule'
 import { abbrev, fmtValue, verbatimTitle } from '../format'
 
-/** One fragment of the flow readout's digest line. `value` is present IFF the token displays a
- *  potentially-lossy number (an fmtValue-formatted served float) — the caller pairs it with
- *  `verbatimTitle` so the raw served number stays one hover away (D-27). Integer counts embed in
- *  prose tokens as `String(count)`: lossless by construction (asserted in tests). */
+/** One fragment of the flow readout's digest line, carrying two ORTHOGONAL flags (post-merge
+ *  review F5 — conflating them keyed layout on lossiness and rendered `Boolean · true` beside
+ *  `Number 0.5`):
+ *  - `value`: the raw served number, present whenever the token displays a number — the caller
+ *    pairs it with `verbatimTitle` so the exact served figure stays one hover away (D-27).
+ *    Integer counts embedded in PROSE tokens (`3 members`) still carry no value: they render as
+ *    `String(count)`, lossless by construction (asserted in tests).
+ *  - `pairsWithPrev`: a pure LAYOUT hint — this token glues to its preceding label with a space
+ *    (`min -0.0492`) instead of the ` · ` fact separator. Set explicitly by the constructors,
+ *    never inferred from `value` (a Boolean scalar pairs without one). */
 export interface DigestToken {
   text: string
   value?: number
+  pairsWithPrev?: true
+}
+
+/** The ONE join rule between digest tokens — used by the renderer's JSX map AND exported as the
+ *  test oracle (post-merge review F8: a hand-copied mirror in the tests would keep passing after
+ *  this rule changed). Label→value pairs glue with a space; every other boundary is a fact break. */
+export function digestSeparator(token: DigestToken): string {
+  return token.pairsWithPrev === true ? ' ' : ' · '
 }
 
 // The verbatim-number rule made concrete: a served FLOAT gets its own token — `fmtValue` for display,
@@ -25,7 +39,7 @@ export interface DigestToken {
 // is the ONLY constructor that sets `value`; every other token is lossless prose (String counts, labels,
 // dates, boolean/asset-set text) and omits the key entirely (exactOptionalPropertyTypes: never `undefined`).
 function numberToken(value: number): DigestToken {
-  return { text: fmtValue(value), value }
+  return { text: fmtValue(value), value, pairsWithPrev: true }
 }
 
 // A render guard for a wide asset set: show the first few members, then an ellipsis so the one-line digest
@@ -41,7 +55,11 @@ export function flowDigest(summary: NodeValueResponse['value_summary']): DigestT
       // The scalar VALUE is a served number only for Number/Integer dtypes; a Boolean displays verbatim
       // ('true'/'false') and is never lossy, so it carries no `value`.
       const valueToken: DigestToken =
-        typeof summary.value === 'number' ? numberToken(summary.value) : { text: fmtValue(summary.value) }
+        typeof summary.value === 'number'
+          ? numberToken(summary.value)
+          : // A Boolean scalar pairs with its dtype label like every scalar, but is lossless
+            // prose — layout hint without a value (the F5 orthogonality in action).
+            { text: fmtValue(summary.value), pairsWithPrev: true as const }
       return [{ text: summary.dtype }, valueToken]
     }
     case 'asset_set': {
@@ -226,23 +244,19 @@ export function FlowReadout({
   const hint = pinned ? <span className="flow-readout__hint">Esc to release</span> : null
   const rootClass = pinned ? 'flow-readout flow-readout--pinned' : 'flow-readout'
 
-  // A non-evaluated session has no served value — the honest shared no-eval line stands in its place.
-  if (!probe.evaluated) {
-    return (
-      <div className={rootClass}>
-        <p className="flow-readout__no-eval">{noEvaluationLine(probe.scheduleKind)}</p>
-        {hint}
-      </div>
-    )
-  }
-
+  // ONE root return for every non-null-address state (post-merge review F9: the no-eval branch
+  // previously duplicated the wrapper+hint, so a root-level change could silently skip the
+  // pinned-while-non-evaluated variant). `body` selects; the wrapper below is the only root.
   // The RENDER guard: a stored result may render ONLY while it still matches the current activation
   // (same generation AND same tag). Any mismatch — the address left, the probe moved, a re-hover bumped
   // the gen — falls through to the dwell placeholder, so a superseded value is never shown even once.
   // The `stored`-narrowing lives in the condition itself (not a captured boolean) so the union
   // discriminates: inside the block `'error' in stored` splits refusal from value.
   let body: ReactElement
-  if (stored !== undefined && stored.gen === tracker.gen && stored.tag === currentTag) {
+  if (!probe.evaluated) {
+    // A non-evaluated session has no served value — the honest shared no-eval line stands in its place.
+    body = <p className="flow-readout__no-eval">{noEvaluationLine(probe.scheduleKind)}</p>
+  } else if (stored !== undefined && stored.gen === tracker.gen && stored.tag === currentTag) {
     if ('error' in stored) {
       // A SERVED refusal, verbatim, prefixed by the node's display label (FD-6a) — the reader sees which
       // edge was refused, never a bare hash. An alert so assistive tech announces the refusal.
@@ -262,13 +276,12 @@ export function FlowReadout({
           {/* Line 2: the digest tokens, ` · `-separated. Each lossy value token pairs with `verbatimTitle`
               so the raw served float is one hover away; a lossless prose/count token gets NO title. */}
           <div className="flow-readout__digest">
-            {/* Join rule (L-1, presentation only — the token/value contract is untouched): a
-                value-bearing token GLUES to its preceding label with a plain space (`min -0.0492`);
-                every other boundary keeps the ` · ` fact separator. A Boolean scalar's `true`
-                carries no value, so it keeps the separator — the glue keys on lossiness. */}
+            {/* The join comes from the ONE exported rule (`digestSeparator`, also the test oracle —
+                F8): explicit `pairsWithPrev` glues a label→value pair with a space; every other
+                boundary is a ` · ` fact break. Layout and lossiness are orthogonal flags (F5). */}
             {flowDigest(response.value_summary).map((token, i) => (
               <Fragment key={i}>
-                {i > 0 ? ('value' in token ? ' ' : ' · ') : null}
+                {i > 0 ? digestSeparator(token) : null}
                 <span {...verbatimTitle(token.value)}>{token.text}</span>
               </Fragment>
             ))}
