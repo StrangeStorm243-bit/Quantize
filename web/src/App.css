@@ -91,6 +91,12 @@ body {
   position: relative;
   overflow: hidden;
   background: var(--surface);
+  /* A flex COLUMN so the extraction toolbar (strategy view only) and the canvas share the region's
+     height instead of the canvas assuming 100% of it: with the toolbar present, a height-100% canvas
+     overflowed the hidden region by exactly the toolbar's height and CLIPPED the bottom-anchored
+     flow readout under the dock (M14.3 review finding — visible in walkthrough shots m143-05/08). */
+  display: flex;
+  flex-direction: column;
 }
 
 .app-region--right {
@@ -183,7 +189,11 @@ body {
 .canvas {
   position: relative;
   width: 100%;
-  height: 100%;
+  /* Fill the REMAINING height of the flex-column center region (never 100% of it — the extraction
+     toolbar is a sibling above; see .app-region--center). min-height: 0 lets the inner React Flow
+     surface actually shrink to fit. */
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }

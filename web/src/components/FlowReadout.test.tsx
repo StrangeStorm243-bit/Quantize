@@ -75,6 +75,11 @@ describe('flowDigest — asset_set', () => {
     expect(tokens[0]!.text).toContain(String(summary.count))
   })
 
+  it('omits the members token for an EMPTY set — no dangling separator (empty selection is a valid outcome)', () => {
+    const summary: AssetSetSummaryDto = { kind: 'asset_set', count: 0, members: [] }
+    expect(flowDigest(summary)).toEqual([{ text: '0 members' }])
+  })
+
   it('caps the members token at the first 4 + an ellipsis (a render guard, not a comparison)', () => {
     const summary: AssetSetSummaryDto = {
       kind: 'asset_set',

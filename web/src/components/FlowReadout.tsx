@@ -46,6 +46,9 @@ export function flowDigest(summary: NodeValueResponse['value_summary']): DigestT
     }
     case 'asset_set': {
       // `count` (an integer) as prose; the members list capped for the one-line digest (server order).
+      // An EMPTY set (a valid outcome — e.g. no selection survived) gets no members token at all:
+      // emitting one would render a dangling ` · ` separator after the count.
+      if (summary.members.length === 0) return [{ text: `${summary.count} members` }]
       const shown = summary.members.slice(0, MEMBERS_SHOWN)
       const membersText =
         summary.members.length > MEMBERS_SHOWN ? `${shown.join(', ')}…` : shown.join(', ')
