@@ -1610,9 +1610,12 @@ breadcrumb first, and the served address is qualified by the component path
 
 **Verification status (honest, per CLAUDE.md).** Full canonical gate green: **pytest 1062 · ruff check
 clean · ruff format · mypy clean · Node-24 · codegen check (artifacts up to date) · root `tsc` + web
-typecheck clean · web 714 tests / 67 files** (history: 1054/633-64 at the closeout PR; +6 py from the
-2026-07-16 external-review fix pass; +12 web from PR #27; +2 py from PR #28; +67 web across 3 new
-files from M14.3 — the current figures are the M14.3 final gate, 2026-07-18). Beyond the gate, M14 was **driven live in the real
+typecheck clean · web 719 tests / 67 files** (history, each delta summing to the next headline:
+1054 py/633 web-64 at the closeout PR → +6 py (2026-07-16 review fixes) → +12 web (PR #27) → +2 py
+(PR #28) = 1062/645-64 at the M14.3 base → +67 web/3 files (M14.3 build) → +1 web (empty-set digest)
+→ +1 web (L-1 join renderer test) = 1062/714-67 at the M14.3 closeout gate → +5 web (post-merge review fixes: origin-existence
+gating ×2, effectiveAddress origin cases ×2, ExtractDialog Escape-consumption ×1) = **1062/719-67**,
+the post-merge-review gate of 2026-07-19). Beyond the gate, M14 was **driven live in the real
 browser** (Playwright MCP, API + Vite dev servers up) against the ETF Momentum Rotation demo — the
 walkthrough (`docs/reviews/2026-07-15-m14-closeout.md`) records every tap's *observed* Inspector text
 and the `elapsed_ms` server lines, run against a **throwaway copy** of the demo DB (proven isolated by
@@ -1686,7 +1689,7 @@ the edge and compare. Then predict what changes when you step the cursor to a no
 before hovering again.
 
 **Honest verification:** full canonical gate green — counts in the Status line below; live
-walkthrough (`docs/reviews/2026-07-17-m14.3-edge-hover-walkthrough.md`) with 10 screenshots, the
+walkthrough (`docs/reviews/2026-07-17-m14.3-edge-hover-walkthrough.md`) with 14 screenshots (10 first-pass — later renamed `-light` when the M-1 theme correction found them mislabeled — plus 3 from the clipping-fix pass and 1 genuine dark-theme spot-check), the
 plain-uvicorn `elapsed_ms` sweep (7 edges, ~3.0 req/s, 33.0–50.1 ms success taps, 0.9 ms refusals —
 flip-trigger 3 did not fire at ~20–30× headroom), an observed zero-fetch no-eval hover, and the
 served-404 with the FD-6a label. Two walkthrough items fell to automated-test coverage by honest

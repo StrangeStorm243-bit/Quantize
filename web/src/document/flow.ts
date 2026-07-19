@@ -360,7 +360,7 @@ export function toFlow(
     const [source, sourceHandle] = edge.from
     const [target, targetHandle] = edge.to
     const flowEdge: FlowEdge = {
-      id: `${source}:${sourceHandle}->${target}:${targetHandle}#${index}`,
+      id: edgeIdOf(edge, index),
       source,
       target,
       sourceHandle,
@@ -379,6 +379,18 @@ export function toFlow(
   })
 
   return { nodes, edges }
+}
+
+/** The ONE formula for a projected edge's RF id, shared by `toFlow` and any render-phase
+ *  existence check that must derive ids from the DOCUMENT (post-merge review F1: the projection
+ *  state reseeds in an effect, so a doc-derived presence set is the only zero-frame source). */
+export function edgeIdOf(
+  edge: { from: readonly [string, string]; to: readonly [string, string] },
+  index: number,
+): string {
+  const [source, sourceHandle] = edge.from
+  const [target, targetHandle] = edge.to
+  return `${source}:${sourceHandle}->${target}:${targetHandle}#${index}`
 }
 
 /** The value-tap address an edge's SOURCE end carries (M14.3, design §9): the structured fields

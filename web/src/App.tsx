@@ -792,7 +792,22 @@ function AppShell(): ReactElement {
                 />
               ) : null}
               {datasetPickerOpen ? (
-                <div className="dpicker" role="dialog" aria-label="choose dataset">
+                <div
+                  className="dpicker"
+                  role="dialog"
+                  aria-label="choose dataset"
+                  tabIndex={-1}
+                  onKeyDown={(e) => {
+                    // Escape closes the picker and marks the key CONSUMED (post-merge review F3) —
+                    // the Canvas window listener defers to `defaultPrevented`, so dismissing this
+                    // modal can never also release a pinned flow readout behind it. (The picker
+                    // previously had no Escape handling at all — a standard modal affordance.)
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setDatasetPickerOpen(false)
+                    }
+                  }}
+                >
                   <div className="dpicker__panel">
                     <div className="dpicker__head">
                       <span className="dpicker__title">Choose dataset</span>
