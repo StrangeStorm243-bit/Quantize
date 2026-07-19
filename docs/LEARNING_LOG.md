@@ -1608,10 +1608,11 @@ breadcrumb first, and the served address is qualified by the component path
 (`addr=n43c03b4…/ret port=values` in the server log). The walkthrough recorded QQQ's `ret` as **0.2232**
 — check your hand figure against that, and against what the tap serves.
 
-**Verification status (honest, per CLAUDE.md).** Full canonical gate green: **pytest 1060 · ruff check
+**Verification status (honest, per CLAUDE.md).** Full canonical gate green: **pytest 1062 · ruff check
 clean · ruff format · mypy clean · Node-24 · codegen check (artifacts up to date) · root `tsc` + web
-typecheck clean · web 633 tests / 64 files** (1054 at the closeout PR; +6 from the 2026-07-16
-external-review fix pass — latency-instrument launch-path tests and the untyped-exception log test). Beyond the gate, M14 was **driven live in the real
+typecheck clean · web 714 tests / 67 files** (history: 1054/633-64 at the closeout PR; +6 py from the
+2026-07-16 external-review fix pass; +12 web from PR #27; +2 py from PR #28; +67 web across 3 new
+files from M14.3 — the current figures are the M14.3 final gate, 2026-07-18). Beyond the gate, M14 was **driven live in the real
 browser** (Playwright MCP, API + Vite dev servers up) against the ETF Momentum Rotation demo — the
 walkthrough (`docs/reviews/2026-07-15-m14-closeout.md`) records every tap's *observed* Inspector text
 and the `elapsed_ms` server lines, run against a **throwaway copy** of the demo DB (proven isolated by
@@ -1631,3 +1632,69 @@ closeout (this entry). Deferred by design, each behind a written trigger: **capt
 flip-trigger fires), **value-over-time** UI (future decision), batch/caching (measured-need gated), and
 engine-boundary values (never served via the tap — the graph terminates at `PortfolioTargets`, the
 engine owns reconciliation).
+
+## M14.3 — Edge-hover canvas dataflow (the flow readout) (2026-07-18)
+
+Context: M14 made values inspectable through the Inspector; the canvas itself gave no hint values
+existed. M14.3 — gated by D-4 until an explicit founder execution order opened it (recorded in the
+FD-4 amendment) — adds the "watch data flow" affordance: hover or keyboard-pin any edge (or a node
+card's output-port row) and a fixed readout shows the served value summary flowing across that
+connection at the session cursor, via the same `GET /v1/runs/{id}/values` endpoint. Pure
+presentation; zero backend change; four external audit rounds shaped the plan before a line was
+written (Rev A→E in `docs/plans/2026-07-17-m14.3-edge-hover-plan.md`).
+
+**Concepts introduced:**
+
+- **Activation generations via a render-phase state tracker — why neither an effect nor a ref can
+  carry this.** The readout stores each response under `{generation, tag}` where the tag is the full
+  request identity (run | cursor | component path | node | port) and the generation bumps on every
+  activation change — including leave-and-re-hover of the SAME address. The bump happens *during
+  render* through paired `useState` (the `prevViewKey` pattern): an effect would run post-commit and
+  let a stale value paint for one frame; a render-mutated ref desyncs under StrictMode's replay
+  (state updates are discarded and replayed together; ref writes are not — the M13.8 round-7
+  lesson). The render rule `stored.gen === current.gen && stored.tag === currentTag` makes the
+  display a pure function of the current props in every commit. *Where:*
+  `web/src/components/FlowReadout.tsx` (tracker + store + render guard);
+  `Canvas.tsx::effectiveAddress` applies the same idea to the breadcrumb trail (hover/pin state
+  carries its originating trail key, so a same-definition instance switch can never show the old
+  instance's value even for one frame).
+- **Dwell-vs-cache: why a debounce is admissible where memoization is a stop condition.** The 200 ms
+  dwell reduces request COUNT without storing results; re-hovering re-fetches (proven by a
+  call-count test and observed live — the second dwell shows loading, never the old value). A cached
+  result would be capture-at-run's sneaky entry point (design §10.5); the generation mechanism is
+  what makes the no-cache rule *structural* rather than aspirational — a same-tag stored result from
+  a previous activation physically cannot render.
+- **User-intent input paths vs. library selection semantics.** Pinning deliberately never consults
+  React Flow selection: Enter on an already-selected edge emits no selection change (verified in the
+  installed package), and validation highlighting *seeds* `selected: true` — a selection-driven pin
+  would have been keyboard-dead exactly on highlighted edges. Instead: mouse `onEdgeClick`, and a
+  capture-phase wrapper `keydown` handler that resolves the focused edge's `data-id`. Space needs
+  `stopPropagation()` in addition to `preventDefault()` because RF's pan-activation listener sits on
+  `window` and still receives a bubbling default-prevented event — element-capture runs first, so
+  stopping there is sufficient, and only on a confirmed edge hit (a miss touches nothing, so RF's
+  own pan behavior survives). *Where:* `Canvas.tsx` (the capture handler + Escape priority:
+  editable-control guard → unpin → breadcrumb pop, one listener).
+
+**Reading path:** `web/src/document/flow.ts::edgeAddress` (edge source + trail → tap address) →
+`web/src/components/FlowReadout.tsx` (`flowDigest` tokens → the tracker/store → rendering) →
+`Canvas.tsx` (probe prop, hover/pin state, keyboard capture, trail gating, the `Panel`) →
+`App.tsx` (the memoized `valueProbe` from `atSession`).
+
+**Hand exercise:** with a run selected, pick any edge and predict its digest line from the
+Inspector's "At session" block for the SOURCE node (same served value, compact form) — then hover
+the edge and compare. Then predict what changes when you step the cursor to a non-evaluated session
+before hovering again.
+
+**Honest verification:** full canonical gate green — counts in the Status line below; live
+walkthrough (`docs/reviews/2026-07-17-m14.3-edge-hover-walkthrough.md`) with 10 screenshots, the
+plain-uvicorn `elapsed_ms` sweep (7 edges, ~3.0 req/s, 33.0–50.1 ms success taps, 0.9 ms refusals —
+flip-trigger 3 did not fire at ~20–30× headroom), an observed zero-fetch no-eval hover, and the
+served-404 with the FD-6a label. Two walkthrough items fell to automated-test coverage by honest
+necessity (single-instance demo → the one-frame trail test; clean-validating demo → the
+highlighted-edge keyboard regression). One deflake landed during Task 8: port-row tests now await
+the async catalog before firing hover (a gate-under-load race; standalone runs never failed).
+
+**Status:** M14.3 shipped as pure presentation over the frozen M14 contract. Still deferred, each
+behind its written trigger: capture-at-run, value-over-time, batch/caching, engine-boundary values.
+§13 external validation remains the recommended next step — the readout strengthens the demo
+testers will walk.

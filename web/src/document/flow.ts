@@ -380,3 +380,15 @@ export function toFlow(
 
   return { nodes, edges }
 }
+
+/** The value-tap address an edge's SOURCE end carries (M14.3, design §9): the structured fields
+ *  are authoritative. Null when the projection lacks a source handle (a malformed edge must
+ *  never build a request). The trail's instance ids ARE the tap `component_path` (outermost-first,
+ *  envelope convention — see `ComponentTrailEntry.instanceId`). */
+export function edgeAddress(
+  edge: Pick<FlowEdge, 'source' | 'sourceHandle'>,
+  trail: readonly ComponentTrailEntry[],
+): { nodeId: string; componentPath: string[]; outputPort: string } | null {
+  if (edge.sourceHandle == null) return null
+  return { nodeId: edge.source, componentPath: trail.map((e) => e.instanceId), outputPort: edge.sourceHandle }
+}
