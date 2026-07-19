@@ -169,6 +169,20 @@ function edgeDoc(): StrategyDocument {
   }
 }
 
+// Strategy doc with TWO edges from distinct sources, so a test can edit one while a pin rides the
+// other: ret→rank:values (doc index 0) and ret2→rank:weights (doc index 1).
+function twoEdgeDoc(): StrategyDocument {
+  const doc = edgeDoc()
+  return {
+    ...doc,
+    nodes: [
+      ...doc.nodes,
+      { id: 'ret2', type_id: 'transform.trailing_return', type_version: '1.0.0', params: {}, ui: { position: { x: 0, y: 120 } } },
+    ],
+    edges: [...doc.edges, { from: ['ret2', 'values'], to: ['rank', 'weights'] }],
+  }
+}
+
 // Strategy doc whose edge SOURCE is a ComponentRef instance 'mom' (exposed output "assets"): the address
 // must tap `(mom, [], assets)` — instance id as nodeId, EMPTY component_path (Fact 4).
 function componentSourceDoc(): StrategyDocument {
@@ -257,10 +271,16 @@ function renderCanvas(ui: ReactNode, strict = false): ReturnType<typeof render> 
 // ── effectiveAddress: the pure render-phase gate (Fact 9 trail + F1 origin existence) ────────────────
 describe('effectiveAddress', () => {
   const addr: FlowAddress = { nodeId: 'ret', componentPath: [], outputPort: 'values', sourceLabel: 'Trailing Return' }
-  const edgeEntry = { address: addr, trailKey: 'mom', origin: { kind: 'edge', edgeId: 'e1' } as const }
+  // Edge origins are keyed by index-free SIGNATURE (post-#30 review): the projected id embeds the
+  // doc array index, which shifts on any earlier deletion — an id-keyed origin falsely died then.
+  const edgeEntry = {
+    address: addr,
+    trailKey: 'mom',
+    origin: { kind: 'edge', signature: 'ret:values->rank:values' } as const,
+  }
   const portEntry = { address: addr, trailKey: 'mom', origin: { kind: 'port', nodeId: 'ret' } as const }
-  const present = { edgeIds: new Set(['e1']), nodeIds: new Set(['ret']) }
-  const nothing = { edgeIds: new Set<string>(), nodeIds: new Set<string>() }
+  const present = { edgeSignatures: new Set(['ret:values->rank:values']), nodeIds: new Set(['ret']) }
+  const nothing = { edgeSignatures: new Set<string>(), nodeIds: new Set<string>() }
 
   it('returns the address when the trail key matches AND the origin still exists', () => {
     expect(effectiveAddress(edgeEntry, 'mom', present)).toBe(addr)
@@ -425,6 +445,86 @@ describe('Canvas edge-hover — a readout never outlives its origin (F1)', () =>
     await act(async () => {})
     for (const r of rec.renders.slice(changeIdx)) {
       expect(r.address).toBeNull()
+    }
+  })
+})
+
+// ── Post-#30 review: pin lifecycle across UNRELATED edits ────────────────────────────────────────────
+describe('Canvas edge-hover — pin lifecycle across unrelated edits', () => {
+  it('a pinned edge readout SURVIVES deleting an unrelated earlier edge (doc indices shift)', async () => {
+    const doc = twoEdgeDoc()
+    const actions = stubActions()
+    const { rerender } = renderCanvas(<Canvas doc={doc} actions={actions} valueProbe={probe()} />)
+    await edgesSeeded()
+    // Pin the SECOND edge (doc index 1).
+    callProp('onEdgeClick', {}, (box.props!.edges as FlowEdge[])[1])
+    expect(rec.renders.at(-1)?.address).toMatchObject({ nodeId: 'ret2', outputPort: 'values' })
+    expect(rec.renders.at(-1)?.pinned).toBe(true)
+    const changeIdx = rec.renders.length
+    // Delete the OTHER (earlier) edge: the pinned edge shifts from doc index 1 to 0, but its
+    // connection is untouched and still on the canvas — the pin must survive, with no null frame.
+    const docWithoutFirst = { ...doc, edges: [doc.edges[1]] }
+    rerender(
+      <CatalogProvider>
+        <Canvas doc={docWithoutFirst} actions={actions} valueProbe={probe()} />
+      </CatalogProvider>,
+    )
+    await act(async () => {})
+    expect(rec.renders.length).toBeGreaterThan(changeIdx)
+    for (const r of rec.renders.slice(changeIdx)) {
+      expect(r.address).toMatchObject({ nodeId: 'ret2', outputPort: 'values' })
+      expect(r.pinned).toBe(true)
+    }
+  })
+
+  it('deleting the PINNED edge clears the pin STATE — a later hover renders unpinned', async () => {
+    const doc = twoEdgeDoc()
+    const actions = stubActions()
+    const { rerender } = renderCanvas(<Canvas doc={doc} actions={actions} valueProbe={probe()} />)
+    await edgesSeeded()
+    callProp('onEdgeClick', {}, (box.props!.edges as FlowEdge[])[0])
+    expect(rec.renders.at(-1)?.pinned).toBe(true)
+    // Delete the pinned edge. The readout clears (F1 render gate) AND the pin STATE must be
+    // GC'd — `pinned` drives the accent border + "Esc to release" hint, so a lingering non-null
+    // pin would present the NEXT hover as pinned (and silently eat the next Escape).
+    const docWithoutPinned = { ...doc, edges: [doc.edges[1]] }
+    rerender(
+      <CatalogProvider>
+        <Canvas doc={docWithoutPinned} actions={actions} valueProbe={probe()} />
+      </CatalogProvider>,
+    )
+    await act(async () => {})
+    callProp('onEdgeMouseEnter', {}, (box.props!.edges as FlowEdge[])[0])
+    expect(rec.renders.at(-1)?.address).toMatchObject({ nodeId: 'ret2', outputPort: 'values' })
+    expect(rec.renders.at(-1)?.pinned).toBe(false)
+  })
+
+  it('re-drawing an identical connection never resurrects a dead pin', async () => {
+    const doc = edgeDoc()
+    const actions = stubActions()
+    const { rerender } = renderCanvas(<Canvas doc={doc} actions={actions} valueProbe={probe()} />)
+    await edgesSeeded()
+    callProp('onEdgeClick', {}, firstEdge())
+    expect(rec.renders.at(-1)?.pinned).toBe(true)
+    // Delete the pinned edge (pin dies, state GC'd)…
+    rerender(
+      <CatalogProvider>
+        <Canvas doc={{ ...doc, edges: [] }} actions={actions} valueProbe={probe()} />
+      </CatalogProvider>,
+    )
+    await act(async () => {})
+    const changeIdx = rec.renders.length
+    // …then re-draw the IDENTICAL connection. Same signature (and, at the same tail index, the
+    // same projected id) — but the pin was released by deletion, so nothing may reappear.
+    rerender(
+      <CatalogProvider>
+        <Canvas doc={doc} actions={actions} valueProbe={probe()} />
+      </CatalogProvider>,
+    )
+    await act(async () => {})
+    for (const r of rec.renders.slice(changeIdx)) {
+      expect(r.address).toBeNull()
+      expect(r.pinned).toBe(false)
     }
   })
 })

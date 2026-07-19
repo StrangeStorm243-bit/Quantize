@@ -59,8 +59,9 @@ import {
   componentCacheKey,
   componentPorts,
   edgeAddress,
-  edgeIdOf,
+  edgeSignatureOf,
   findComponentRef,
+  flowEdgeSignature,
   resolveComponentDef,
   toFlow,
 } from '../document/flow'
@@ -344,19 +345,22 @@ export function decideConnection(
 /**
  * A captured edge hover or pin (M14.3): the value-tap {@link FlowAddress} the edge carries, the
  * `trailKey` of the VIEW it was taken in (`componentTrail` instance ids joined), and the ORIGIN it was
- * derived from (post-merge review F1) — the concrete edge id or node+port whose continued existence the
+ * derived from (post-merge review F1) — the edge signature or node id whose continued existence the
  * readout's honesty depends on. The key + origin are what let {@link effectiveAddress} reject a stale
  * entry after a same-definition instance switch OR after the origin is edited out of the document.
  */
 interface FlowEntry {
   address: FlowAddress
   trailKey: string
-  origin: { kind: 'edge'; edgeId: string } | { kind: 'port'; nodeId: string }
+  // Edge origins key on the index-free endpoint SIGNATURE, never the RF id (post-#30 review): the
+  // id embeds the doc array index, which shifts when `disconnect`/`removeNode` filter `doc.edges` —
+  // an id-keyed pin falsely died whenever an UNRELATED earlier edge or node was deleted.
+  origin: { kind: 'edge'; signature: string } | { kind: 'port'; nodeId: string }
 }
 
 /** The projection-existence context {@link effectiveAddress} validates an entry's origin against. */
 export interface FlowPresence {
-  edgeIds: ReadonlySet<string>
+  edgeSignatures: ReadonlySet<string>
   nodeIds: ReadonlySet<string>
 }
 
@@ -380,7 +384,7 @@ export function effectiveAddress(
   }
   const originExists =
     entry.origin.kind === 'edge'
-      ? present.edgeIds.has(entry.origin.edgeId)
+      ? present.edgeSignatures.has(entry.origin.signature)
       : present.nodeIds.has(entry.origin.nodeId)
   return originExists ? entry.address : null
 }
@@ -857,10 +861,11 @@ export function Canvas({
   const onEdgeMouseEnter = useCallback(
     (_event: unknown, edge: FlowEdge) => {
       const address = addressOfEdge(edge)
+      const signature = flowEdgeSignature(edge)
       setHovered(
-        address === null
+        address === null || signature === null
           ? null
-          : { address, trailKey: currentTrailKey, origin: { kind: 'edge', edgeId: edge.id } },
+          : { address, trailKey: currentTrailKey, origin: { kind: 'edge', signature } },
       )
     },
     [addressOfEdge, currentTrailKey],
@@ -873,8 +878,9 @@ export function Canvas({
   const onEdgeClick = useCallback(
     (_event: unknown, edge: FlowEdge) => {
       const address = addressOfEdge(edge)
-      if (address !== null) {
-        setPinnedAddr({ address, trailKey: currentTrailKey, origin: { kind: 'edge', edgeId: edge.id } })
+      const signature = flowEdgeSignature(edge)
+      if (address !== null && signature !== null) {
+        setPinnedAddr({ address, trailKey: currentTrailKey, origin: { kind: 'edge', signature } })
       }
     },
     [addressOfEdge, currentTrailKey],
@@ -947,25 +953,13 @@ export function Canvas({
         event.stopPropagation()
       }
       const address = addressOfEdge(edge)
-      if (address !== null) {
-        setPinnedAddr({ address, trailKey: currentTrailKey, origin: { kind: 'edge', edgeId: edge.id } })
+      const signature = flowEdgeSignature(edge)
+      if (address !== null && signature !== null) {
+        setPinnedAddr({ address, trailKey: currentTrailKey, origin: { kind: 'edge', signature } })
       }
     },
     [rfEdges, addressOfEdge, currentTrailKey],
   )
-
-  // Lazy GC of trail-stale entries (Fact 9). `effectiveAddress` already prevents a mismatched entry from
-  // rendering, so this post-commit effect is NOT load-bearing for the one-frame guarantee — it only
-  // tidies state after a view change so `pinnedAddr !== null` (which drives the "Esc to release" hint and
-  // the Escape listener's mount) stays honest once the stale entry can no longer apply.
-  useEffect(() => {
-    if (hovered !== null && hovered.trailKey !== currentTrailKey) {
-      setHovered(null)
-    }
-    if (pinnedAddr !== null && pinnedAddr.trailKey !== currentTrailKey) {
-      setPinnedAddr(null)
-    }
-  }, [currentTrailKey, hovered, pinnedAddr])
 
   // Probe loss (D-34): when the run/cursor probe goes away, the readout can't render and no handler is
   // wired — drop any hover/pin so a probe that later returns never resurrects a stale one.
@@ -981,9 +975,10 @@ export function Canvas({
   // document renders nothing from the very commit the DOC changed. Presence derives from the doc
   // (or the tip definition's graph in a component view), NOT from rfNodes/rfEdges: the projection
   // state reseeds in a post-commit effect, so gating on it would leak the stale address for one
-  // commit — the exact effect-timing class the trail gate (Fact 9) exists to prevent. `edgeIdOf`
-  // keeps the id formula single-sourced with `toFlow`. `pinnedAddr !== null` remains the pin STATE
-  // (drives the hint + Escape mount) independent of whether the current entry renders.
+  // commit — the exact effect-timing class the trail gate (Fact 9) exists to prevent. Edges key on
+  // `edgeSignatureOf` (index-free) — never the RF id, whose index suffix shifts on unrelated
+  // deletions. `pinnedAddr !== null` remains the pin STATE (drives the hint + Escape mount)
+  // independent of whether the current entry renders.
   const present: FlowPresence = useMemo(() => {
     const graph =
       readOnly && tipDef !== undefined && tipDef.implementation.kind === 'graph'
@@ -992,10 +987,26 @@ export function Canvas({
           ? { nodes: [], edges: [] }
           : doc
     return {
-      edgeIds: new Set(graph.edges.map((e, i) => edgeIdOf(e, i))),
+      edgeSignatures: new Set(graph.edges.map(edgeSignatureOf)),
       nodeIds: new Set(graph.nodes.map((n) => n.id)),
     }
   }, [doc, readOnly, tipDef])
+
+  // Lazy GC of entries `effectiveAddress` can no longer render — trail-stale (Fact 9) OR origin-dead
+  // (post-#30 review: the deleted-origin axis was missed, leaving a "zombie pin" that presented the
+  // NEXT hover as pinned and silently ate the next Escape). The render gate — not this effect — is
+  // load-bearing for the one-frame guarantee; this only tidies state so `pinnedAddr !== null` (which
+  // drives the "Esc to release" hint and the Escape listener's mount) stays honest, and so a
+  // re-drawn identical connection can never resurrect a pin that visibly died with its edge.
+  useEffect(() => {
+    if (hovered !== null && effectiveAddress(hovered, currentTrailKey, present) === null) {
+      setHovered(null)
+    }
+    if (pinnedAddr !== null && effectiveAddress(pinnedAddr, currentTrailKey, present) === null) {
+      setPinnedAddr(null)
+    }
+  }, [currentTrailKey, present, hovered, pinnedAddr])
+
   const effectiveAddr =
     effectiveAddress(pinnedAddr, currentTrailKey, present) ??
     effectiveAddress(hovered, currentTrailKey, present)

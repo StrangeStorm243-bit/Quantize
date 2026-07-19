@@ -1610,12 +1610,13 @@ breadcrumb first, and the served address is qualified by the component path
 
 **Verification status (honest, per CLAUDE.md).** Full canonical gate green: **pytest 1062 · ruff check
 clean · ruff format · mypy clean · Node-24 · codegen check (artifacts up to date) · root `tsc` + web
-typecheck clean · web 719 tests / 67 files** (history, each delta summing to the next headline:
+typecheck clean · web 726 tests / 67 files** (history, each delta summing to the next headline:
 1054 py/633 web-64 at the closeout PR → +6 py (2026-07-16 review fixes) → +12 web (PR #27) → +2 py
 (PR #28) = 1062/645-64 at the M14.3 base → +67 web/3 files (M14.3 build) → +1 web (empty-set digest)
 → +1 web (L-1 join renderer test) = 1062/714-67 at the M14.3 closeout gate → +5 web (post-merge review fixes: origin-existence
-gating ×2, effectiveAddress origin cases ×2, ExtractDialog Escape-consumption ×1) = **1062/719-67**,
-the post-merge-review gate of 2026-07-19). Beyond the gate, M14 was **driven live in the real
+gating ×2, effectiveAddress origin cases ×2, ExtractDialog Escape-consumption ×1) = 1062/719-67,
+the post-merge-review gate of 2026-07-19 → +7 web (pin-lifecycle fix pass, PR #31: edge signatures ×3,
+pin-survival/GC/resurrection ×3, dataset-picker mount focus ×1) = **1062/726-67**). Beyond the gate, M14 was **driven live in the real
 browser** (Playwright MCP, API + Vite dev servers up) against the ETF Momentum Rotation demo — the
 walkthrough (`docs/reviews/2026-07-15-m14-closeout.md`) records every tap's *observed* Inspector text
 and the `elapsed_ms` server lines, run against a **throwaway copy** of the demo DB (proven isolated by

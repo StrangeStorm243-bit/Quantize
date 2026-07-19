@@ -141,6 +141,16 @@ function AppShell(): ReactElement {
   const [datasetId, setDatasetId] = useState<string | undefined>(initialDatasetId)
   const [datasetMeta, setDatasetMeta] = useState<DatasetStored | undefined>(undefined)
   const [datasetPickerOpen, setDatasetPickerOpen] = useState(false)
+  // Focus the picker dialog on open (post-#30 review): its Escape handler is a React onKeyDown on
+  // the dialog root, which only ever fires while focus is INSIDE the subtree — the opener chip
+  // lives in the StrategyBar, so without this focus the handler was unreachable from the default
+  // flow (Escape left the modal open AND fell through to the Canvas pin-release listener).
+  const datasetPickerRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (datasetPickerOpen) {
+      datasetPickerRef.current?.focus()
+    }
+  }, [datasetPickerOpen])
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
   // The debug-loop cluster (M13.7; extracted to a hook in M13.7.5, ahead of M13.8): the selected run's
   // record, the session cursor over its server dates, the axis/evaluated projections, the single
@@ -797,6 +807,7 @@ function AppShell(): ReactElement {
                   role="dialog"
                   aria-label="choose dataset"
                   tabIndex={-1}
+                  ref={datasetPickerRef}
                   onKeyDown={(e) => {
                     // Escape closes the picker and marks the key CONSUMED (post-merge review F3) —
                     // the Canvas window listener defers to `defaultPrevented`, so dismissing this
