@@ -977,8 +977,9 @@ export function Canvas({
   // state reseeds in a post-commit effect, so gating on it would leak the stale address for one
   // commit — the exact effect-timing class the trail gate (Fact 9) exists to prevent. Edges key on
   // `edgeSignatureOf` (index-free) — never the RF id, whose index suffix shifts on unrelated
-  // deletions. `pinnedAddr !== null` remains the pin STATE (drives the hint + Escape mount)
-  // independent of whether the current entry renders.
+  // deletions. `pinnedAddr !== null` remains the pin STATE (drives the Escape mount + GC trigger)
+  // independent of whether the current entry renders; the pinned LABEL, though, gates on the pin
+  // actually supplying the rendered address (`pinnedEffective`, below) — not on the state.
   const present: FlowPresence = useMemo(() => {
     const graph =
       readOnly && tipDef !== undefined && tipDef.implementation.kind === 'graph'
@@ -996,8 +997,10 @@ export function Canvas({
   // (post-#30 review: the deleted-origin axis was missed, leaving a "zombie pin" that presented the
   // NEXT hover as pinned and silently ate the next Escape). The render gate — not this effect — is
   // load-bearing for the one-frame guarantee; this only tidies state so `pinnedAddr !== null` (which
-  // drives the "Esc to release" hint and the Escape listener's mount) stays honest, and so a
-  // re-drawn identical connection can never resurrect a pin that visibly died with its edge.
+  // still mounts the Escape listener) stays honest, and so a re-drawn identical connection can never
+  // resurrect a pin that visibly died with its edge. The "Esc to release" hint itself is NOT gated on
+  // this effect flushing — it reads `pinnedEffective` (the render-gated pin), so a hover under a
+  // just-orphaned pin is never mislabeled in the commit before the GC runs.
   useEffect(() => {
     if (hovered !== null && effectiveAddress(hovered, currentTrailKey, present) === null) {
       setHovered(null)
@@ -1007,9 +1010,13 @@ export function Canvas({
     }
   }, [currentTrailKey, present, hovered, pinnedAddr])
 
-  const effectiveAddr =
-    effectiveAddress(pinnedAddr, currentTrailKey, present) ??
-    effectiveAddress(hovered, currentTrailKey, present)
+  // Hoist the pin's render-gated result into ONE binding: it drives both the pin-over-hover fallback
+  // AND the `pinned` label (below). `pinnedAddr !== null` is the raw pin STATE (still the hint's Escape
+  // mount + GC trigger), but it can outlive its origin by the one commit before the lazy GC effect
+  // flushes — so labeling on the state would present a concurrent hover on ANOTHER edge as pinned for
+  // that frame. Gating the label on `pinnedEffective` (the pin ACTUALLY supplying the address) closes it.
+  const pinnedEffective = effectiveAddress(pinnedAddr, currentTrailKey, present)
+  const effectiveAddr = pinnedEffective ?? effectiveAddress(hovered, currentTrailKey, present)
 
   // The chrome the node cards consume, memoized on its actual inputs (see the provider note — F4).
   // `onPortHover` is a stable useCallback, so hover-driven Canvas renders reuse this identity.
@@ -1290,14 +1297,15 @@ export function Canvas({
             </Panel>
             {/* The edge-hover value readout (M14.3): a fixed bottom-center Panel (Legend precedent),
                 rendered ONLY with a probe. `effectiveAddr` is the render-gated pin-over-hover address;
-                `pinnedAddr !== null` is the pin state (drives the "Esc to release" hint). FlowReadout
+                `pinnedEffective !== null` is the pinned LABEL — the pin actually supplied the address
+                (not the raw pin state, which can outlive its origin for one pre-GC commit). FlowReadout
                 owns the dwell/fetch/lifetime; the Canvas only supplies probe + address + pinned. */}
             {valueProbe !== undefined ? (
               <Panel position="bottom-center">
                 <FlowReadout
                   probe={valueProbe}
                   address={effectiveAddr}
-                  pinned={pinnedAddr !== null}
+                  pinned={pinnedEffective !== null}
                 />
               </Panel>
             ) : null}

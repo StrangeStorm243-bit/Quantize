@@ -499,6 +499,38 @@ describe('Canvas edge-hover — pin lifecycle across unrelated edits', () => {
     expect(rec.renders.at(-1)?.pinned).toBe(false)
   })
 
+  it('a live hover is never labeled pinned in the commit between a pin origin dying and its GC (review finding 2)', async () => {
+    const doc = twoEdgeDoc()
+    const actions = stubActions()
+    const { rerender } = renderCanvas(<Canvas doc={doc} actions={actions} valueProbe={probe()} />)
+    await edgesSeeded()
+    // Pin the FIRST edge (ret→rank:values), then hover the SECOND (ret2→rank:weights) — the pin still
+    // wins the readout, so `hovered` rides the other edge underneath a live pin.
+    callProp('onEdgeClick', {}, (box.props!.edges as FlowEdge[])[0])
+    callProp('onEdgeMouseEnter', {}, (box.props!.edges as FlowEdge[])[1])
+    expect(rec.renders.at(-1)?.address).toMatchObject({ nodeId: 'ret', outputPort: 'values' })
+    expect(rec.renders.at(-1)?.pinned).toBe(true)
+    const changeIdx = rec.renders.length
+    // Delete the PINNED edge while that hover is live. For the single commit before the GC effect
+    // flushes, `pinnedAddr` is still non-null but origin-dead, so the readout falls back to the live
+    // hover — which must NEVER render with the pinned presentation. `pinned` gates on the pin actually
+    // supplying the rendered address, not on the raw (not-yet-GC'd) pin state.
+    const docWithoutPinned = { ...doc, edges: [doc.edges[1]] }
+    rerender(
+      <CatalogProvider>
+        <Canvas doc={docWithoutPinned} actions={actions} valueProbe={probe()} />
+      </CatalogProvider>,
+    )
+    await act(async () => {})
+    expect(rec.renders.length).toBeGreaterThan(changeIdx)
+    // Every render from the deletion onward that carries the surviving hover's address is UNPINNED.
+    for (const r of rec.renders.slice(changeIdx)) {
+      if (r.address?.nodeId === 'ret2') {
+        expect(r.pinned).toBe(false)
+      }
+    }
+  })
+
   it('re-drawing an identical connection never resurrects a dead pin', async () => {
     const doc = edgeDoc()
     const actions = stubActions()
