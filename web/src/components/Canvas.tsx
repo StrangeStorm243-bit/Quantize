@@ -1011,7 +1011,7 @@ export function Canvas({
   }, [currentTrailKey, present, hovered, pinnedAddr])
 
   // Hoist the pin's render-gated result into ONE binding: it drives both the pin-over-hover fallback
-  // AND the `pinned` label (below). `pinnedAddr !== null` is the raw pin STATE (still the hint's Escape
+  // AND the `pinned` label (below). `pinnedAddr !== null` is the raw pin STATE (still the Escape-listener
   // mount + GC trigger), but it can outlive its origin by the one commit before the lazy GC effect
   // flushes — so labeling on the state would present a concurrent hover on ANOTHER edge as pinned for
   // that frame. Gating the label on `pinnedEffective` (the pin ACTUALLY supplying the address) closes it.

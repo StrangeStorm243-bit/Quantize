@@ -523,7 +523,10 @@ describe('Canvas edge-hover — pin lifecycle across unrelated edits', () => {
     )
     await act(async () => {})
     expect(rec.renders.length).toBeGreaterThan(changeIdx)
-    // Every render from the deletion onward that carries the surviving hover's address is UNPINNED.
+    // The surviving hover MUST actually render post-deletion (guards the loop below against passing
+    // vacuously if a regression ever swallowed the hover fallback in the pre-GC commit) …
+    expect(rec.renders.slice(changeIdx).some((r) => r.address?.nodeId === 'ret2')).toBe(true)
+    // … and every render from the deletion onward that carries its address is UNPINNED.
     for (const r of rec.renders.slice(changeIdx)) {
       if (r.address?.nodeId === 'ret2') {
         expect(r.pinned).toBe(false)
