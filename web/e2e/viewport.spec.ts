@@ -156,8 +156,8 @@ async function stepToNoEval(page: Page): Promise<void> {
   const cursor = page.locator('.sbar__cursor')
   const prev = page.locator('.sbar__cursor-step[aria-label="previous session"]')
   const next = page.locator('.sbar__cursor-step[aria-label="next session"]')
-  for (let i = 0; i < 400 && !(await prev.isDisabled()); i++) await prev.click()
-  for (let i = 0; i < 400; i++) {
+  for (let i = 0; i < 64 && !(await prev.isDisabled()); i++) await prev.click()
+  for (let i = 0; i < 64; i++) {
     if ((await cursor.innerText()).includes('· no evaluation')) return
     if (await next.isDisabled()) break
     await next.click()
@@ -326,7 +326,9 @@ for (const c of COMBOS) {
 
     test('a6 long-name hardening', async ({ page }) => {
       await gotoHome(page, c)
-      const NAME = 'X'.repeat(60)
+      // Uniquely named per combo (playwright.config.ts setup expects distinct names), still 60 chars.
+      const suffix = `-${c.w}x${c.h}-${c.theme}`
+      const NAME = 'X'.repeat(60 - suffix.length) + suffix
       await page.getByLabel('new strategy name').fill(NAME)
       await page.getByRole('button', { name: 'Create' }).click()
       await expect(page.locator('.sbar__name')).toHaveText(NAME)

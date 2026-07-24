@@ -11,5 +11,10 @@ const result = spawnSync('npx', ['playwright', 'test', ...process.argv.slice(2)]
   shell: process.platform === 'win32',
   env: { ...process.env, QUANTIZE_E2E_DB: join(dir, 'e2e.db') },
 })
-rmSync(dir, { recursive: true, force: true })
+if (result.error) console.error('playwright spawn failed:', result.error)
+try {
+  rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+} catch (e) {
+  console.warn(`temp DB cleanup failed (leaked ${dir}):`, e)
+}
 process.exit(result.status ?? 1)
