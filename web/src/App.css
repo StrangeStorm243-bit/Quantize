@@ -486,7 +486,11 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  flex-wrap: wrap;
+  /* M14.4: single-band strip; segments scroll internally instead of consuming a second row of
+     canvas budget. At ≤~820px center width the wrapped variant grew to two rows (78px); nowrap
+     with an internal x-scroll holds one band and reclaims ~30px of canvas at 1280. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
   padding: var(--space-2) var(--space-3);
   background: var(--surface);
   border-bottom: 1px solid var(--border-muted);
@@ -2600,6 +2604,16 @@ button.trace-node__head--clickable:hover .trace-node__id {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+}
+
+/* M14.4/D6: the arrival checklist renders steps inline at laptop heights — 146px → ~64px — so the
+   first-run state keeps a usable canvas; see plan D6. */
+@media (max-height: 820px) {
+  .journey__steps {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+  }
 }
 
 .journey__step {
