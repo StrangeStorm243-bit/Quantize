@@ -1,6 +1,6 @@
 import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 // D2: the generated declarations in ../ts reach the app via the @quantize alias (mirrors the
 // tsconfig path mapping so the runtime/bundler resolver agrees with the type checker).
@@ -21,5 +21,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/setup.ts',
+    // The M14.4 viewport harness under e2e/ is @playwright/test, not vitest — collecting it here
+    // breaks the canonical `npm run test` (and with it the gate's web stage). The harness runs
+    // only via its own opt-in script (`npm run e2e:viewport`).
+    exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 })
