@@ -107,9 +107,17 @@ body {
 .app-region--bottom {
   border-top: 1px solid var(--border);
   background: var(--surface-elevated);
-  max-height: 320px;
+  /* Viewport-share dock (M14.4): a FIXED clamped height, not content-driven, so switching tabs never
+     jumps the canvas. The 30vh share resolves to 216px @720 and hits the 320px cap by ~1080 — the same
+     ceiling the old `max-height` set, now the steady height across the desktop range. Collapsed drops to
+     the tab strip's natural height so the canvas reclaims the rest. */
+  height: clamp(160px, 30vh, 320px);
   display: flex;
   flex-direction: column;
+}
+
+.app-region--bottom.is-collapsed {
+  height: auto;
 }
 
 .placeholder {
@@ -2366,6 +2374,26 @@ button.trace-node__head--clickable:hover .trace-node__id {
   border-color: var(--border);
   color: var(--text);
   font-weight: var(--weight-semibold);
+}
+
+/* Collapse chevron (M14.4): a subtle icon affordance pushed to the FAR end of the tab strip
+   (`margin-left: auto` claims the free row space), muted like a disabled tab so it never competes
+   with the panel tabs for attention. */
+.dock__collapse {
+  margin-left: auto;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.dock__collapse:hover {
+  background: var(--accent-tint-bg);
+  color: var(--text);
 }
 
 .dock__panel {

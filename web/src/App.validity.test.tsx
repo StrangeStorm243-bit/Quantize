@@ -143,6 +143,36 @@ describe('App node-validity across dock navigation (D-7)', () => {
     expect(validCount()).toBe('1')
   })
 
+  it('Validate while the dock is COLLAPSED re-expands on Problems and validates exactly once (M14.4)', async () => {
+    // The strategy-bar Validate lives OUTSIDE the dock, so it is clickable while the dock is collapsed.
+    // Its intent routes through `openDock`, which must un-collapse — otherwise the nonce would bump and
+    // the validation would run behind the tab strip with nothing on screen. And it must still run EXACTLY
+    // once (the StrictMode-safe consume guard is unaffected by the collapse round-trip).
+    const { validateStrategy } = await import('./api/client')
+    const mockValidate = vi.mocked(validateStrategy)
+    mockValidate.mockReset()
+    mockValidate.mockResolvedValue({ ok: true, structural: [], semantic: [], runtime: [], warmup_sessions: 3 })
+
+    render(<App />)
+    fireEvent.click(screen.getByText('home-new'))
+    await flush()
+
+    fireEvent.click(screen.getByText('add-node'))
+
+    // Collapse via the dock chevron — the Problems panel (ValidatePanel) unmounts, so its own Validate
+    // button disappears and only the strategy-bar Validate remains.
+    fireEvent.click(screen.getByRole('button', { name: 'toggle dock' }))
+    expect(screen.getAllByRole('button', { name: 'Validate' })).toHaveLength(1)
+
+    // Click the strategy-bar Validate: the dock re-expands on Problems (panel remounts → two Validate
+    // buttons again), the node badges valid, and exactly one validation request was issued.
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+    await flush()
+    expect(screen.getAllByRole('button', { name: 'Validate' })).toHaveLength(2)
+    expect(validCount()).toBe('1')
+    expect(mockValidate).toHaveBeenCalledTimes(1)
+  })
+
   it('issues exactly one validation for one StrategyBar click under StrictMode (mount-with-nonce)', async () => {
     // The REAL dev entry (main.tsx) wraps <App/> in StrictMode, which double-invokes mount effects.
     // Clicking StrategyBar Validate from the Runs tab (Problems NOT mounted) mounts ValidatePanel WITH a
