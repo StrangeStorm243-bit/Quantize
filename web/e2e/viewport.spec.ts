@@ -192,9 +192,11 @@ async function resolveEdgePoint(
 
   const zoomIn = page.locator('.react-flow__controls-zoomin')
   const clamp = (v: number): number => Math.max(-180, Math.min(180, v))
+  let everSeen = false // did we ever project the edge onto the pane? distinguishes occlusion from absence
   for (let pass = 0; pass < 6; pass++) {
     // (1) Recentre the edge into the clear middle of the pane (bounded step; the loop converges).
     const g = await edgeAndPaneCentre(page, sourcePrefix)
+    everSeen = everSeen || g !== null
     const origin = await emptyPanePoint(page)
     if (g !== null && origin !== null && (Math.abs(g.cx - g.ex) > 4 || Math.abs(g.cy - g.ey) > 4)) {
       await page.mouse.move(origin.x, origin.y)
@@ -215,7 +217,14 @@ async function resolveEdgePoint(
       if (pt !== null) return pt
     }
   }
-  expect(pt, `no hit-testable point on edge ${sourcePrefix} after pan/zoom`).not.toBeNull()
+  expect(
+    pt,
+    `no hit-testable point on edge ${sourcePrefix} after pan/zoom (${
+      everSeen
+        ? 'edge present but occluded — chrome-collision regression?'
+        : 'edge never located — projection/seed regression?'
+    })`,
+  ).not.toBeNull()
   if (pt === null) throw new Error(`unreachable: edge ${sourcePrefix} not found`)
   return pt
 }

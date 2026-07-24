@@ -486,7 +486,7 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  /* M14.4: single-band strip; segments scroll internally instead of consuming a second row of
+  /* M14.4 (D3): single-band strip; segments scroll internally instead of consuming a second row of
      canvas budget. At ≤~820px center width the wrapped variant grew to two rows (78px); nowrap
      with an internal x-scroll holds one band and reclaims ~30px of canvas at 1280. */
   flex-wrap: nowrap;
@@ -2230,7 +2230,7 @@ button.trace-node__head--clickable:hover .trace-node__id {
 
 /* --- IDE shell: strategy bar (M13.3) ---------------------------------------------------------- */
 
-/* M14.4/RC-5: a long strategy name or dataset chip compresses with ellipsis instead of forcing
+/* M14.4 (RC-5): a long strategy name or dataset chip compresses with ellipsis instead of forcing
    document horizontal scroll; the verbs and session cursor never shrink. `min-width: 0` on the flex
    container lets its shrinkable children collapse below their content width. */
 .sbar {
@@ -2638,7 +2638,7 @@ button.trace-node__head--clickable:hover .trace-node__id {
   gap: var(--space-1);
 }
 
-/* M14.4/D6: the arrival checklist renders steps inline at laptop heights — 146px → ~64px — so the
+/* M14.4 (D6): the arrival checklist renders steps inline at laptop heights — 146px → ~64px — so the
    first-run state keeps a usable canvas; see plan D6. The journey's own vertical footprint is also
    tightened here (margin/padding/head-gap trimmed to smaller tokens) to clear the ≥260px RF floor at
    1280×720 without hiding any checklist content — the steps stay readable and the dismiss stays put. */
