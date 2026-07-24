@@ -144,7 +144,7 @@ strategy. **M14.3** put the same values on the canvas itself: hover (or keyboard
 node card's output port and a flow readout shows the served value summary crossing that connection
 at the session cursor — including component-internal edges via the breadcrumb trail — dwell-gated
 and deliberately uncached (every readout is a fresh recompute). The latest gate is green with
-**1062 Python tests** (`pytest`) and **726 web tests across 67 files** (`vitest`), on Python
+**1062 Python tests** (`pytest`) and **734 web tests across 68 files** (`vitest`), on Python
 3.13/3.14 and Windows/Linux, with byte-stable golden and backtest↔forward consistency coverage.
 
 For the full milestone breakdown (M1 IR + structural validation through the M13 IDE reorientation),
@@ -203,7 +203,10 @@ python -m quantize.codegen generate    # regenerate JSON Schema + TS types (need
 python -m quantize.codegen check       # verify committed artifacts are current
 ```
 
-Web (Node 24 active): `npm --prefix web run typecheck` and `npm --prefix web run test`.
+Web (Node 24 active): `npm --prefix web run typecheck` and `npm --prefix web run test`. An opt-in
+Playwright desktop-viewport regression harness (M14.4) runs separately via `npm --prefix web run
+e2e:viewport` — it owns its own scratch DB and servers and is deliberately **not** wired into the
+canonical gate or CI.
 
 **Full gate (canonical, run before claiming a slice done):** `./scripts/gate.ps1` (PowerShell) or
 `bash scripts/gate.sh` (POSIX) — pytest, `ruff check`, `ruff format --check`, `mypy`, Node-24
