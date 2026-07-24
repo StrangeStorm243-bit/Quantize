@@ -1070,6 +1070,24 @@ button.crumbs__item:hover {
   color: var(--text-muted);
 }
 
+/* M14.4 (RC-3): the At-session facts reuse the TraceView row CSS, which assumes the wide dock.
+   Inside the 260px sidebar the rows wrap and long mono identifiers break instead of forcing an
+   internal horizontal scrollbar (measured 319px content in a 244px client box). The `.inspector`
+   scope is load-bearing: the dock's TraceView must keep its current single-line row layout. */
+.inspector .trace-event__row {
+  flex-wrap: wrap;
+}
+.inspector .trace-event__cell--key {
+  min-width: 0;
+}
+.inspector .trace-event__cell {
+  overflow-wrap: anywhere;
+}
+.inspector__typeid,
+.inspector__value-provenance code {
+  overflow-wrap: anywhere;
+}
+
 /* The output-port selector — only when the node exposes more than one output. */
 .inspector__port-select {
   margin-bottom: var(--space-1);
