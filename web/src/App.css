@@ -2702,3 +2702,20 @@ button.trace-node__head--clickable:hover .trace-node__id {
   font-size: var(--text-2xs);
   color: var(--text-faint);
 }
+
+/* M14.4 (D4): overlay fit at narrow desktop — the minimap and readout shrink before they collide.
+   The OR arm covers 1440×900 (readout at 34rem would clip the minimap by ~27px there). Positions
+   are unchanged; only sizes adapt, so no overlay semantics move. */
+@media (max-width: 1500px), (max-height: 830px) {
+  .react-flow__minimap {
+    width: 148px;
+    height: 111px;
+  }
+  .react-flow__minimap svg {
+    width: 100%;
+    height: 100%;
+  }
+  .flow-readout {
+    max-width: 22rem;
+  }
+}
