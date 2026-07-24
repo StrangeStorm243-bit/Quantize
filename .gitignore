@@ -12,6 +12,10 @@ dist/
 # Node (M1.3+)
 node_modules/
 
+# Playwright viewport harness artifacts (M14.4; opt-in suite, regenerable)
+web/test-results/
+web/playwright-report/
+
 # Local databases (seed/demo/runtime — regenerable, never committed)
 *.db
 

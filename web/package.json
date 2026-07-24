@@ -11,6 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
+    "e2e:viewport": "node e2e/run.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
