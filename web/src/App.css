@@ -2639,8 +2639,17 @@ button.trace-node__head--clickable:hover .trace-node__id {
 }
 
 /* M14.4/D6: the arrival checklist renders steps inline at laptop heights — 146px → ~64px — so the
-   first-run state keeps a usable canvas; see plan D6. */
+   first-run state keeps a usable canvas; see plan D6. The journey's own vertical footprint is also
+   tightened here (margin/padding/head-gap trimmed to smaller tokens) to clear the ≥260px RF floor at
+   1280×720 without hiding any checklist content — the steps stay readable and the dismiss stays put. */
 @media (max-height: 820px) {
+  .journey {
+    padding: var(--space-2) var(--space-4);
+    margin: var(--space-1) var(--space-3);
+  }
+  .journey__head {
+    margin-bottom: var(--space-1);
+  }
   .journey__steps {
     flex-direction: row;
     flex-wrap: wrap;
