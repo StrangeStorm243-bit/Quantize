@@ -51,10 +51,10 @@ describe('Dock', () => {
     const { rerender } = render(
       <Dock tab="problems" onTab={vi.fn()} panels={panels()} collapsed={false} onToggleCollapse={vi.fn()} />,
     )
-    // Open → the panel is showing, so the chevron reports the dock as expanded.
-    expect(screen.getByRole('button', { name: 'toggle dock' })).toHaveAttribute('aria-expanded', 'true')
+    // Open → the panel is showing: the chevron reports expanded and offers the COLLAPSE action.
+    expect(screen.getByRole('button', { name: 'collapse dock' })).toHaveAttribute('aria-expanded', 'true')
     rerender(<Dock tab="problems" onTab={vi.fn()} panels={panels()} collapsed onToggleCollapse={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'toggle dock' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'expand dock' })).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('calls onToggleCollapse when the chevron is clicked', () => {
@@ -62,7 +62,7 @@ describe('Dock', () => {
     render(
       <Dock tab="problems" onTab={vi.fn()} panels={panels()} collapsed={false} onToggleCollapse={onToggleCollapse} />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'toggle dock' }))
+    fireEvent.click(screen.getByRole('button', { name: 'collapse dock' }))
     expect(onToggleCollapse).toHaveBeenCalledTimes(1)
   })
 

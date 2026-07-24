@@ -111,10 +111,18 @@ async function findEdgePoint(
 // Find a viewport-coordinate point that hit-tests to some node. At the smaller viewports fitView
 // zooms the graph so nodes crowd together and RF chrome covers node centres; sampling a small grid
 // per node and checking the topmost element finds a point that actually belongs to a node (so a real
-// mouse click selects it). Returns null when no node is reachable.
-async function findNodePoint(page: Page): Promise<{ x: number; y: number } | null> {
-  return await page.evaluate(() => {
-    const nodes = Array.from(document.querySelectorAll('.react-flow__node'))
+// mouse click selects it). Nodes matching `preferSelector` are tried FIRST — a5 wants the ComponentRef
+// card, whose At-session facts (flattened child events, long mono ids) are the measured worst case for
+// inspector width; DOM-order "whichever node" could silently swap to a narrow-content node on a future
+// projection reorder and weaken the assertion. Returns null when no node is reachable.
+async function findNodePoint(
+  page: Page,
+  preferSelector?: string,
+): Promise<{ x: number; y: number } | null> {
+  return await page.evaluate((prefer) => {
+    const all = Array.from(document.querySelectorAll('.react-flow__node'))
+    const preferred = prefer === undefined ? [] : all.filter((n) => n.querySelector(prefer) !== null)
+    const nodes = [...preferred, ...all.filter((n) => !preferred.includes(n))]
     const fs = [0.5, 0.4, 0.6, 0.3, 0.7]
     for (const node of nodes) {
       const r = node.getBoundingClientRect()
@@ -129,7 +137,7 @@ async function findNodePoint(page: Page): Promise<{ x: number; y: number } | nul
       }
     }
     return null
-  })
+  }, preferSelector)
 }
 
 // Find a point on the RF pane whose topmost element is the pane itself (no node/edge/chrome on top) —
@@ -433,15 +441,22 @@ for (const c of COMBOS) {
       await gotoHome(page, c)
       await openRunState(page)
       await dismissJourney(page)
-      // Select a node at the evaluated session → the Inspector renders its At-session facts. Any
-      // evaluated node exercises the same fixed-width Inspector, so click whichever node is reachable
-      // (a naive `.click()` on a specific node retries to the test timeout when RF chrome covers its
-      // centre at the smaller viewports; the hit-tested point + real mouse click avoids that).
-      const nodePt = await findNodePoint(page)
+      // Select the ComponentRef card at the evaluated session — its At-session facts (flattened child
+      // events with long mono ids) are the measured worst case for Inspector width (RC-3's 319px came
+      // from exactly this node), so the overflow assertion below is exercised against real wide content,
+      // not whichever narrow node happens to sit first in DOM order. (Hit-tested point + real mouse
+      // click: a naive `.click()` retries to the test timeout when RF chrome covers the node centre.)
+      const nodePt = await findNodePoint(page, '.snode--component')
       expect(nodePt, 'a hit-testable node at this viewport').not.toBeNull()
       const np = nodePt as { x: number; y: number }
       await page.mouse.click(np.x, np.y)
       await expect(page.locator('.react-flow__node.selected')).toHaveCount(1)
+      // The measurement is meaningful only if the At-session facts actually rendered — an empty
+      // inspector would pass the overflow check vacuously.
+      await expect(
+        page.locator('.app-region--right .trace-event__row').first(),
+        'inspector At-session rows rendered (non-vacuous width measurement)',
+      ).toBeVisible()
       const m = await page
         .locator('.app-region--right')
         .evaluate((el) => ({ s: el.scrollWidth, c: el.clientWidth }))

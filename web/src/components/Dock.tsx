@@ -49,11 +49,13 @@ export function Dock({ tab, onTab, panels, collapsed, onToggleCollapse }: DockPr
           </button>
         ))}
         {/* Collapse chevron, anchored at the END of the tab strip. `aria-expanded` describes the dock
-            body (open = panel visible), so it reads true when NOT collapsed. */}
+            body (open = panel visible), so it reads true when NOT collapsed; the label names the ACTION
+            the click performs, so a screen reader hears "collapse dock" while open, "expand dock" while
+            collapsed — not a state-blind "toggle". */}
         <button
           type="button"
           className="dock__collapse"
-          aria-label="toggle dock"
+          aria-label={collapsed ? 'expand dock' : 'collapse dock'}
           aria-expanded={!collapsed}
           onClick={onToggleCollapse}
         >

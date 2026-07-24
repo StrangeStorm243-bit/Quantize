@@ -2231,8 +2231,9 @@ button.trace-node__head--clickable:hover .trace-node__id {
 /* --- IDE shell: strategy bar (M13.3) ---------------------------------------------------------- */
 
 /* M14.4 (RC-5): a long strategy name or dataset chip compresses with ellipsis instead of forcing
-   document horizontal scroll; the verbs and session cursor never shrink. `min-width: 0` on the flex
-   container lets its shrinkable children collapse below their content width. */
+   document horizontal scroll. The children's OWN `min-width: 0` is what lets each shrink below its
+   content width (the container's is defensive); the verbs and cursor hold their width in practice
+   because the name/chip absorb all the shrink first — they carry no flex-shrink: 0 guarantee. */
 .sbar {
   display: flex;
   align-items: center;

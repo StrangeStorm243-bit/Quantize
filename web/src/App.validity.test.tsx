@@ -161,7 +161,7 @@ describe('App node-validity across dock navigation (D-7)', () => {
 
     // Collapse via the dock chevron — the Problems panel (ValidatePanel) unmounts, so its own Validate
     // button disappears and only the strategy-bar Validate remains.
-    fireEvent.click(screen.getByRole('button', { name: 'toggle dock' }))
+    fireEvent.click(screen.getByRole('button', { name: 'collapse dock' }))
     expect(screen.getAllByRole('button', { name: 'Validate' })).toHaveLength(1)
 
     // Click the strategy-bar Validate: the dock re-expands on Problems (panel remounts → two Validate
