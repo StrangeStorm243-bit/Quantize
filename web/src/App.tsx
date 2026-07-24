@@ -138,6 +138,10 @@ function AppShell(): ReactElement {
   }
   const [highlightedEdgeIndex, setHighlightedEdgeIndex] = useState<number | null>(null)
   const [dockTab, setDockTab] = useState<DockTab>('problems')
+  // Dock collapse (M14.4): a viewport-fit affordance — collapsing the dock to its tab strip returns
+  // the vertical share to the canvas. Collapse happens ONLY via the chevron; expand via chevron, a
+  // collapsed-tab click (in Dock), or any dock-opening intent (see `openDock`). No auto-collapse.
+  const [dockCollapsed, setDockCollapsed] = useState(false)
   const [datasetId, setDatasetId] = useState<string | undefined>(initialDatasetId)
   const [datasetMeta, setDatasetMeta] = useState<DatasetStored | undefined>(undefined)
   const [datasetPickerOpen, setDatasetPickerOpen] = useState(false)
@@ -355,8 +359,17 @@ function AppShell(): ReactElement {
     }
   }
 
+  // Open the dock on a tab (M14.4). Every dock-OPENING intent must route through this, never a bare
+  // setDockTab: a collapsed dock left collapsed would run the intent INVISIBLY behind the tab strip —
+  // worst case a Validate whose nonce increments and validates with nothing on screen to show for it.
+  // So opening a tab always un-collapses in the same commit.
+  const openDock = (tab: DockTab): void => {
+    setDockTab(tab)
+    setDockCollapsed(false)
+  }
+
   const handleValidate = (): void => {
-    setDockTab('problems')
+    openDock('problems')
     setValidateNonce((n) => n + 1)
   }
   // Consumption is App-owned via a SYNCHRONOUS guard (M13.4). The nonce is monotonic; this ref records
@@ -373,10 +386,10 @@ function AppShell(): ReactElement {
     consumedNonceRef.current = nonce
     return true
   }, [])
-  const handleRun = (): void => setDockTab('runs')
+  const handleRun = (): void => openDock('runs')
   // The stage strip's Engine chip links the canvas toward the run outputs (PX-2). With a run selected,
   // Results is enabled → open it; otherwise fall back to Runs (never activate a disabled Results/Trace).
-  const handleEngine = (): void => setDockTab(selectedRunId !== undefined ? 'results' : 'runs')
+  const handleEngine = (): void => openDock(selectedRunId !== undefined ? 'results' : 'runs')
   const handleHome = (): void => {
     setShellError(undefined) // a shell error is contextual to the current document; drop it on nav
     setView('home')
@@ -384,7 +397,7 @@ function AppShell(): ReactElement {
 
   const onSelectRun = (runId: string): void => {
     setSelectedRunId(runId)
-    setDockTab('results')
+    openDock('results')
   }
 
   // Results→Trace click-through (M13.7): the chart / an evaluation or fill row selects a session, which
@@ -392,7 +405,7 @@ function AppShell(): ReactElement {
   const onSelectSession = (date: string): void => {
     // `date` is a server field (a valuations/evaluation/fill session date), so the cursor contract holds.
     setSessionCursor(date)
-    setDockTab('trace')
+    openDock('trace')
   }
 
   // --- Extraction orchestration (unchanged from M12) -------------------------------------------
@@ -856,8 +869,17 @@ function AppShell(): ReactElement {
             </aside>
           </main>
 
-          <footer className="app-region app-region--bottom" aria-label="dock">
-            <Dock tab={dockTab} onTab={(id) => setDockTab(id as DockTab)} panels={dockPanels} />
+          <footer
+            className={`app-region app-region--bottom ${dockCollapsed ? 'is-collapsed' : ''}`}
+            aria-label="dock"
+          >
+            <Dock
+              tab={dockTab}
+              onTab={(id) => setDockTab(id as DockTab)}
+              panels={dockPanels}
+              collapsed={dockCollapsed}
+              onToggleCollapse={() => setDockCollapsed((v) => !v)}
+            />
           </footer>
         </>
       )}

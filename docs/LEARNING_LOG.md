@@ -1610,13 +1610,15 @@ breadcrumb first, and the served address is qualified by the component path
 
 **Verification status (honest, per CLAUDE.md).** Full canonical gate green: **pytest 1062 · ruff check
 clean · ruff format · mypy clean · Node-24 · codegen check (artifacts up to date) · root `tsc` + web
-typecheck clean · web 726 tests / 67 files** (history, each delta summing to the next headline:
+typecheck clean · web 734 tests / 68 files** (history, each delta summing to the next headline:
 1054 py/633 web-64 at the closeout PR → +6 py (2026-07-16 review fixes) → +12 web (PR #27) → +2 py
 (PR #28) = 1062/645-64 at the M14.3 base → +67 web/3 files (M14.3 build) → +1 web (empty-set digest)
 → +1 web (L-1 join renderer test) = 1062/714-67 at the M14.3 closeout gate → +5 web (post-merge review fixes: origin-existence
 gating ×2, effectiveAddress origin cases ×2, ExtractDialog Escape-consumption ×1) = 1062/719-67,
 the post-merge-review gate of 2026-07-19 → +7 web (pin-lifecycle fix pass, PR #31: edge signatures ×3,
-pin-survival/GC/resurrection ×3, dataset-picker mount focus ×1) = **1062/726-67**). Beyond the gate, M14 was **driven live in the real
+pin-survival/GC/resurrection ×3, dataset-picker mount focus ×1) = 1062/726-67 at the M14.3 closeout gate → +1 web
+(2026-07-24 baseline re-measure — the running tally had drifted one low) → +7 web/1 file (M14.4 viewport-fit, PR-in-prep:
+dock collapse/clamp + intent-routing jsdom tests, new `App.dockCollapse.test.tsx`) = **1062/734-68**). Beyond the gate, M14 was **driven live in the real
 browser** (Playwright MCP, API + Vite dev servers up) against the ETF Momentum Rotation demo — the
 walkthrough (`docs/reviews/2026-07-15-m14-closeout.md`) records every tap's *observed* Inspector text
 and the `elapsed_ms` server lines, run against a **throwaway copy** of the demo DB (proven isolated by
@@ -1702,3 +1704,88 @@ the async catalog before firing hover (a gate-under-load race; standalone runs n
 behind its written trigger: capture-at-run, value-over-time, batch/caching, engine-boundary values.
 §13 external validation remains the recommended next step — the readout strengthens the demo
 testers will walk.
+
+## M14.4 — Desktop viewport fit (the layout stability pass) (2026-07-24)
+
+Context: the IDE was built and reviewed at one large window; measured live at 1280×720 / 1366×768 /
+1440×900, the vertical budget collapsed the React Flow canvas (as little as 40px tall with the
+arrival checklist up), fixed-size overlays (minimap, legend, readout) collided with each other, and
+the 260px inspector forced an internal horizontal scrollbar. Because §13 external validation would
+have been run *on* those broken viewports, the founder opened FD-9 as a single bounded pre-§13
+exception (superseding FD-8's L-3 deferral) to fit and stabilize the four target desktop sizes —
+**no** redesign, no typography change, no new navigation, one new `dockCollapsed` boolean, and two
+new opt-in dev dependencies, both e2e-harness-scoped: `@playwright/test 1.61.1` (FD-9 directive) and
+`@types/node 24.13.3` (founder-ratified post-review, 2026-07-25 — Node built-ins confined to
+`tsconfig.e2e.json`, app/test configs keep browser-safe ambient types). Plan:
+`docs/plans/2026-07-24-m14.4-desktop-viewport-fit.md`.
+
+**Concepts introduced:**
+
+- **`min-width: 0` and CSS min-content sizing — why a flex/grid child refuses to shrink.** A flex
+  item's default `min-width` is `auto`, which resolves to its *min-content* size (roughly its widest
+  unbreakable atom), so a child never shrinks below its content even inside a fixed-width parent —
+  the overflow escapes as a scrollbar. Two symptoms here traced to the same rule: the 260px inspector
+  showed an internal h-scroll because the At-session facts reuse TraceView's row CSS (`min-content
+  300px`, a `6rem` min-width key cell) sized for the wide dock; the strategy bar would document-scroll
+  on a long name because `.sbar__name`/`.sbar__chip` had no shrink protection. The fix is the classic
+  pair — `min-width: 0` on the shrinkable children (+ `overflow-wrap: anywhere` for unbreakable mono
+  identifiers, `text-overflow: ellipsis` for the labels). The `.inspector` *scope* is load-bearing:
+  the same rows in the wide dock must keep their single-line layout, so the override is scoped, not
+  global. *Where:* `web/src/App.css` (`.inspector .trace-event__row/__cell`, `.sbar*`).
+- **Viewport-relative `clamp()` for a self-limiting band.** The dock was content-driven up to a fixed
+  320px cap — on a 720px viewport that is 44% of the height with no floor and no collapse. Replacing
+  `max-height: 320px` with `height: clamp(160px, 30vh, 320px)` makes the band a fixed fraction of the
+  viewport that never drops below a usable 160px nor exceeds the old cap (216px @720 → 320px @1080),
+  and — being a fixed height, not a max — it no longer jumps when you switch tabs. A user-controlled
+  collapse toggle (one boolean, `is-collapsed { height: auto }`) reclaims the rest. *Where:*
+  `App.css` `.app-region--bottom`; `App.tsx` `dockCollapsed` + the single `openDock(tab)` helper.
+- **Cascade specificity vs. presentation attributes — why the minimap needed a media query, not a
+  prop.** Overlays collide before they move: below 1500px width the minimap and readout had to shrink.
+  Author CSS (any selector) beats an element's *presentation attributes* (`<svg width=…>`) in the
+  cascade, so `.react-flow__minimap { width: 148px }` inside `@media (max-width: 1500px), (max-height:
+  830px)` wins over React Flow's default sizing without touching the component — CSS-only, positions
+  unchanged, only sizes adapt. The comma in the media query is an OR: the `max-height: 830px` arm is
+  what catches 1440×**900** (wide but short-budgeted). The plan kept a `<MiniMap style={…}>` fallback
+  ready in case RF ignored the CSS; it did not, so Canvas.tsx stayed untouched. *Where:* `App.css`
+  M14.4 (D4) media block.
+- **Playwright project dependencies + `webServer` isolation — a hermetic e2e harness that never
+  touches the gate.** The harness proves the layout claims in a real Chromium at all four viewports,
+  but must not contaminate the canonical `npm run test` (jsdom) or the gate. Three isolation seams:
+  (1) a `run.mjs` wrapper owns a scratch temp DB and passes its path via `QUANTIZE_E2E_DB` — the
+  Playwright config is evaluated multiple times and has no `TestInfo`, so it only *reads* that env
+  var and throws loudly if unset; (2) two `webServer` entries (uvicorn on 8123 with the scratch DB,
+  Vite on 5199 `--strictPort`) each with explicit `cwd`/readiness `url`/`reuseExistingServer: false`,
+  and the Vite `/v1` proxy target made env-overridable (`QUANTIZE_E2E_API_PROXY`, default 8000
+  unchanged for dev) so the browser hits the scratch backend, not a developer's; (3) a **project
+  dependency** — a `setup` project builds the world (seed + component fixtures + the one run through
+  the real UI) exactly once and the `viewport` project `dependencies: ['setup']` reads it, so run
+  creation has a single owner and the spec carries no run IDs or machine-local paths. Vitest's
+  `test.exclude` gains `e2e/**` so the Playwright spec is never collected by the unit run (Task 1
+  briefly broke collection without it). *Where:* `web/e2e/run.mjs`, `web/playwright.config.ts`,
+  `web/e2e/setup.setup.ts`, `web/e2e/viewport.spec.ts`, `web/vite.config.ts`.
+
+**Reading path:** `web/src/App.tsx` (`dockCollapsed` state + `openDock` routing the five intent
+sites) → `web/src/components/Dock.tsx` (the collapse chevron, `aria-expanded`, tab-click-while-
+collapsed re-expands) → `web/src/App.css` M14.4 blocks (D3 stage strip nowrap, D4 overlay media
+query, D6 journey compaction, RC-3 inspector, RC-5 sbar, the dock clamp) → `web/e2e/viewport.spec.ts`
+(the ten assertion families, incl. the D6 journey-visible floor and the `resolveEdgePoint` pan/zoom
+pin helper).
+
+**Hand exercise (predict, then verify):** open the IDE, resize the browser to ~1300×720, run the
+demo, and — before dismissing the arrival checklist — predict the React Flow pane height (D6 floors
+it at ≥260px). Then collapse the dock via the chevron and predict again (≥450px). Small code change:
+in `App.css`, change the dock's `clamp(160px, 30vh, 320px)` middle term to `26vh` and predict which
+viewport's canvas-minimum assertion (`a2`/`a3`) it most affects before running `npm --prefix web run
+e2e:viewport` to check.
+
+**Honest verification:** full canonical gate green (2026-07-24) — **pytest 1062 · ruff check · ruff
+format · mypy · Node-24 · codegen check · root `tsc` + web typecheck · web 734 tests / 68 files**.
+Separately, the opt-in harness is green at **52/52** across the four viewports in dark (full matrix)
+and light (smoke at the extremes), re-run after the review-minor spec edit. A live walkthrough
+(`docs/reviews/2026-07-24-m14.4-viewport-walkthrough.md`) re-walks the primary workflow at
+1280×720 and 1366×768, both themes. The harness is deliberately **not** wired into the gate or CI.
+
+**Status:** M14.4 shipped as a bounded pre-§13 presentation-only pass. Deliberately deferred, seams
+preserved: extraction-toolbar fold-in, side-panel collapse, chrome-over-graph avoidance (inherent to
+a pannable canvas), and the React Flow minimap's light-in-dark theming (pre-existing, out of scope).
+§13 external validation is now unblocked and remains the next step.

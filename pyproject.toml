@@ -27,7 +27,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "ruff>=0.6",
+    # Upper-bounded to the lock's minor: the py3.13 CI leg installs this extra UNPINNED, and a ruff
+    # beyond 0.15 started format-checking Python code blocks inside Markdown — flagging docs the
+    # canonical 0.15.20 (requirements.lock.txt) accepts, so CI diverged from every local gate. Bump
+    # the bound together with the lock.
+    "ruff>=0.6,<0.16",
     "mypy>=1.11",
     # M9: FastAPI's TestClient (starlette) requires httpx as its in-process transport.
     "httpx>=0.27",

@@ -107,9 +107,17 @@ body {
 .app-region--bottom {
   border-top: 1px solid var(--border);
   background: var(--surface-elevated);
-  max-height: 320px;
+  /* Viewport-share dock (M14.4): a FIXED clamped height, not content-driven, so switching tabs never
+     jumps the canvas. The 30vh share resolves to 216px @720 and hits the 320px cap by ~1080 — the same
+     ceiling the old `max-height` set, now the steady height across the desktop range. Collapsed drops to
+     the tab strip's natural height so the canvas reclaims the rest. */
+  height: clamp(160px, 30vh, 320px);
   display: flex;
   flex-direction: column;
+}
+
+.app-region--bottom.is-collapsed {
+  height: auto;
 }
 
 .placeholder {
@@ -478,7 +486,11 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  flex-wrap: wrap;
+  /* M14.4 (D3): single-band strip; segments scroll internally instead of consuming a second row of
+     canvas budget. At ≤~820px center width the wrapped variant grew to two rows (78px); nowrap
+     with an internal x-scroll holds one band and reclaims ~30px of canvas at 1280. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
   padding: var(--space-2) var(--space-3);
   background: var(--surface);
   border-bottom: 1px solid var(--border-muted);
@@ -1056,6 +1068,24 @@ button.crumbs__item:hover {
 .inspector__value-provenance code {
   font-family: var(--font-mono);
   color: var(--text-muted);
+}
+
+/* M14.4 (RC-3): the At-session facts reuse the TraceView row CSS, which assumes the wide dock.
+   Inside the 260px sidebar the rows wrap and long mono identifiers break instead of forcing an
+   internal horizontal scrollbar (measured 319px content in a 244px client box). The `.inspector`
+   scope is load-bearing: the dock's TraceView must keep its current single-line row layout. */
+.inspector .trace-event__row {
+  flex-wrap: wrap;
+}
+.inspector .trace-event__cell--key {
+  min-width: 0;
+}
+.inspector .trace-event__cell {
+  overflow-wrap: anywhere;
+}
+.inspector__typeid,
+.inspector__value-provenance code {
+  overflow-wrap: anywhere;
 }
 
 /* The output-port selector — only when the node exposes more than one output. */
@@ -2200,10 +2230,15 @@ button.trace-node__head--clickable:hover .trace-node__id {
 
 /* --- IDE shell: strategy bar (M13.3) ---------------------------------------------------------- */
 
+/* M14.4 (RC-5): a long strategy name or dataset chip compresses with ellipsis instead of forcing
+   document horizontal scroll. The children's OWN `min-width: 0` is what lets each shrink below its
+   content width (the container's is defensive); the verbs and cursor hold their width in practice
+   because the name/chip absorb all the shrink first — they carry no flex-shrink: 0 guarantee. */
 .sbar {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  min-width: 0;
   padding: var(--space-2) var(--space-4);
   background: var(--surface-elevated);
   border-bottom: 1px solid var(--border);
@@ -2227,6 +2262,11 @@ button.trace-node__head--clickable:hover .trace-node__id {
 .sbar__name {
   font-weight: var(--weight-semibold);
   color: var(--text);
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sbar__version {
@@ -2255,6 +2295,11 @@ button.trace-node__head--clickable:hover .trace-node__id {
 
 .sbar__chip {
   margin-left: auto;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--surface);
@@ -2366,6 +2411,26 @@ button.trace-node__head--clickable:hover .trace-node__id {
   border-color: var(--border);
   color: var(--text);
   font-weight: var(--weight-semibold);
+}
+
+/* Collapse chevron (M14.4): a subtle icon affordance pushed to the FAR end of the tab strip
+   (`margin-left: auto` claims the free row space), muted like a disabled tab so it never competes
+   with the panel tabs for attention. */
+.dock__collapse {
+  margin-left: auto;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.dock__collapse:hover {
+  background: var(--accent-tint-bg);
+  color: var(--text);
 }
 
 .dock__panel {
@@ -2574,6 +2639,25 @@ button.trace-node__head--clickable:hover .trace-node__id {
   gap: var(--space-1);
 }
 
+/* M14.4 (D6): the arrival checklist renders steps inline at laptop heights — 146px → ~64px — so the
+   first-run state keeps a usable canvas; see plan D6. The journey's own vertical footprint is also
+   tightened here (margin/padding/head-gap trimmed to smaller tokens) to clear the ≥260px RF floor at
+   1280×720 without hiding any checklist content — the steps stay readable and the dismiss stays put. */
+@media (max-height: 820px) {
+  .journey {
+    padding: var(--space-2) var(--space-4);
+    margin: var(--space-1) var(--space-3);
+  }
+  .journey__head {
+    margin-bottom: var(--space-1);
+  }
+  .journey__steps {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+  }
+}
+
 .journey__step {
   display: flex;
   align-items: center;
@@ -2659,4 +2743,21 @@ button.trace-node__head--clickable:hover .trace-node__id {
   margin-top: var(--space-1);
   font-size: var(--text-2xs);
   color: var(--text-faint);
+}
+
+/* M14.4 (D4): overlay fit at narrow desktop — the minimap and readout shrink before they collide.
+   The OR arm covers 1440×900 (readout at 34rem would clip the minimap by ~27px there). Positions
+   are unchanged; only sizes adapt, so no overlay semantics move. */
+@media (max-width: 1500px), (max-height: 830px) {
+  .react-flow__minimap {
+    width: 148px;
+    height: 111px;
+  }
+  .react-flow__minimap svg {
+    width: 100%;
+    height: 100%;
+  }
+  .flow-readout {
+    max-width: 22rem;
+  }
 }
