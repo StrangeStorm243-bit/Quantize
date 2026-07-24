@@ -1713,8 +1713,11 @@ arrival checklist up), fixed-size overlays (minimap, legend, readout) collided w
 the 260px inspector forced an internal horizontal scrollbar. Because §13 external validation would
 have been run *on* those broken viewports, the founder opened FD-9 as a single bounded pre-§13
 exception (superseding FD-8's L-3 deferral) to fit and stabilize the four target desktop sizes —
-**no** redesign, no typography change, no new navigation, one new `dockCollapsed` boolean, and one
-new opt-in dev dependency (`@playwright/test`). Plan: `docs/plans/2026-07-24-m14.4-desktop-viewport-fit.md`.
+**no** redesign, no typography change, no new navigation, one new `dockCollapsed` boolean, and two
+new opt-in dev dependencies, both e2e-harness-scoped: `@playwright/test 1.61.1` (FD-9 directive) and
+`@types/node 24.13.3` (founder-ratified post-review, 2026-07-25 — Node built-ins confined to
+`tsconfig.e2e.json`, app/test configs keep browser-safe ambient types). Plan:
+`docs/plans/2026-07-24-m14.4-desktop-viewport-fit.md`.
 
 **Concepts introduced:**
 
