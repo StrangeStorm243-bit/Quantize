@@ -132,10 +132,96 @@ async function findNodePoint(page: Page): Promise<{ x: number; y: number } | nul
   })
 }
 
+// Find a point on the RF pane whose topmost element is the pane itself (no node/edge/chrome on top) —
+// a safe origin for a pan drag (a left-drag on empty pane pans the canvas; selectionKeyCode is Shift).
+async function emptyPanePoint(page: Page): Promise<{ x: number; y: number } | null> {
+  return await page.evaluate(() => {
+    const pane = document.querySelector('.react-flow__pane')
+    if (pane === null) return null
+    const r = pane.getBoundingClientRect()
+    for (let fy = 0.2; fy <= 0.8; fy += 0.15) {
+      for (let fx = 0.2; fx <= 0.8; fx += 0.15) {
+        const x = r.left + r.width * fx
+        const y = r.top + r.height * fy
+        if (document.elementFromPoint(x, y) === pane) return { x, y }
+      }
+    }
+    return null
+  })
+}
+
+// Screen-space midpoint of the wanted edge plus the pane's centre — used to compute a pan that drags
+// the edge into the clear middle of the pane, away from the corner/edge-docked chrome.
+async function edgeAndPaneCentre(
+  page: Page,
+  prefix: string,
+): Promise<{ ex: number; ey: number; cx: number; cy: number } | null> {
+  return await page.evaluate((prefix) => {
+    const pane = document.querySelector('.react-flow__pane')
+    if (pane === null) return null
+    const pr = pane.getBoundingClientRect()
+    for (const edge of Array.from(document.querySelectorAll('.react-flow__edge.sedge'))) {
+      const id = edge.getAttribute('data-id') ?? ''
+      if (!id.startsWith(prefix)) continue
+      const path = edge.querySelector('path.react-flow__edge-path') as SVGPathElement | null
+      if (path === null) continue
+      const total = path.getTotalLength()
+      const ctm = path.getScreenCTM()
+      if (ctm === null || total === 0) continue
+      const mid = path.getPointAtLength(total / 2).matrixTransform(ctm)
+      return { ex: mid.x, ey: mid.y, cx: pr.left + pr.width / 2, cy: pr.top + pr.height / 2 }
+    }
+    return null
+  }, prefix)
+}
+
+// Resolve a hit-testable point on the wanted edge, panning/zooming the canvas like a real user would
+// when it starts crowded, off-pane, or tucked under the bottom chrome. At the smaller viewports fitView
+// leaves the graph at min zoom with the final targets edge sitting under the bottom-right minimap (and
+// short/crowded against its neighbours), so a naive path sample finds no clear point. Bring the SAME
+// edge into the clear: (1) drag it toward the pane centre — clear of the corner/edge-docked minimap,
+// controls and legend; (2) if still crowded by neighbouring edges, zoom IN one step (centred, so the
+// now-centred edge stays put) to lengthen and separate it; repeat, bounded. Never substitutes a
+// different edge, moves the chrome, or relaxes hit-testing.
+async function resolveEdgePoint(
+  page: Page,
+  sourcePrefix: string,
+): Promise<{ x: number; y: number }> {
+  let pt = await findEdgePoint(page, sourcePrefix)
+  if (pt !== null) return pt
+
+  const zoomIn = page.locator('.react-flow__controls-zoomin')
+  const clamp = (v: number): number => Math.max(-180, Math.min(180, v))
+  for (let pass = 0; pass < 6; pass++) {
+    // (1) Recentre the edge into the clear middle of the pane (bounded step; the loop converges).
+    const g = await edgeAndPaneCentre(page, sourcePrefix)
+    const origin = await emptyPanePoint(page)
+    if (g !== null && origin !== null && (Math.abs(g.cx - g.ex) > 4 || Math.abs(g.cy - g.ey) > 4)) {
+      await page.mouse.move(origin.x, origin.y)
+      await page.mouse.down()
+      await page.mouse.move(origin.x + clamp(g.cx - g.ex), origin.y + clamp(g.cy - g.ey), {
+        steps: 10,
+      })
+      await page.mouse.up()
+      await page.waitForTimeout(60) // let RF settle the viewport transform before re-sampling
+      pt = await findEdgePoint(page, sourcePrefix)
+      if (pt !== null) return pt
+    }
+    // (2) Still crowded → zoom in one step (centred on the now-centred edge) to separate it.
+    if ((await zoomIn.count()) > 0 && !(await zoomIn.isDisabled())) {
+      await zoomIn.click()
+      await page.waitForTimeout(90)
+      pt = await findEdgePoint(page, sourcePrefix)
+      if (pt !== null) return pt
+    }
+  }
+  expect(pt, `no hit-testable point on edge ${sourcePrefix} after pan/zoom`).not.toBeNull()
+  if (pt === null) throw new Error(`unreachable: edge ${sourcePrefix} not found`)
+  return pt
+}
+
 async function hoverEdge(page: Page, sourcePrefix: string): Promise<{ x: number; y: number }> {
-  const pt = await findEdgePoint(page, sourcePrefix)
-  expect(pt, `no hit-testable point on edge ${sourcePrefix}`).not.toBeNull()
-  const point = pt as { x: number; y: number }
+  const point = await resolveEdgePoint(page, sourcePrefix)
   await page.mouse.move(point.x, point.y)
   await page.waitForTimeout(DWELL_WAIT_MS)
   await expect(page.locator('.flow-readout')).toBeVisible()
