@@ -281,18 +281,34 @@ function insideViewport(box: Box, c: Combo): boolean {
   )
 }
 
-const OVERLAY_SELECTORS = [
-  '.flow-readout',
+// The chrome overlays whose pairwise disjointness a4 asserts, split by whether they are always on the
+// canvas or only conditionally present. The minimap, legend, and controls are ALWAYS docked while the
+// canvas is up — asserted present + visible + box-measurable whenever the helper runs (a regression
+// that dropped one must FAIL here, never silently shrink the pair set to a vacuous pass). The readout
+// is CONDITIONAL: it exists only while hovering/pinned, so it joins the pairing when present and drops
+// out when legitimately absent.
+const REQUIRED_OVERLAY_SELECTORS = [
   '.react-flow__minimap',
   '.legend',
   '.react-flow__controls',
 ] as const
 
-// Soft-assert pairwise no-intersection among the on-canvas chrome overlays PRESENT in the DOM (an
-// absent readout simply drops out of the pairing). `state` labels which readout scenario this is.
+const CONDITIONAL_OVERLAY_SELECTORS = ['.flow-readout'] as const
+
+// Soft-assert pairwise no-intersection among the on-canvas chrome overlays. Required chrome is FIRST
+// hard-asserted present + visible with a non-null box (naming the missing element), so a dropped
+// minimap/legend/controls fails loud instead of yielding a smaller pair set that passes vacuously;
+// conditional chrome joins the pairing only when actually present. `state` labels the readout scenario.
 async function assertOverlaysDisjoint(page: Page, state: string): Promise<void> {
   const present: { sel: string; box: Box }[] = []
-  for (const sel of OVERLAY_SELECTORS) {
+  for (const sel of REQUIRED_OVERLAY_SELECTORS) {
+    const loc = page.locator(sel).first()
+    await expect(loc, `[${state}] required overlay ${sel} present+visible`).toBeVisible()
+    const box = await loc.boundingBox()
+    expect(box, `[${state}] required overlay ${sel} has a bounding box`).not.toBeNull()
+    present.push({ sel, box: box as Box })
+  }
+  for (const sel of CONDITIONAL_OVERLAY_SELECTORS) {
     const loc = page.locator(sel).first()
     if ((await loc.count()) > 0) {
       const box = await loc.boundingBox()
@@ -387,8 +403,21 @@ for (const c of COMBOS) {
       // (a) TimeSeries edge hover.
       await hoverEdge(page, EDGE_TIMESERIES)
       await assertOverlaysDisjoint(page, 'timeseries-hover')
-      // (b) Widest content: pin the final targets edge.
+      // (b) Widest content: pin the final targets edge. Before measuring disjointness, assert the
+      // readout actually identifies the targets source — else a regression that pinned the wrong edge
+      // or rendered an empty readout would exercise disjointness vacuously. The head renders
+      // `${sourceLabel} · out ${output_port}`; the pinned edge's served port is `targets`, and a
+      // PortfolioTargets digest carries the structural `weights` label. Both are stable, non-numeric
+      // content (no served figures asserted — see FlowReadout.tsx `flowDigest`).
       await pinEdge(page, EDGE_TARGETS)
+      await expect(
+        page.locator('.flow-readout--pinned .flow-readout__head'),
+        'pinned readout head names the targets output port',
+      ).toContainText('out targets')
+      await expect(
+        page.locator('.flow-readout--pinned .flow-readout__digest'),
+        'pinned readout digest is a PortfolioTargets summary',
+      ).toContainText('weights')
       await assertOverlaysDisjoint(page, 'targets-pinned')
       // (c) No-evaluation message: release the pin, step to a no-eval session, hover the same edge.
       await page.keyboard.press('Escape')
@@ -434,43 +463,50 @@ for (const c of COMBOS) {
       for (const name of ['Validate', 'Run', 'Save'] as const) {
         // Scope to `.sbar`: a Validate button also lives in the Problems dock panel (the default tab
         // for a freshly created strategy), which would otherwise make the role locator ambiguous.
-        const box = await page.locator('.sbar').getByRole('button', { name, exact: true }).boundingBox()
-        expect.soft(box, `${name} button has a box`).not.toBeNull()
-        if (box !== null) {
-          expect.soft(insideViewport(box, c), `${name} button inside viewport`).toBe(true)
-        }
+        // Each verb is unconditionally present in the strategy bar — hard-assert present + boxed
+        // BEFORE the (soft) inside-viewport measurement, so a missing button fails by its name.
+        const btn = page.locator('.sbar').getByRole('button', { name, exact: true })
+        await expect(btn, `${name} button present+visible`).toBeVisible()
+        const box = await btn.boundingBox()
+        expect(box, `${name} button has a box`).not.toBeNull()
+        expect.soft(insideViewport(box as Box, c), `${name} button inside viewport`).toBe(true)
       }
-      const cursor = await page.locator('.sbar__cursor').boundingBox()
-      if (cursor !== null) {
-        expect.soft(insideViewport(cursor, c), 'sbar cursor inside viewport').toBe(true)
-      }
+      // `.sbar__cursor` always renders (an em-dash without a run) — hard-assert present + boxed first.
+      const cursorLoc = page.locator('.sbar__cursor')
+      await expect(cursorLoc, 'sbar cursor present+visible').toBeVisible()
+      const cursor = await cursorLoc.boundingBox()
+      expect(cursor, 'sbar cursor has a box').not.toBeNull()
+      expect.soft(insideViewport(cursor as Box, c), 'sbar cursor inside viewport').toBe(true)
     })
 
     test('a7 key controls visible', async ({ page }) => {
       await gotoHome(page, c)
       await openRunState(page)
       await dismissJourney(page)
-      const save = await page.locator('.sbar').getByRole('button', { name: 'Save', exact: true }).boundingBox()
-      if (save !== null) {
-        expect.soft(insideViewport(save, c), 'Save button inside viewport').toBe(true)
-      }
+      // The Save verb is unconditionally present in the run-selected state — hard-assert present +
+      // boxed before the (soft) inside-viewport measurement, so a missing control fails by name.
+      const saveBtn = page.locator('.sbar').getByRole('button', { name: 'Save', exact: true })
+      await expect(saveBtn, 'Save button present+visible').toBeVisible()
+      const save = await saveBtn.boundingBox()
+      expect(save, 'Save button has a box').not.toBeNull()
+      expect.soft(insideViewport(save as Box, c), 'Save button inside viewport').toBe(true)
       const steppers = page.locator('.sbar__cursor-step')
       const count = await steppers.count()
       expect.soft(count, 'both cursor steppers present').toBe(2)
       for (let i = 0; i < count; i++) {
+        await expect(steppers.nth(i), `cursor stepper ${i} present+visible`).toBeVisible()
         const box = await steppers.nth(i).boundingBox()
-        if (box !== null) {
-          expect.soft(insideViewport(box, c), `cursor stepper ${i} inside viewport`).toBe(true)
-        }
+        expect(box, `cursor stepper ${i} has a box`).not.toBeNull()
+        expect.soft(insideViewport(box as Box, c), `cursor stepper ${i} inside viewport`).toBe(true)
       }
       const tabs = page.locator('.dock__tab')
       const tabCount = await tabs.count()
       expect.soft(tabCount, 'all four dock tabs present').toBe(4)
       for (let i = 0; i < tabCount; i++) {
+        await expect(tabs.nth(i), `dock tab ${i} present+visible`).toBeVisible()
         const box = await tabs.nth(i).boundingBox()
-        if (box !== null) {
-          expect.soft(insideViewport(box, c), `dock tab ${i} inside viewport`).toBe(true)
-        }
+        expect(box, `dock tab ${i} has a box`).not.toBeNull()
+        expect.soft(insideViewport(box as Box, c), `dock tab ${i} inside viewport`).toBe(true)
       }
     })
 
